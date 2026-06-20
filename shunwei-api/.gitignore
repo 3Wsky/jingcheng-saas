@@ -1,0 +1,8 @@
+node_modules/
+data/
+.env
+*.log
+artifacts/
+*.tar.gz
+coverage/
+.DS_Store

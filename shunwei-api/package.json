@@ -1,0 +1,28 @@
+{
+  "name": "shunwei-api",
+  "version": "1.0.0",
+  "description": "Shunwei mini-program sidecar backend service",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js",
+    "start:prod": "node src/server.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:reload": "pm2 reload shunwei-api --update-env",
+    "health": "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 8787) + '/health').then(r => r.text()).then(console.log)\"",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@fastify/cors": "^11.2.0",
+    "@fastify/multipart": "^10.0.0",
+    "@fastify/static": "^9.1.3",
+    "fastify": "^5.8.5",
+    "mysql2": "^3.22.4",
+    "nanoid": "^5.1.11",
+    "zod": "^4.4.3"
+  }
+}

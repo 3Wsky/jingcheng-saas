@@ -1,0 +1,117 @@
+name: Deploy Shunwei API
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: shunwei-api-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check src/server.js
+          node --check src/modules/newcomer-lottery/newcomer-lottery.service.js
+          node --check src/modules/newcomer-lottery/newcomer-lottery.routes.js
+          node --check src/modules/admin/admin.routes.js
+          node --check src/modules/admin/admin.page.js
+
+      - name: Run tests
+        run: npm test
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.SERVER_PORT || 22 }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Package application
+        shell: bash
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='data' \
+            --exclude='.env' \
+            --exclude='*.log' \
+            -czf shunwei-api.tar.gz .
+
+      - name: Upload package
+        shell: bash
+        run: |
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT || 22 }}" \
+            shunwei-api.tar.gz \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/shunwei-api.tar.gz"
+
+      - name: Deploy on server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT || 22 }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "SERVER_PATH='${{ secrets.SERVER_PATH }}' bash -s" <<'EOF'
+          set -euo pipefail
+
+          if [ -z "${SERVER_PATH:-}" ]; then
+            echo "SERVER_PATH secret is required"
+            exit 1
+          fi
+
+          case "$SERVER_PATH" in
+            */shunwei-api|*/shunwei-api/) ;;
+            *)
+              echo "SERVER_PATH must end with shunwei-api"
+              exit 1
+              ;;
+          esac
+
+          mkdir -p "$SERVER_PATH"
+          find "$SERVER_PATH" -mindepth 1 -maxdepth 1 \
+            ! -name '.env' \
+            ! -name 'data' \
+            -exec rm -rf -- {} +
+          tar -xzf /tmp/shunwei-api.tar.gz -C "$SERVER_PATH"
+          cd "$SERVER_PATH"
+
+          if [ ! -f .env ]; then
+            echo "Missing production .env in $SERVER_PATH"
+            echo "Create it from .env.example before deploying."
+            exit 1
+          fi
+
+          npm ci --omit=dev
+
+          if command -v pm2 >/dev/null 2>&1; then
+            pm2 describe shunwei-api >/dev/null 2>&1 \
+              && pm2 reload shunwei-api --update-env \
+              || pm2 start ecosystem.config.cjs --env production
+            pm2 save
+          else
+            echo "pm2 is not installed on server"
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:8787/health >/dev/null
+          EOF

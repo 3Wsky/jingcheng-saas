@@ -1,0 +1,219 @@
+<template>
+  <PageShell title="商家管理">
+    <template #tabs>
+      <el-tabs v-model="activeTab">
+        <el-tab-pane label="商家列表" name="list" />
+        <el-tab-pane label="开通商家" name="create" />
+      </el-tabs>
+    </template>
+
+    <template v-if="activeTab === 'create'" #toolbar>
+      <el-button type="primary" @click="handleCreate" :loading="creating">创建商家</el-button>
+    </template>
+
+    <template v-if="activeTab === 'list'">
+      <el-table :data="list" v-loading="loading">
+        <template #empty>
+          <el-empty description="暂无商家">
+            <el-button type="primary" @click="activeTab = 'create'">开通商家</el-button>
+          </el-empty>
+        </template>
+        <el-table-column prop="id" label="ID" width="70" />
+        <el-table-column prop="merchantName" label="名称" />
+        <el-table-column prop="category" label="类目" width="100" />
+        <el-table-column prop="contactPhone" label="电话" width="120" />
+        <el-table-column label="待结算" width="100">
+          <template #default="{ row }">
+            <el-link type="primary" :underline="false" @click="goSettlement(row)">
+              ¥{{ row.pendingSettlement }}
+            </el-link>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="160" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="danger" @click="deactivate(row)">停用</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </template>
+
+    <el-form v-else :model="createForm" label-width="120px" style="max-width:500px">
+      <el-form-item label="商家名称"><el-input v-model="createForm.merchantName" /></el-form-item>
+      <el-form-item label="类目"><el-input v-model="createForm.category" /></el-form-item>
+      <el-form-item label="联系人"><el-input v-model="createForm.contactName" /></el-form-item>
+      <el-form-item label="联系电话"><el-input v-model="createForm.contactPhone" /></el-form-item>
+      <el-form-item label="绑定UID"><el-input-number v-model="createForm.loginUid" :min="1" /></el-form-item>
+      <el-form-item label="核销权限"><el-switch v-model="createForm.canVerify" /></el-form-item>
+    </el-form>
+  </PageShell>
+
+  <el-drawer v-model="editOpen" title="商家详情" size="640px">
+    <el-tabs v-model="editTab">
+      <el-tab-pane label="门店资料" name="base">
+        <el-form :model="editForm" label-width="100px">
+          <el-divider content-position="left">基础信息</el-divider>
+          <el-form-item label="名称"><el-input v-model="editForm.merchantName" /></el-form-item>
+          <el-form-item label="类目"><el-input v-model="editForm.category" /></el-form-item>
+          <el-form-item label="联系人"><el-input v-model="editForm.contactName" /></el-form-item>
+          <el-form-item label="电话"><el-input v-model="editForm.contactPhone" /></el-form-item>
+          <el-form-item label="绑定UID"><el-input-number v-model="editForm.loginUid" :min="1" disabled /></el-form-item>
+
+          <el-divider content-position="left">门店资料</el-divider>
+          <el-form-item label="省"><el-input v-model="editForm.province" placeholder="如：广东省" /></el-form-item>
+          <el-form-item label="市"><el-input v-model="editForm.city" placeholder="如：深圳市" /></el-form-item>
+          <el-form-item label="区"><el-input v-model="editForm.district" placeholder="如：南山区" /></el-form-item>
+          <el-form-item label="详细地址"><el-input v-model="editForm.storeAddress" type="textarea" :rows="2" /></el-form-item>
+          <el-form-item label="经纬度">
+            <el-input-number v-model="editForm.latitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" />
+            <span class="coord-sep">,</span>
+            <el-input-number v-model="editForm.longitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" />
+          </el-form-item>
+          <el-form-item label="门头图">
+            <ImageListInput v-model="storeImages" :max="6" />
+          </el-form-item>
+          <el-form-item label="营业时间"><el-input v-model="editForm.businessHours" placeholder="09:00-21:00" /></el-form-item>
+
+          <el-divider content-position="left">权限与结算</el-divider>
+          <el-form-item label="核销权限"><el-switch v-model="editForm.canVerify" /></el-form-item>
+          <el-form-item label="结算备注"><el-input v-model="editForm.settlementNote" type="textarea" :rows="2" /></el-form-item>
+          <el-form-item label="待结算">¥{{ editForm.pendingSettlement ?? 0 }}</el-form-item>
+
+          <el-button type="primary" @click="saveMerchant">保存</el-button>
+        </el-form>
+      </el-tab-pane>
+      <el-tab-pane label="核销记录" name="logs">
+        <el-table :data="verifyLogs" size="small">
+          <el-table-column prop="customerUid" label="客户" width="80" />
+          <el-table-column prop="amount" label="金额" width="80" />
+          <el-table-column prop="createdAt" label="时间" :formatter="fmtTime" />
+        </el-table>
+      </el-tab-pane>
+    </el-tabs>
+  </el-drawer>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import request from '@/utils/request'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import PageShell from '@/components/PageShell.vue'
+import ImageListInput from '@/components/ImageListInput.vue'
+
+const router = useRouter()
+const activeTab = ref('list')
+const loading = ref(false)
+const list = ref<any[]>([])
+const creating = ref(false)
+const createForm = ref({ merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true })
+const editOpen = ref(false)
+const editTab = ref('base')
+const editForm = ref<any>({})
+const storeImages = ref<string[]>([''])
+const verifyLogs = ref<any[]>([])
+const canVerifyOriginal = ref(true)
+
+onMounted(() => loadList())
+
+async function loadList() {
+  loading.value = true
+  try {
+    const data = await request.get('/api/admin/merchant/list')
+    list.value = data?.list || []
+  } catch { list.value = [] }
+  finally { loading.value = false }
+}
+
+async function handleCreate() {
+  creating.value = true
+  try {
+    await request.post('/api/admin/merchant/create', createForm.value)
+    ElMessage.success('创建成功')
+    activeTab.value = 'list'
+    loadList()
+  } catch { /* handled */ }
+  finally { creating.value = false }
+}
+
+async function openEdit(row: any) {
+  editOpen.value = true
+  editTab.value = 'base'
+  try {
+    editForm.value = await request.get(`/api/admin/merchant/${row.id}`)
+  } catch {
+    editForm.value = { ...row }
+  }
+  storeImages.value = editForm.value.storeImages?.length ? [...editForm.value.storeImages] : ['']
+  canVerifyOriginal.value = Boolean(editForm.value.canVerify)
+  const logs = await request.get(`/api/admin/merchant/${row.id}/verify-logs`).catch(() => ({ list: [] }))
+  verifyLogs.value = logs?.list || []
+}
+
+async function saveMerchant() {
+  if (canVerifyOriginal.value && editForm.value.canVerify === false) {
+    try {
+      const { value } = await ElMessageBox.prompt(
+        '关闭核销权限为危险操作，请输入「确认撤销」以继续',
+        '确认关闭核销',
+        {
+          confirmButtonText: '确认',
+          cancelButtonText: '取消',
+          inputPattern: /^确认撤销$/,
+          inputErrorMessage: '请输入「确认撤销」'
+        }
+      )
+      if (value !== '确认撤销') return
+    } catch {
+      editForm.value.canVerify = true
+      return
+    }
+  }
+  try {
+    const payload = {
+      ...editForm.value,
+      storeImages: storeImages.value.filter(Boolean)
+    }
+    await request.put(`/api/admin/merchant/${editForm.value.id}`, payload)
+    ElMessage.success('已保存')
+    editOpen.value = false
+    loadList()
+  } catch { /* handled */ }
+}
+
+function goSettlement(row: any) {
+  router.push({
+    path: '/finance-settlement',
+    query: { merchantId: String(row.id), merchantName: row.merchantName || '' }
+  })
+}
+
+async function deactivate(row: any) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `停用商家「${row.merchantName}」后不可核销，请输入「确认撤销」以继续`,
+      '停用商家',
+      {
+        confirmButtonText: '确认停用',
+        cancelButtonText: '取消',
+        inputPattern: /^确认撤销$/,
+        inputErrorMessage: '请输入「确认撤销」'
+      }
+    )
+    if (value !== '确认撤销') return
+    await request.patch(`/api/admin/merchant/${row.id}/deactivate`)
+    ElMessage.success('商家已停用')
+    loadList()
+  } catch {
+    /* cancel or error */
+  }
+}
+
+function fmtTime(_r: any, _c: any, val: number) {
+  return val ? new Date(val * 1000).toLocaleString('zh-CN') : '—'
+}
+</script>
+
+<style scoped>
+.coord-sep { margin: 0 8px; color: #9CA3AF; }
+</style>

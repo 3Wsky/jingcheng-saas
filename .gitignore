@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-upload.zip
+.DS_Store
+*.log
+.env
+.env.local
+.env.*.local
+shunwei-api/data/

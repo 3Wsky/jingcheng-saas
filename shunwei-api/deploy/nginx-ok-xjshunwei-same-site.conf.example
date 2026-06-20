@@ -1,0 +1,36 @@
+# Same-site deployment for ok.xjshunwei.cn (CRMEB unchanged)
+# Append these blocks INSIDE the existing server {} for ok.xjshunwei.cn
+# Place AFTER #REWRITE-END and BEFORE static asset regex locations.
+#
+# Directory layout (sibling to CRMEB):
+#   /www/wwwroot/our/crmeb/              ← existing CRMEB (do not modify)
+#   /www/wwwroot/our/shunwei-api/        ← Node sidecar (PM2 :8787)
+#   /www/wwwroot/our/fzlsaas-admin/dist/ ← FZLSaas admin SPA build output
+
+# shunwei-api sidecar — all routes under /sw-api/
+# Mini-program + fzlsaas-admin use base URL https://ok.xjshunwei.cn/sw-api
+location /sw-api/ {
+    proxy_pass http://127.0.0.1:8787/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    client_max_body_size 20m;
+}
+
+# FZLSaas admin SPA (Hash router, built with base=/fzlsaas/)
+location /fzlsaas/ {
+    alias /www/wwwroot/our/fzlsaas-admin/dist/;
+    index index.html;
+    try_files $uri $uri/ /fzlsaas/index.html;
+}
+
+location = /fzlsaas {
+    return 301 /fzlsaas/;
+}
+
+# Verification:
+#   curl https://ok.xjshunwei.cn/sw-api/health
+#   curl -I https://ok.xjshunwei.cn/fzlsaas/assets/index-*.js
+#   Browser: https://ok.xjshunwei.cn/fzlsaas/  (login page, no white screen)

@@ -1,0 +1,151 @@
+name: Deploy jingcheng-saas
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: jingcheng-saas-production
+  cancel-in-progress: true
+
+jobs:
+  deploy-admin:
+    name: Deploy FZLSaas Admin
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: fzlsaas-admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: fzlsaas-admin/package-lock.json
+
+      - run: npm ci
+      - run: npm run build
+        env:
+          VITE_API_BASE: /sw-api
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.SERVER_PORT || 22 }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload admin dist
+        shell: bash
+        run: |
+          tar -czf /tmp/admin-dist.tar.gz -C fzlsaas-admin/dist .
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT || 22 }}" \
+            /tmp/admin-dist.tar.gz \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/jingcheng-admin-dist.tar.gz"
+
+      - name: Deploy admin on server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT || 22 }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "ADMIN_PATH='${{ secrets.ADMIN_DEPLOY_PATH }}' bash -s" <<'EOF'
+          set -euo pipefail
+          ADMIN_PATH="${ADMIN_PATH:-/www/wwwroot/our/fzlsaas-admin/dist}"
+          mkdir -p "$ADMIN_PATH"
+          BACKUP="/tmp/jingcheng-admin-backup-$(date +%Y%m%d%H%M%S)"
+          cp -a "$ADMIN_PATH" "$BACKUP" 2>/dev/null || true
+          find "$ADMIN_PATH" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          tar -xzf /tmp/jingcheng-admin-dist.tar.gz -C "$ADMIN_PATH"
+          chown -R www:www "$ADMIN_PATH" 2>/dev/null || true
+          rm -f /tmp/jingcheng-admin-dist.tar.gz
+          echo "Admin deployed to $ADMIN_PATH"
+          EOF
+
+  deploy-api:
+    name: Deploy shunwei-api
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    defaults:
+      run:
+        working-directory: shunwei-api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: shunwei-api/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.SERVER_PORT || 22 }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Package API
+        run: |
+          tar --exclude='.git' --exclude='node_modules' --exclude='data' --exclude='.env' --exclude='*.log' \
+            -czf /tmp/shunwei-api.tar.gz -C shunwei-api .
+
+      - name: Upload API package
+        shell: bash
+        run: |
+          scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT || 22 }}" \
+            /tmp/shunwei-api.tar.gz \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/tmp/jingcheng-shunwei-api.tar.gz"
+
+      - name: Deploy API on server
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT || 22 }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "API_PATH='${{ secrets.API_DEPLOY_PATH }}' bash -s" <<'EOF'
+          set -euo pipefail
+          API_PATH="${API_PATH:-/www/wwwroot/our/shunwei-api}"
+          mkdir -p "$API_PATH"
+          find "$API_PATH" -mindepth 1 -maxdepth 1 \
+            ! -name '.env' ! -name 'data' -exec rm -rf {} +
+          tar -xzf /tmp/jingcheng-shunwei-api.tar.gz -C "$API_PATH"
+          cd "$API_PATH"
+          if [ ! -f .env ]; then
+            echo "Missing .env in $API_PATH — create from .env.example on server first"
+            exit 1
+          fi
+          npm ci --omit=dev
+          if command -v pm2 >/dev/null 2>&1; then
+            pm2 describe shunwei-api >/dev/null 2>&1 \
+              && pm2 reload shunwei-api --update-env \
+              || pm2 start ecosystem.config.cjs --env production
+            pm2 save
+          else
+            echo "pm2 not installed"
+            exit 1
+          fi
+          curl -fsS http://127.0.0.1:8787/health >/dev/null
+          rm -f /tmp/jingcheng-shunwei-api.tar.gz
+          echo "API deployed to $API_PATH"
+          EOF
+
+  verify:
+    name: Verify production
+    needs: [deploy-admin, deploy-api]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          curl -fsS https://ok.xjshunwei.cn/sw-api/health
+          curl -fsSI https://ok.xjshunwei.cn/fzlsaas/ | head -n 1

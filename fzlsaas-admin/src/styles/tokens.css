@@ -1,0 +1,40 @@
+/* 锦程数码 Admin · 轻奢会员风 Design Tokens（与小程序 v4 对齐） */
+
+:root {
+  /* 深色基调 */
+  --sw-dark: #1a1f36;
+  --sw-dark-mid: #2d3561;
+  --sw-bg-dark-gradient: linear-gradient(135deg, #1a1f36 0%, #2d3561 100%);
+
+  /* 品牌金 */
+  --sw-gold: #c9a227;
+  --sw-gold-light: #d4af37;
+  --sw-gold-pale: #f5e6a3;
+  --sw-gold-dark: #8b6914;
+  --sw-gold-soft: #fbf6e8;
+
+  /* 页面背景 */
+  --sw-bg-page: #f5f3f0;
+  --sw-bg-card: #ffffff;
+  --sw-border: rgba(0, 0, 0, 0.06);
+
+  /* 圆角 */
+  --sw-radius: 8px;
+  --sw-radius-card: 12px;
+
+  /* 顶栏（深色） */
+  --crmeb-topbar: var(--sw-dark);
+  --crmeb-topbar-dark: var(--sw-dark-mid);
+  --crmeb-topbar-gradient: var(--sw-bg-dark-gradient);
+
+  /* Element Plus 主色 → 品牌金 */
+  --el-color-primary: var(--sw-gold);
+  --el-color-primary-light-3: #d4b84a;
+  --el-color-primary-light-5: #dfc96d;
+  --el-color-primary-light-7: #ead990;
+  --el-color-primary-light-9: var(--sw-gold-soft);
+  --el-color-primary-dark-2: var(--sw-gold-dark);
+
+  --el-border-radius-base: var(--sw-radius);
+  --el-border-radius-small: 6px;
+}
