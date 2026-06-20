@@ -44,6 +44,7 @@ jobs:
 
       - name: Upload admin dist
         shell: bash
+        working-directory: .
         run: |
           tar -czf /tmp/admin-dist.tar.gz -C fzlsaas-admin/dist .
           scp -i ~/.ssh/deploy_key -P "${{ secrets.SERVER_PORT || 22 }}" \
@@ -100,7 +101,7 @@ jobs:
       - name: Package API
         run: |
           tar --exclude='.git' --exclude='node_modules' --exclude='data' --exclude='.env' --exclude='*.log' \
-            -czf /tmp/shunwei-api.tar.gz -C shunwei-api .
+            -czf /tmp/shunwei-api.tar.gz -C . .
 
       - name: Upload API package
         shell: bash
