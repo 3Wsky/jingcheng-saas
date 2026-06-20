@@ -137,6 +137,10 @@ jobs:
             echo "pm2 not installed"
             exit 1
           fi
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            curl -fsS http://127.0.0.1:8787/health >/dev/null && break
+            sleep 2
+          done
           curl -fsS http://127.0.0.1:8787/health >/dev/null
           rm -f /tmp/jingcheng-shunwei-api.tar.gz
           echo "API deployed to $API_PATH"
