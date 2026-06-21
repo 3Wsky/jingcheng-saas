@@ -5,9 +5,18 @@
         <el-form-item label="搜索">
           <el-input v-model="keyword" placeholder="UID/手机/昵称" clearable style="width:200px" />
         </el-form-item>
+        <el-form-item label="门店ID">
+          <el-input-number v-model="divisionId" :min="0" controls-position="right" style="width:120px" />
+        </el-form-item>
+        <el-form-item label="店长">
+          <el-select v-model="managerFilter" clearable placeholder="全部" style="width:100px">
+            <el-option label="是" value="yes" />
+            <el-option label="否" value="no" />
+          </el-select>
+        </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="search">查询</el-button>
-          <el-button @click="keyword = ''; search()">重置</el-button>
+          <el-button @click="resetFilters">重置</el-button>
         </el-form-item>
       </el-form>
     </template>
@@ -25,6 +34,13 @@
       <el-table-column prop="divisionName" label="门店" />
       <el-table-column prop="memberCount" label="发展会员" width="100" />
       <el-table-column prop="pendingApproval" label="待审批" width="90" />
+      <el-table-column prop="approvedCount" label="已通过" width="90" />
+      <el-table-column label="店长" width="72" align="center">
+        <template #default="{ row }">
+          <el-tag v-if="row.isManager" type="warning" size="small">店长</el-tag>
+          <span v-else class="text-muted">—</span>
+        </template>
+      </el-table-column>
       <el-table-column label="名片" width="90">
         <template #default="{ row }">
           <el-tag :type="row.cardConfigured ? 'success' : 'info'" size="small">
@@ -44,7 +60,7 @@
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
-        :total="list.length"
+        :total="filteredList.length"
         :page-sizes="[20, 50]"
         layout="total, sizes, prev, pager, next"
         @size-change="onSizeChange"
@@ -68,14 +84,23 @@ const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const keyword = ref('')
+const divisionId = ref<number | undefined>()
+const managerFilter = ref<'yes' | 'no' | ''>('')
 const page = ref(1)
 const pageSize = ref(20)
 const drawerOpen = ref(false)
 const selectedUid = ref<number | null>(null)
 
+const filteredList = computed(() => {
+  let rows = list.value
+  if (managerFilter.value === 'yes') rows = rows.filter(r => r.isManager)
+  else if (managerFilter.value === 'no') rows = rows.filter(r => !r.isManager)
+  return rows
+})
+
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
-  return list.value.slice(start, start + pageSize.value)
+  return filteredList.value.slice(start, start + pageSize.value)
 })
 
 onMounted(() => loadList())
@@ -84,11 +109,22 @@ async function loadList() {
   loading.value = true
   try {
     const data = await request.get('/api/admin/staff/list', {
-      params: { keyword: keyword.value || undefined, pageSize: 500 }
+      params: {
+        keyword: keyword.value || undefined,
+        divisionId: divisionId.value || undefined,
+        pageSize: 500,
+      },
     })
     list.value = data?.list || []
   } catch { list.value = [] }
   finally { loading.value = false }
+}
+
+function resetFilters() {
+  keyword.value = ''
+  divisionId.value = undefined
+  managerFilter.value = ''
+  search()
 }
 
 function search() {

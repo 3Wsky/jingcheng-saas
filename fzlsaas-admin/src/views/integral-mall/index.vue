@@ -63,7 +63,7 @@
       </div>
     </template>
 
-    <el-table ref="tableRef" :data="displayList" v-loading="loading" row-key="id" @selection-change="onSelect">
+    <el-table ref="tableRef" :data="displayList" v-loading="loading" row-key="id" :row-class-name="rowClassName" @selection-change="onSelect">
       <template #empty>
         <el-empty description="暂无积分商品">
           <el-button type="primary" @click="goCreate">添加商品</el-button>
@@ -96,7 +96,10 @@
       </el-table-column>
       <el-table-column label="库存" width="100" align="right">
         <template #default="{ row }">
-          <el-link type="primary" :underline="false" @click="openStock(row)">{{ row.stock }}</el-link>
+          <el-link :type="row.stock <= 5 ? 'warning' : 'primary'" :underline="false" @click="openStock(row)">
+            {{ row.stock }}
+            <span v-if="row.stock <= 5" class="low-stock-tag">低</span>
+          </el-link>
         </template>
       </el-table-column>
       <el-table-column prop="sales" label="销量" width="72" align="right" />
@@ -209,6 +212,10 @@ const displayList = computed(() => {
 })
 
 onMounted(() => load())
+
+function rowClassName({ row }: { row: any }) {
+  return row.stock <= 5 && row.isShow ? 'low-stock-row' : ''
+}
 
 function formatNum(v: any) {
   const n = Number(v)
@@ -372,4 +379,6 @@ onBeforeUnmount(() => destroySortable())
 .name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .sub-info { font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 2px; }
 .no-img { font-size: 12px; color: #ccc; }
+.low-stock-tag { margin-left: 4px; font-size: 11px; color: #d97706; }
+:deep(.low-stock-row) { background-color: #fffbeb !important; }
 </style>

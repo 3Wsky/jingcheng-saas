@@ -47,4 +47,11 @@ body {
   font-weight: 600;
   color: rgba(0, 0, 0, 0.85);
 }
+.admin-table.el-table {
+  font-size: 14px;
+}
+.admin-table .el-table__cell {
+  padding: 10px 0;
+}
+.text-muted { color: rgba(0, 0, 0, 0.35); }
 </style>

@@ -11,7 +11,8 @@ const listQuerySchema = z.object({
   keyword: z.string().trim().max(64).optional().default(''),
   tag: z.string().trim().max(128).optional().default(''),
   searchType: z.enum(['all', 'uid', 'phone', 'nickname']).optional().default('all'),
-  sortBy: z.string().optional().default('register_desc')
+  sortBy: z.string().optional().default('register_desc'),
+  spreadUid: z.coerce.number().int().positive().optional()
 });
 
 const staffRoleSchema = z.object({

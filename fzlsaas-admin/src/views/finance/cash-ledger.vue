@@ -11,6 +11,16 @@
             <el-option label="核销" :value="0" />
           </el-select>
         </el-form-item>
+        <el-form-item label="日期">
+          <el-date-picker
+            v-model="dateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            style="width: 240px"
+          />
+        </el-form-item>
         <el-form-item label="关键词">
           <el-input v-model="filters.keyword" placeholder="单号/备注/UID" clearable style="width: 180px" />
         </el-form-item>
@@ -21,12 +31,12 @@
       </el-form>
     </template>
 
-    <el-table :data="list" v-loading="loading" size="small">
+    <el-table :data="list" v-loading="loading" size="small" class="admin-table">
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column label="用户" min-width="120">
         <template #default="{ row }">
           <div>{{ row.userNickname || '—' }}</div>
-          <div class="sub-text">UID {{ row.uid }}</div>
+          <UidLink :uid="row.uid" @click="openMember" />
         </template>
       </el-table-column>
       <el-table-column label="类型" width="90">
@@ -61,19 +71,27 @@
       />
     </template>
   </PageShell>
+
+  <MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import request from '@/utils/request'
 import PageShell from '@/components/PageShell.vue'
+import UidLink from '@/components/UidLink.vue'
+import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
+import { useMemberDrawer } from '@/composables/useMemberDrawer'
 import { fmtUnixTime, fmtMoney } from '@/utils/format'
+import { lastNDaysRange, dateRangeToUnix } from '@/utils/dateDefaults'
 
+const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
+const dateRange = ref<[string, string] | null>(lastNDaysRange(7))
 const filters = ref<{ uid?: number; direction?: number; keyword: string }>({ keyword: '' })
 
 onMounted(() => load())
@@ -81,6 +99,7 @@ onMounted(() => load())
 async function load() {
   loading.value = true
   try {
+    const { startAt, endAt } = dateRangeToUnix(dateRange.value)
     const data = await request.get('/api/admin/finance/cash-voucher-ledger', {
       params: {
         page: page.value,
@@ -88,6 +107,8 @@ async function load() {
         uid: filters.value.uid || undefined,
         direction: filters.value.direction ?? undefined,
         keyword: filters.value.keyword || undefined,
+        startAt,
+        endAt,
       },
     })
     list.value = data?.list || []
@@ -107,12 +128,12 @@ function search() {
 
 function reset() {
   filters.value = { keyword: '' }
+  dateRange.value = lastNDaysRange(7)
   search()
 }
 </script>
 
 <style scoped>
-.sub-text { font-size: 12px; color: rgba(0,0,0,.45); }
 .amt-plus { color: #059669; font-weight: 600; }
 .amt-minus { color: #d97706; font-weight: 600; }
 </style>

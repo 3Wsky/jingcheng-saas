@@ -19,7 +19,12 @@
 
     <template #tabs>
       <el-tabs v-model="activeTab" @tab-change="onTabChange">
-        <el-tab-pane label="待终审" name="pending" />
+        <el-tab-pane name="pending">
+          <template #label>
+            <span>待终审</span>
+            <el-badge v-if="pendingCount > 0" :value="pendingCount" class="tab-badge" />
+          </template>
+        </el-tab-pane>
         <el-tab-pane label="全部记录" name="all" />
       </el-tabs>
     </template>
@@ -40,8 +45,8 @@
         </el-form-item>
         <el-form-item label="档位">
           <el-select v-model="filters.tierCode" clearable style="width: 110px">
-            <el-option label="SW199" value="SW199" />
-            <el-option label="SW299" value="SW299" />
+            <el-option label="锦程199会员" value="SW199" />
+            <el-option label="锦程299会员" value="SW299" />
           </el-select>
         </el-form-item>
         <el-form-item label="金额">
@@ -74,11 +79,17 @@
         <el-empty :description="activeTab === 'pending' ? '暂无待终审记录' : '暂无审批记录'" />
       </template>
       <el-table-column prop="requestId" label="ID" width="70" />
-      <el-table-column prop="customerUid" label="客户" width="80" />
+      <el-table-column prop="customerUid" label="客户" width="100">
+        <template #default="{ row }">
+          <UidLink :uid="row.customerUid" @click="openMember" />
+        </template>
+      </el-table-column>
       <el-table-column prop="consumptionAmount" label="消费金额" width="100">
         <template #default="{ row }">¥{{ row.consumptionAmount ?? row.consumeAmount }}</template>
       </el-table-column>
-      <el-table-column prop="matchedTierCode" label="档位" width="80" />
+      <el-table-column prop="matchedTierCode" label="档位" width="110">
+        <template #default="{ row }">{{ formatTier(row.matchedTierCode) }}</template>
+      </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
           <ApprovalStatusTag :status="row.status" />
@@ -124,6 +135,7 @@
     @revoke="onDetailRevoke"
   />
 
+  <MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 </template>
 
 <script setup lang="ts">
@@ -134,8 +146,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import ApprovalStatusTag from './components/ApprovalStatusTag.vue'
 import ApprovalDetailDialog from './components/ApprovalDetailDialog.vue'
+import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
+import UidLink from '@/components/UidLink.vue'
+import { useMemberDrawer } from '@/composables/useMemberDrawer'
 
 const route = useRoute()
+const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
+const pendingCount = ref(0)
 const activeTab = ref(route.query.tab === 'pending' ? 'pending' : 'all')
 const loading = ref(false)
 const tableData = ref<any[]>([])
@@ -171,9 +188,12 @@ async function loadPending() {
   loading.value = true
   try {
     const data = await request.get('/api/admin/approval/todos')
-    tableData.value = (Array.isArray(data) ? data : []).map(mapTodoRow)
+    const rows = Array.isArray(data) ? data : []
+    tableData.value = rows.map(mapTodoRow)
+    pendingCount.value = rows.length
   } catch {
     tableData.value = []
+    pendingCount.value = 0
   } finally {
     loading.value = false
   }
@@ -218,6 +238,12 @@ function resetFilters() {
   dateRange.value = null
   page.value = 1
   loadAll()
+}
+
+function formatTier(code?: string) {
+  if (code === 'SW199') return '锦程199'
+  if (code === 'SW299') return '锦程299'
+  return code || '—'
 }
 
 function mapTodoRow(row: any) {
@@ -330,4 +356,5 @@ async function loadAutoPassConfig() {
 .empty { text-align: center; padding: 40px; color: #999; }
 .status-bar { margin-bottom: 16px; }
 .range-sep { margin: 0 6px; color: #9CA3AF; }
+.tab-badge { margin-left: 6px; vertical-align: middle; }
 </style>

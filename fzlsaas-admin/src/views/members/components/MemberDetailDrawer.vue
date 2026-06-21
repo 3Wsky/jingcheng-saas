@@ -82,8 +82,8 @@
       <el-form :model="membershipForm" label-width="88px">
         <el-form-item label="会员档位">
           <el-select v-model="membershipForm.tierCode" style="width: 100%">
-            <el-option label="199会员 (SW199)" value="SW199" />
-            <el-option label="299会员 (SW299)" value="SW299" />
+            <el-option label="199会员" value="SW199" />
+            <el-option label="299会员" value="SW299" />
           </el-select>
         </el-form-item>
       </el-form>

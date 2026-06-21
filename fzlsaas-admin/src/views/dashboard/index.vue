@@ -74,7 +74,7 @@ let timer: ReturnType<typeof setInterval> | null = null
 
 const statCards = computed(() => [
   { key: 'member', type: 'member', icon: 'User', title: '会员总数', value: cards.value.memberTotal },
-  { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: '今日新注册', value: cards.value.newUsersToday },
+  { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: '今日新注册', value: cards.value.newUsersToday, onClick: () => router.push('/members') },
   { key: 'grant', type: 'grant', icon: 'TrendCharts', title: '今日积分新增', value: cards.value.integralGrantedToday },
   { key: 'consume', type: 'consume', icon: 'Minus', title: '今日积分消耗', value: cards.value.integralConsumedToday },
   { key: 'verify', type: 'verify', icon: 'Checked', title: '今日核销', value: cards.value.verifyToday },

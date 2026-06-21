@@ -38,6 +38,9 @@
               <el-option label="否" value="no" />
             </el-select>
           </el-form-item>
+          <el-form-item label="归属店员UID">
+            <el-input-number v-model="filters.spreadUid" :min="0" controls-position="right" style="width: 140px" />
+          </el-form-item>
         </template>
         <el-form-item class="filter-actions">
           <el-button type="primary" @click="search">查询</el-button>
@@ -246,7 +249,8 @@ const filters = ref({
   searchType: 'all',
   keyword: '',
   tag: '',
-  paidOnly: '' as '' | 'yes' | 'no'
+  paidOnly: '' as '' | 'yes' | 'no',
+  spreadUid: undefined as number | undefined
 })
 const drawerOpen = ref(false)
 const selectedUid = ref<number | null>(null)
@@ -343,7 +347,8 @@ async function loadList() {
       pageSize: pageSize.value,
       keyword: filters.value.keyword || undefined,
       searchType: filters.value.searchType !== 'all' ? filters.value.searchType : undefined,
-      tag: filters.value.tag || undefined
+      tag: filters.value.tag || undefined,
+      spreadUid: filters.value.spreadUid || undefined
     }
     const data = await request.get('/api/admin/members/list', { params })
     let rows = data?.list || []
@@ -368,7 +373,7 @@ function search() {
 }
 
 function reset() {
-  filters.value = { searchType: 'all', keyword: '', tag: '', paidOnly: '' }
+  filters.value = { searchType: 'all', keyword: '', tag: '', paidOnly: '', spreadUid: undefined }
   activeTab.value = 'all'
   search()
 }

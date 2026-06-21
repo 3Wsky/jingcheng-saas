@@ -37,6 +37,11 @@ class AdminMembersService {
     const conditions = ['COALESCE(u.is_del, 0) = 0'];
     const values = [];
 
+    if (params.spreadUid) {
+      conditions.push('u.spread_uid = ?');
+      values.push(Number(params.spreadUid));
+    }
+
     if (keyword) {
       if (searchType === 'uid' && /^\d+$/.test(keyword)) {
         conditions.push('u.uid = ?');

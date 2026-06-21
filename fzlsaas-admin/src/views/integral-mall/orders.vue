@@ -36,14 +36,19 @@
       <el-table-column label="用户" min-width="120">
         <template #default="{ row }">
           <div>{{ row.userNickname || '—' }}</div>
-          <div class="sub-text">UID {{ row.uid }}</div>
+          <UidLink :uid="row.uid" @click="openMember" />
         </template>
       </el-table-column>
       <el-table-column prop="productName" label="商品" min-width="140" show-overflow-tooltip />
       <el-table-column label="积分" width="90" align="right">
         <template #default="{ row }">{{ formatNum(row.integralCost) }}</template>
       </el-table-column>
-      <el-table-column prop="verifyCode" label="核销码" width="120" show-overflow-tooltip />
+      <el-table-column label="核销码" width="150">
+        <template #default="{ row }">
+          <span>{{ row.verifyCode || '—' }}</span>
+          <el-button v-if="row.verifyCode" link type="primary" @click="copyCode(row.verifyCode)">复制</el-button>
+        </template>
+      </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
           <el-tag :type="row.status === 3 ? 'success' : 'warning'" size="small">
@@ -66,19 +71,28 @@
       />
     </template>
   </PageShell>
+
+  <MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import request from '@/utils/request'
+import { ElMessage } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
+import UidLink from '@/components/UidLink.vue'
+import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
+import { useMemberDrawer } from '@/composables/useMemberDrawer'
+import { lastNDaysRange } from '@/utils/dateDefaults'
+
+const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 
 const loading = ref(false)
 const list = ref<any[]>([])
 const page = ref(1)
 const pageSize = 20
 const total = ref(0)
-const dateRange = ref<[string, string] | null>(null)
+const dateRange = ref<[string, string] | null>(lastNDaysRange(7))
 const filters = ref({ status: '', uid: undefined as number | undefined, productId: undefined as number | undefined })
 
 onMounted(load)
@@ -91,7 +105,17 @@ function search() {
 function reset() {
   filters.value = { status: '', uid: undefined, productId: undefined }
   dateRange.value = null
+  dateRange.value = lastNDaysRange(7)
   search()
+}
+
+async function copyCode(code: string) {
+  try {
+    await navigator.clipboard.writeText(code)
+    ElMessage.success('核销码已复制')
+  } catch {
+    ElMessage.info(code)
+  }
 }
 
 async function load() {

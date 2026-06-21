@@ -29,6 +29,15 @@
     </el-row>
 
     <el-card shadow="never" class="mt-16">
+      <template #header><span>消费档位规则（只读）</span></template>
+      <el-table :data="tierRules" size="small" border>
+        <el-table-column prop="range" label="消费区间" width="160" />
+        <el-table-column prop="tier" label="会员档位" width="120" />
+        <el-table-column prop="gift" label="赠现金券" />
+      </el-table>
+    </el-card>
+
+    <el-card shadow="never" class="mt-16">
       <template #header><span>菜单对照说明</span></template>
       <el-table :data="menuMap" size="small" border>
         <el-table-column prop="crmeb" label="CRMEB 财务菜单" width="160" />
@@ -54,6 +63,13 @@ import { fmtMoney } from '@/utils/format'
 const loading = ref(false)
 const verifyMode = ref('any')
 const summary = ref<any>({})
+
+const tierRules = [
+  { range: '¥2,000 – ¥3,000', tier: '锦程199会员', gift: '¥100 现金券' },
+  { range: '¥3,000 – ¥6,000', tier: '锦程199会员', gift: '¥300 现金券' },
+  { range: '¥6,000 – ¥10,000', tier: '锦程299会员', gift: '¥500 现金券' },
+  { range: '¥10,000 以上', tier: '锦程299会员', gift: '¥800 现金券' },
+]
 
 const menuMap = [
   { crmeb: '资金流水', ours: '现金券流水', enabled: true, note: '发放+核销记录' },
