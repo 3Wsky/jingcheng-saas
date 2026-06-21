@@ -6,7 +6,7 @@ const CONFIG_KEYS = {
   memberMgmtEntryRoleOnly: 'miniapp_member_mgmt_entry_role_only'
 };
 
-function parseBool(value, defaultValue = true) {
+function parseBool(value, defaultValue = false) {
   if (value === undefined || value === null || value === '') return defaultValue;
   return value === '1' || value === 'true' || value === true;
 }

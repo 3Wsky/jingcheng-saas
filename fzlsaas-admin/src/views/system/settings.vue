@@ -82,7 +82,7 @@ const saving = ref(false)
 const entryLoading = ref(false)
 const entrySaving = ref(false)
 const form = ref({ consumption: false, integralMall: false })
-const entryForm = ref({ staffEntryRoleOnly: true, merchantEntryRoleOnly: true })
+const entryForm = ref({ staffEntryRoleOnly: false, merchantEntryRoleOnly: false })
 const lastModified = ref('')
 
 onMounted(() => {
@@ -120,7 +120,7 @@ async function loadEntryConfig() {
   try {
     entryForm.value = await request.get('/api/admin/config/miniapp-entries')
   } catch {
-    entryForm.value = { staffEntryRoleOnly: true, merchantEntryRoleOnly: true }
+    entryForm.value = { staffEntryRoleOnly: false, merchantEntryRoleOnly: false }
   } finally {
     entryLoading.value = false
   }
