@@ -81,7 +81,12 @@ function registerAdminMerchantRoutes(app) {
       values
     );
     const [rows] = await getPool().query(
-      `SELECT * FROM ${swTable('merchant')} WHERE ${where} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT m.*,
+              (SELECT MAX(l.created_at) FROM ${swTable('cash_voucher_ledger')} l
+               WHERE l.merchant_id = m.id AND l.direction = 0) AS last_verify_at
+       FROM ${swTable('merchant')} m
+       WHERE ${where.replace(/\bis_active\b/g, 'm.is_active')}
+       ORDER BY m.id DESC LIMIT ? OFFSET ?`,
       [...values, pageSize, offset]
     );
 
@@ -89,7 +94,10 @@ function registerAdminMerchantRoutes(app) {
       total: Number(countRow?.total || 0),
       page,
       pageSize,
-      list: rows.map(mapMerchant)
+      list: rows.map((row) => ({
+        ...mapMerchant(row),
+        lastVerifyAt: Number(row.last_verify_at || 0)
+      }))
     });
   });
 
@@ -217,18 +225,35 @@ function registerAdminMerchantRoutes(app) {
     const page = Math.max(1, Number(request.query.page || 1));
     const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize || 20)));
     const offset = (page - 1) * pageSize;
+    const dateFrom = request.query.dateFrom
+      ? Math.floor(new Date(`${String(request.query.dateFrom)}T00:00:00`).getTime() / 1000)
+      : null;
+    const dateTo = request.query.dateTo
+      ? Math.floor(new Date(`${String(request.query.dateTo)}T23:59:59`).getTime() / 1000)
+      : null;
+
+    const conditions = ['merchant_id = ?', 'direction = 0'];
+    const values = [id];
+    if (dateFrom) {
+      conditions.push('created_at >= ?');
+      values.push(dateFrom);
+    }
+    if (dateTo) {
+      conditions.push('created_at <= ?');
+      values.push(dateTo);
+    }
+    const where = conditions.join(' AND ');
 
     const [[countRow]] = await getPool().query(
-      `SELECT COUNT(*) AS total FROM ${swTable('cash_voucher_ledger')}
-       WHERE merchant_id = ? AND direction = 0`,
-      [id]
+      `SELECT COUNT(*) AS total FROM ${swTable('cash_voucher_ledger')} WHERE ${where}`,
+      values
     );
     const [rows] = await getPool().query(
-      `SELECT id, uid AS customerUid, amount, operator_uid AS operatorUid, remark, created_at AS createdAt
+      `SELECT id, uid AS customerUid, amount, operator_uid AS operatorUid, biz_id AS bizId, remark, created_at AS createdAt
        FROM ${swTable('cash_voucher_ledger')}
-       WHERE merchant_id = ? AND direction = 0
+       WHERE ${where}
        ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [id, pageSize, offset]
+      [...values, pageSize, offset]
     );
 
     return ok({
@@ -239,7 +264,8 @@ function registerAdminMerchantRoutes(app) {
         id: r.id,
         customerUid: r.customerUid,
         amount: Number(r.amount),
-        operatorUid: r.operatorUid,
+        operatorUid: Number(r.operatorUid || 0),
+        bizId: r.bizId || '',
         remark: r.remark || '',
         createdAt: Number(r.createdAt),
         settlementStatus: 'pending'

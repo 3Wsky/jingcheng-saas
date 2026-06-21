@@ -29,6 +29,9 @@
             </el-link>
           </template>
         </el-table-column>
+        <el-table-column label="最近核销" width="160">
+          <template #default="{ row }">{{ fmtTs(row.lastVerifyAt) }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
@@ -82,26 +85,73 @@
           <el-button type="primary" @click="saveMerchant">保存</el-button>
         </el-form>
       </el-tab-pane>
-      <el-tab-pane label="核销记录" name="logs">
-        <el-table :data="verifyLogs" size="small">
-          <el-table-column prop="customerUid" label="客户" width="80" />
-          <el-table-column prop="amount" label="金额" width="80" />
-          <el-table-column prop="createdAt" label="时间" :formatter="fmtTime" />
+      <el-tab-pane label="核销明细" name="logs">
+        <el-form :inline="true" class="log-filter" @submit.prevent="loadVerifyLogs(1)">
+          <el-form-item label="日期">
+            <el-date-picker
+              v-model="logDateRange"
+              type="daterange"
+              value-format="YYYY-MM-DD"
+              start-placeholder="开始"
+              end-placeholder="结束"
+              style="width: 240px"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" @click="loadVerifyLogs(1)">查询</el-button>
+            <el-button @click="resetLogFilter">重置</el-button>
+          </el-form-item>
+        </el-form>
+        <el-table :data="verifyLogs" size="small" v-loading="logsLoading">
+          <template #empty>
+            <el-empty description="暂无核销记录" />
+          </template>
+          <el-table-column prop="createdAt" label="时间" width="160">
+            <template #default="{ row }">{{ fmtTs(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column prop="customerUid" label="客户 UID" width="100">
+            <template #default="{ row }">
+              <UidLink :uid="row.customerUid" @click="openMember" />
+            </template>
+          </el-table-column>
+          <el-table-column prop="amount" label="核销金额" width="100">
+            <template #default="{ row }">¥{{ row.amount }}</template>
+          </el-table-column>
+          <el-table-column prop="operatorUid" label="操作人" width="90">
+            <template #default="{ row }">{{ row.operatorUid || '—' }}</template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+          <el-table-column label="结算" width="90">
+            <template #default>待结算</template>
+          </el-table-column>
         </el-table>
+        <el-pagination
+          v-if="logTotal > 0"
+          v-model:current-page="logPage"
+          :page-size="logPageSize"
+          :total="logTotal"
+          layout="total, prev, pager, next"
+          class="log-pagination"
+          @current-change="loadVerifyLogs"
+        />
       </el-tab-pane>
     </el-tabs>
   </el-drawer>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
+import UidLink from '@/components/UidLink.vue'
+import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
+import { useMemberDrawer } from '@/composables/useMemberDrawer'
 
 const router = useRouter()
+const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const activeTab = ref('list')
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -112,6 +162,11 @@ const editTab = ref('base')
 const editForm = ref<any>({})
 const storeImages = ref<string[]>([''])
 const verifyLogs = ref<any[]>([])
+const logsLoading = ref(false)
+const logPage = ref(1)
+const logPageSize = 20
+const logTotal = ref(0)
+const logDateRange = ref<[string, string] | null>(null)
 const canVerifyOriginal = ref(true)
 
 onMounted(() => loadList())
@@ -146,9 +201,38 @@ async function openEdit(row: any) {
   }
   storeImages.value = editForm.value.storeImages?.length ? [...editForm.value.storeImages] : ['']
   canVerifyOriginal.value = Boolean(editForm.value.canVerify)
-  const logs = await request.get(`/api/admin/merchant/${row.id}/verify-logs`).catch(() => ({ list: [] }))
-  verifyLogs.value = logs?.list || []
+  logPage.value = 1
+  logDateRange.value = null
+  await loadVerifyLogs(1)
 }
+
+async function loadVerifyLogs(page = logPage.value) {
+  if (!editForm.value?.id) return
+  logPage.value = page
+  logsLoading.value = true
+  try {
+    const params: Record<string, unknown> = { page, pageSize: logPageSize }
+    if (logDateRange.value?.[0]) params.dateFrom = logDateRange.value[0]
+    if (logDateRange.value?.[1]) params.dateTo = logDateRange.value[1]
+    const data = await request.get(`/api/admin/merchant/${editForm.value.id}/verify-logs`, { params })
+    verifyLogs.value = data?.list || []
+    logTotal.value = data?.total || 0
+  } catch {
+    verifyLogs.value = []
+    logTotal.value = 0
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+function resetLogFilter() {
+  logDateRange.value = null
+  loadVerifyLogs(1)
+}
+
+watch(editTab, (tab) => {
+  if (tab === 'logs' && editForm.value?.id) loadVerifyLogs(1)
+})
 
 async function saveMerchant() {
   if (canVerifyOriginal.value && editForm.value.canVerify === false) {
@@ -209,11 +293,15 @@ async function deactivate(row: any) {
   }
 }
 
-function fmtTime(_r: any, _c: any, val: number) {
+function fmtTs(val?: number) {
   return val ? new Date(val * 1000).toLocaleString('zh-CN') : '—'
 }
 </script>
 
+<MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
+
 <style scoped>
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
+.log-filter { margin-bottom: 12px; }
+.log-pagination { margin-top: 12px; justify-content: flex-end; }
 </style>
