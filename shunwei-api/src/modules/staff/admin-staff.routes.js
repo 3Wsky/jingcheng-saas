@@ -3,12 +3,14 @@ const { ok, fail } = require('../../shared/http');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { StaffService } = require('./staff.service');
+const { AdminStoresService } = require('../admin/admin-stores.service');
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
   keyword: z.string().trim().max(64).optional().default(''),
-  divisionId: z.coerce.number().int().optional()
+  divisionId: z.coerce.number().int().optional(),
+  storeName: z.string().trim().max(80).optional()
 });
 
 const cardSchema = z.object({
@@ -28,7 +30,18 @@ const cardSchema = z.object({
 
 function registerAdminStaffRoutes(app) {
   const service = new StaffService();
+  const storesService = new AdminStoresService();
   const audit = new AdminAuditService();
+
+  app.get('/api/admin/stores/options', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      const list = await storesService.listOptions();
+      return ok({ list });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店列表加载失败');
+    }
+  });
 
   app.get('/api/admin/staff/list', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;

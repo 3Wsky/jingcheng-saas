@@ -5,8 +5,8 @@
         <el-form-item label="搜索">
           <el-input v-model="keyword" placeholder="UID/手机/昵称" clearable style="width:200px" />
         </el-form-item>
-        <el-form-item label="门店ID">
-          <el-input-number v-model="divisionId" :min="0" controls-position="right" style="width:120px" />
+        <el-form-item label="门店">
+          <StoreNameSelect v-model="storeName" placeholder="按门店名称筛选" style="width: 220px" />
         </el-form-item>
         <el-form-item label="店长">
           <el-select v-model="managerFilter" clearable placeholder="全部" style="width:100px">
@@ -83,13 +83,14 @@ import { ElMessage } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import PageShell from '@/components/PageShell.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
+import StoreNameSelect from '@/components/StoreNameSelect.vue'
 import StaffDetailDrawer from './components/StaffDetailDrawer.vue'
 
 const router = useRouter()
 const loading = ref(false)
 const list = ref<any[]>([])
 const keyword = ref('')
-const divisionId = ref<number | undefined>()
+const storeName = ref('')
 const managerFilter = ref<'yes' | 'no' | ''>('')
 const page = ref(1)
 const pageSize = ref(20)
@@ -117,7 +118,7 @@ async function loadList() {
     const data = await request.get('/api/admin/staff/list', {
       params: {
         keyword: keyword.value || undefined,
-        divisionId: (divisionId.value ?? 0) > 0 ? divisionId.value : undefined,
+        storeName: storeName.value || undefined,
         page: 1,
         pageSize: 100,
       },
@@ -129,7 +130,7 @@ async function loadList() {
 
 function resetFilters() {
   keyword.value = ''
-  divisionId.value = undefined
+  storeName.value = ''
   managerFilter.value = ''
   search()
 }

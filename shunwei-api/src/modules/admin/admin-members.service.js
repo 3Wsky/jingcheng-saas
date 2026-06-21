@@ -1,4 +1,5 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
+const { AdminStoresService } = require('./admin-stores.service');
 const { swTable } = require('../../shared/sw-mysql');
 const { IntegralService } = require('../integral/integral.service');
 
@@ -266,8 +267,9 @@ class AdminMembersService {
     return { uid, spreadUid, spreadNickname: staff.nickname || '' };
   }
 
-  async updateStaffRole(uid, action, divisionId) {
+  async updateStaffRole(uid, action, divisionId, storeName) {
     const pool = getPool();
+    const storesService = new AdminStoresService();
     const [[user]] = await pool.query(
       `SELECT uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
       [uid]
@@ -279,16 +281,37 @@ class AdminMembersService {
     }
 
     if (action === 'grant') {
-      if (!divisionId || divisionId <= 0) {
-        const error = new Error('开通店员需指定 divisionId');
+      let resolvedDivisionId = Number(divisionId || 0);
+      let resolvedStoreName = '';
+
+      if (storeName) {
+        const store = await storesService.resolveOrCreateByName(storeName);
+        resolvedDivisionId = store.id;
+        resolvedStoreName = store.name;
+      } else if (resolvedDivisionId > 0) {
+        const storeTable = legacyTable('system_store');
+        const [[storeRow]] = await pool.query(
+          `SELECT name FROM ${storeTable} WHERE id = ? LIMIT 1`,
+          [resolvedDivisionId]
+        );
+        resolvedStoreName = storeRow?.name ? String(storeRow.name).trim() : `门店#${resolvedDivisionId}`;
+      }
+
+      if (!resolvedDivisionId || resolvedDivisionId <= 0) {
+        const error = new Error('开通店员需指定门店名称');
         error.statusCode = 400;
         throw error;
       }
       await pool.query(
         `UPDATE ${legacyTable('user')} SET is_staff = 1, division_id = ? WHERE uid = ?`,
-        [divisionId, uid]
+        [resolvedDivisionId, uid]
       );
-      return { uid, isStaff: true, divisionId };
+      return {
+        uid,
+        isStaff: true,
+        divisionId: resolvedDivisionId,
+        storeName: resolvedStoreName || undefined
+      };
     }
 
     await pool.query(

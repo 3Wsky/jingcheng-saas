@@ -1,5 +1,6 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
+const { AdminStoresService } = require('../admin/admin-stores.service');
 
 function maskPhone(phone) {
   const value = String(phone || '');
@@ -12,7 +13,15 @@ class StaffService {
     const page = Math.max(1, Number(params.page || 1));
     const pageSize = Math.min(100, Math.max(1, Number(params.pageSize || 20)));
     const keyword = String(params.keyword || '').trim();
-    const divisionId = params.divisionId ? Number(params.divisionId) : null;
+    let divisionId = params.divisionId ? Number(params.divisionId) : null;
+    const storeName = String(params.storeName || '').trim();
+    if (!divisionId && storeName) {
+      const store = await new AdminStoresService().findByName(storeName);
+      if (store) divisionId = store.id;
+      else {
+        return { list: [], total: 0, page, pageSize };
+      }
+    }
 
     const conditions = ['u.is_staff = 1', 'COALESCE(u.is_del, 0) = 0'];
     const values = [];

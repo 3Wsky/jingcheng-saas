@@ -17,7 +17,16 @@ const listQuerySchema = z.object({
 
 const staffRoleSchema = z.object({
   action: z.enum(['grant', 'revoke']),
-  divisionId: z.coerce.number().int().optional()
+  divisionId: z.coerce.number().int().optional(),
+  storeName: z.string().trim().min(1).max(80).optional()
+}).superRefine((data, ctx) => {
+  if (data.action === 'grant' && !data.storeName && !data.divisionId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '开通店员需填写门店名称',
+      path: ['storeName']
+    });
+  }
 });
 
 const spreadUpdateSchema = z.object({
@@ -106,7 +115,12 @@ function registerAdminMembersRoutes(app) {
 
     const session = getAdminSession(request);
     try {
-      const result = await membersService.updateStaffRole(uid, parsed.data.action, parsed.data.divisionId);
+      const result = await membersService.updateStaffRole(
+        uid,
+        parsed.data.action,
+        parsed.data.divisionId,
+        parsed.data.storeName
+      );
       await auditService.write({
         adminUsername: session?.username || '',
         action: parsed.data.action === 'grant' ? 'staff_role_grant' : 'staff_role_revoke',

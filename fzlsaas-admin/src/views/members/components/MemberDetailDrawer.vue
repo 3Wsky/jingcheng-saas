@@ -78,6 +78,19 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showGrantStaff" title="开通店员" width="420px" append-to-body>
+      <el-form label-width="88px">
+        <el-form-item label="所属门店" required>
+          <StoreNameSelect v-model="staffStoreName" placeholder="选择已有门店，或直接输入新门店名称" />
+        </el-form-item>
+        <p class="hint">输入新名称将自动创建门店；下次可直接从历史门店中选择。</p>
+      </el-form>
+      <template #footer>
+        <el-button @click="showGrantStaff = false">取消</el-button>
+        <el-button type="primary" @click="confirmGrantStaff">确认开通</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showGrantMembership" title="手动开通会员" width="400px" append-to-body>
       <el-form :model="membershipForm" label-width="88px">
         <el-form-item label="会员档位">
@@ -100,6 +113,8 @@ import { ref, watch } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MemberTag from '@/components/MemberTag.vue'
+import StoreNameSelect from '@/components/StoreNameSelect.vue'
+import { rememberStoreName } from '@/utils/recentStores'
 
 const props = defineProps<{ uid: number | null }>()
 const visible = defineModel<boolean>({ default: false })
@@ -113,7 +128,9 @@ const approvalHistory = ref<any[]>([])
 const activeTab = ref('batches')
 const showGrantIntegral = ref(false)
 const showGrantVoucher = ref(false)
+const showGrantStaff = ref(false)
 const showGrantMembership = ref(false)
+const staffStoreName = ref('')
 const grantForm = ref({ amount: 1000, batchType: 'gift', remark: '超管手动发放' })
 const voucherForm = ref({ amount: 100, remark: '超管手动发放' })
 const membershipForm = ref({ tierCode: 'SW199' as 'SW199' | 'SW299' })
@@ -225,16 +242,11 @@ async function toggleStaff() {
   if (!props.uid || !profile.value) return
   const isStaff = profile.value.isStaff
   if (!isStaff) {
-    const { value } = await ElMessageBox.prompt('请输入 divisionId（门店ID）', '开通店员', {
-      inputPattern: /^\d+$/,
-      inputErrorMessage: '请输入数字'
-    })
-    await request.put(`/api/admin/members/${props.uid}/staff-role`, {
-      action: 'grant',
-      divisionId: Number(value)
-    })
-    ElMessage.success('店员权限已开通')
-  } else {
+    staffStoreName.value = ''
+    showGrantStaff.value = true
+    return
+  }
+  try {
     const { value } = await ElMessageBox.prompt(
       '撤销店员为危险操作，请输入「确认撤销」以继续',
       '撤销店员',
@@ -248,12 +260,32 @@ async function toggleStaff() {
     if (value !== '确认撤销') return
     await request.put(`/api/admin/members/${props.uid}/staff-role`, { action: 'revoke' })
     ElMessage.success('店员权限已撤销')
-  }
+  } catch { /* cancel or error */ }
   loadDetail(props.uid)
+}
+
+async function confirmGrantStaff() {
+  if (!props.uid) return
+  const storeName = String(staffStoreName.value || '').trim()
+  if (!storeName) {
+    ElMessage.warning('请选择或输入门店名称')
+    return
+  }
+  try {
+    await request.put(`/api/admin/members/${props.uid}/staff-role`, {
+      action: 'grant',
+      storeName
+    })
+    rememberStoreName(storeName)
+    ElMessage.success('店员权限已开通')
+    showGrantStaff.value = false
+    loadDetail(props.uid)
+  } catch { /* handled by request interceptor */ }
 }
 </script>
 
 <style scoped>
 .mb-16 { margin-bottom: 16px; }
 .mt-16 { margin-top: 16px; }
+.hint { margin: 0; font-size: 12px; color: #909399; line-height: 1.6; }
 </style>
