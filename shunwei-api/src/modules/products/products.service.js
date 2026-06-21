@@ -253,6 +253,83 @@ class ProductsService {
     };
   }
 
+  async importFromCsv(options = {}) {
+    const csvText = String(options.csv || options.content || '').trim();
+    if (!csvText) {
+      const error = new Error('请提供 CSV 内容');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const rows = parseProductCsv(csvText);
+    if (!rows.length) {
+      const error = new Error('CSV 无有效商品行（需表头 + 至少一行商品名称）');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const incomingProducts = rows
+      .map((row) => normalizeCsvProduct(row))
+      .filter(Boolean);
+
+    if (!incomingProducts.length) {
+      const error = new Error('CSV 中未解析到有效商品');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let importSummary = null;
+    const importedAt = now();
+    await this.repository.updateAll((state) => {
+      const byKey = new Map(state.products.map((product) => [product.productKey, product]));
+      let createdCount = 0;
+      let updatedCount = 0;
+      const defaultShow = options.isShow !== undefined ? Boolean(options.isShow) : true;
+
+      for (const incoming of incomingProducts) {
+        const existing = byKey.get(incoming.productKey);
+        if (existing) {
+          Object.assign(existing, mergeImportedProduct(existing, incoming, importedAt));
+          updatedCount += 1;
+          continue;
+        }
+
+        const created = {
+          ...incoming,
+          id: nanoid(12),
+          isShow: defaultShow,
+          sort: Number.isFinite(Number(incoming.sort)) ? Number(incoming.sort) : 0,
+          importedAt,
+          createdAt: importedAt,
+          updatedAt: importedAt
+        };
+        state.products.push(created);
+        byKey.set(created.productKey, created);
+        createdCount += 1;
+      }
+
+      state.products.sort((a, b) => Number(b.sort || 0) - Number(a.sort || 0) || String(a.storeName).localeCompare(String(b.storeName), 'zh-CN'));
+      const importRecord = {
+        id: nanoid(10),
+        source: 'csv-import',
+        fileName: options.fileName || 'products.csv',
+        total: incomingProducts.length,
+        createdCount,
+        updatedCount,
+        skippedCount: rows.length - incomingProducts.length,
+        importedAt
+      };
+      state.imports = [importRecord].concat(state.imports || []).slice(0, 20);
+      importSummary = {
+        ...importRecord,
+        summary: buildSummary(state.products, state.imports)
+      };
+      return state;
+    });
+
+    return importSummary;
+  }
+
   async importFromCrmeb(options = {}) {
     const pool = getPool();
     const ids = Array.isArray(options.ids) ? options.ids.map(Number).filter((n) => n > 0) : [];
@@ -502,6 +579,86 @@ function normalizeDjiProduct(key, value) {
       sourceFile: 'dji-products.json',
       sourceKey: key
     }
+  };
+}
+
+const CSV_HEADER_ALIASES = {
+  storename: 'storeName',
+  name: 'storeName',
+  title: 'storeName',
+  '商品名称': 'storeName',
+  brand: 'brand',
+  '品牌': 'brand',
+  price: 'price',
+  '售价': 'price',
+  storeinfo: 'storeInfo',
+  info: 'storeInfo',
+  '简介': 'storeInfo',
+  image: 'image',
+  '主图': 'image',
+  sourceurl: 'sourceUrl',
+  url: 'sourceUrl',
+  '来源链接': 'sourceUrl',
+  model: 'model',
+  '型号': 'model'
+};
+
+function parseProductCsv(text) {
+  const lines = String(text || '').trim().replace(/^\uFEFF/, '').split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map((s) => s.trim());
+  const fieldIndexes = header.map((h) => CSV_HEADER_ALIASES[h.toLowerCase()] || CSV_HEADER_ALIASES[h] || null);
+  const rows = [];
+  for (let i = 1; i < lines.length && rows.length < 500; i++) {
+    const cols = lines[i].split(',').map((s) => s.trim());
+    const row = {};
+    fieldIndexes.forEach((field, idx) => {
+      if (field && cols[idx]) row[field] = cols[idx];
+    });
+    if (row.storeName) rows.push(row);
+  }
+  return rows;
+}
+
+function normalizeCsvProduct(row) {
+  const storeName = cleanText(row.storeName || '');
+  if (!storeName) return null;
+  const brand = normalizeBrand(row.brand || storeName);
+  const price = normalizePrice(row.price);
+  const image = cleanText(row.image || '');
+  const sliderImages = image ? [image] : [];
+
+  return {
+    productKey: `csv:${sourceKeyId(`${brand}:${storeName}`)}`,
+    brand,
+    model: cleanModelName(row.model || storeName, brand),
+    storeName,
+    storeInfo: cleanText(row.storeInfo || ''),
+    keyword: [brand, storeName, cleanText(row.model || '')].filter(Boolean).join(','),
+    price,
+    otPrice: 0,
+    unitName: '台',
+    image,
+    sliderImages,
+    recommendImage: image,
+    isShow: true,
+    isHot: false,
+    isBest: false,
+    isNew: false,
+    sort: brandSort(brand),
+    specType: 0,
+    attrs: [],
+    skuPrices: price > 0 ? [{ version: '默认', price: String(price), priceValue: price, colors: [] }] : [],
+    colors: [],
+    features: [],
+    specs: {},
+    paramsList: [],
+    description: '',
+    sourceUrl: cleanText(row.sourceUrl || ''),
+    source: 'csv',
+    priceStatus: price > 0 ? 'available' : 'pending',
+    scrapedAt: '',
+    raw: { sourceFile: 'csv-import' }
   };
 }
 

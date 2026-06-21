@@ -36,6 +36,34 @@
         </el-form>
       </el-tab-pane>
 
+      <!-- 展示商品：CSV -->
+      <el-tab-pane v-if="mode === 'showcase'" label="CSV导入" name="csv">
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
+          上传价签/Excel 导出的 CSV，按商品名称幂等合并。列：商品名称、品牌、售价、简介、主图、来源链接、型号。
+        </el-alert>
+        <div class="csv-toolbar">
+          <el-button link type="primary" @click="downloadCsvTemplate">下载模板</el-button>
+          <span v-if="csvFileName" class="hint">已选：{{ csvFileName }}</span>
+        </div>
+        <el-upload
+          drag
+          accept=".csv,text/csv"
+          :auto-upload="false"
+          :show-file-list="false"
+          :on-change="onCsvFileChange"
+        >
+          <div class="el-upload__text">拖拽 CSV 到此处，或 <em>点击选择</em></div>
+        </el-upload>
+        <el-form label-width="88px" style="margin-top: 12px">
+          <el-form-item label="导入后">
+            <el-radio-group v-model="importShow">
+              <el-radio :value="true">默认上架展示</el-radio>
+              <el-radio :value="false">放入仓库</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
+      </el-tab-pane>
+
       <!-- 展示商品：CRMEB -->
       <el-tab-pane v-if="mode === 'showcase'" label="CRMEB商品" name="crmeb">
         <el-alert type="info" :closable="false" show-icon style="margin-bottom: 12px">
@@ -169,6 +197,7 @@
 import { ref, computed, watch } from 'vue'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
+import { downloadCsv } from '@/utils/csvExport'
 
 const BRAND_OPTIONS = ['华为', '荣耀', '小米', 'iQOO', 'vivo', 'OPPO', 'Apple', 'DJI', '数码']
 
@@ -213,6 +242,8 @@ const crmebPageSize = 20
 const crmebTotal = ref(0)
 const selectedCrmebIds = ref<number[]>([])
 const crmebTableRef = ref()
+const csvContent = ref('')
+const csvFileName = ref('')
 
 const filteredShowcase = computed(() => {
   const kw = showcaseKeyword.value.trim().toLowerCase()
@@ -224,6 +255,7 @@ const filteredShowcase = computed(() => {
 
 const submitLabel = computed(() => {
   if (activeTab.value === 'url') return '提交采集'
+  if (activeTab.value === 'csv') return csvContent.value ? '导入 CSV' : '导入 CSV'
   if (activeTab.value === 'crmeb') return selectedCrmebIds.value.length ? `导入 ${selectedCrmebIds.value.length} 件` : '导入所选'
   if (activeTab.value === 'showcase' && props.mode === 'integral') {
     return selectedShowcaseIds.value.length ? `导入 ${selectedShowcaseIds.value.length} 件` : '导入所选'
@@ -258,9 +290,29 @@ function sourceLabel(s: string) {
   const map: Record<string, string> = {
     crmeb: 'CRMEB',
     official: '价签',
-    dji: 'DJI'
+    dji: 'DJI',
+    csv: 'CSV'
   }
   return map[s] || s || '-'
+}
+
+async function downloadCsvTemplate() {
+  downloadCsv(
+    'products-import-template.csv',
+    ['商品名称', '品牌', '售价', '简介', '主图', '来源链接', '型号'],
+    [['华为 Mate 70 Pro', '华为', '6999', '旗舰手机', '', '', '']]
+  )
+}
+
+function onCsvFileChange(uploadFile: { raw?: File }) {
+  const file = uploadFile?.raw
+  if (!file) return
+  csvFileName.value = file.name
+  const reader = new FileReader()
+  reader.onload = () => {
+    csvContent.value = String(reader.result || '')
+  }
+  reader.readAsText(file, 'UTF-8')
 }
 
 async function loadBrandPreview() {
@@ -354,6 +406,8 @@ function reset() {
   showcaseKeyword.value = ''
   showcaseBrand.value = ''
   crmebKeyword.value = ''
+  csvContent.value = ''
+  csvFileName.value = ''
 }
 
 async function submit() {
@@ -372,6 +426,21 @@ async function submit() {
       })
       const scope = selectedSources.value.map((s) => (s === 'phone' ? '手机' : 'DJI')).join('+')
       ElMessage.success(brands.length ? `价签采集完成（${scope} · ${brands.join('、')}）` : `价签采集完成（${scope}）`)
+      emit('success')
+      return
+    }
+
+    if (activeTab.value === 'csv') {
+      if (!csvContent.value.trim()) {
+        ElMessage.warning('请先选择 CSV 文件')
+        return
+      }
+      result.value = await request.post('/api/admin/products/import-csv', {
+        csv: csvContent.value,
+        fileName: csvFileName.value || 'products.csv',
+        isShow: importShow.value
+      })
+      ElMessage.success(`CSV 导入完成：新增 ${result.value?.createdCount ?? 0} / 更新 ${result.value?.updatedCount ?? 0}`)
       emit('success')
       return
     }
@@ -420,6 +489,7 @@ async function submit() {
 .muted { color: rgba(0,0,0,0.45); }
 .hint { font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 8px; }
 .brand-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.csv-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .brand-count { color: rgba(0,0,0,0.35); font-size: 12px; }
 .pager { margin-top: 8px; display: flex; justify-content: flex-end; }
 </style>

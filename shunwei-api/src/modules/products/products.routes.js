@@ -26,6 +26,12 @@ const importSchema = z.object({
   sources: z.array(z.enum(['phone', 'dji'])).max(2).optional()
 });
 
+const importCsvSchema = z.object({
+  csv: z.string().trim().min(1).max(500000),
+  fileName: z.string().trim().max(128).optional(),
+  isShow: z.boolean().optional()
+});
+
 const collectPreviewSchema = z.object({
   dataDir: z.string().trim().max(260).optional(),
   sources: z.string().trim().max(40).optional()
@@ -169,6 +175,24 @@ function registerProductRoutes(app) {
       return ok(await service.importFromPriceTags(parsed.data), '导入完成');
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '导入失败');
+    }
+  });
+
+  app.get('/api/admin/products/import-csv/template', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    const csv = '商品名称,品牌,售价,简介,主图,来源链接,型号\n华为 Mate 70 Pro,华为,6999,旗舰手机,,,\n';
+    return reply.type('text/csv; charset=utf-8').send('\ufeff' + csv);
+  });
+
+  app.post('/api/admin/products/import-csv', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    const parsed = importCsvSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '导入参数错误', parsed.error.flatten());
+
+    try {
+      return ok(await service.importFromCsv(parsed.data), 'CSV 导入完成');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || 'CSV 导入失败');
     }
   });
 
