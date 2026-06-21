@@ -25,9 +25,14 @@ export const MENU_MODULES: MenuModuleConfig[] = [
 
 export function getModuleByRoute(path: string): MenuModule {
   const normalized = path.replace(/^\//, '')
-  for (const mod of MENU_MODULES) {
-    if (mod.routes.some(r => normalized === r || normalized.startsWith(`${r}/`))) {
-      return mod.key
+  // 长路径优先匹配，避免 integral-mall 误匹配 integral-mall/orders
+  const entries = MENU_MODULES.flatMap((mod) =>
+    mod.routes.map((r) => ({ mod: mod.key, route: r }))
+  ).sort((a, b) => b.route.length - a.route.length)
+
+  for (const { mod, route: r } of entries) {
+    if (normalized === r || normalized.startsWith(`${r}/`)) {
+      return mod
     }
   }
   return 'workspace'

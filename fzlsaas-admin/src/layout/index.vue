@@ -107,11 +107,12 @@ const sideMenuItems = computed(() => {
 })
 
 function switchModule(key: MenuModule) {
-  activeModule.value = key
   const mod = MENU_MODULES.find(m => m.key === key)
-  if (mod?.routes[0]) {
-    router.push('/' + mod.routes[0])
-  }
+  if (!mod?.routes[0]) return
+  activeModule.value = key
+  const target = '/' + mod.routes[0]
+  if (route.path === target || route.path.startsWith(target + '/')) return
+  router.push(target).catch(() => {})
 }
 
 function refreshPage() {
@@ -147,8 +148,9 @@ function handleLogout() {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
-  min-width: 240px;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 220px;
 }
 .logo-mark {
   width: 36px;
@@ -163,9 +165,12 @@ function handleLogout() {
   font-weight: 700;
 }
 .logo-title {
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .topbar-nav {
   flex: 1;
@@ -173,31 +178,40 @@ function handleLogout() {
   justify-content: center;
   align-items: center;
   min-width: 0;
-  padding: 0 32px;
+  padding: 0 16px;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
 }
 .nav-pill {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px;
-  border-radius: 12px; /* 中间用圆角 */
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.14);
   border: 1px solid rgba(255, 255, 255, 0.22);
   backdrop-filter: blur(6px);
   max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
+.nav-pill::-webkit-scrollbar { display: none; }
 .nav-tab {
   border: none;
   background: transparent;
   color: rgba(255, 255, 255, 0.92);
   font-size: 14px;
-  padding: 0 28px;
+  padding: 0 16px;
   height: 36px;
   line-height: 36px;
-  border-radius: 8px; /* 中间用圆角 */
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.22s ease;
   white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 .nav-tab:hover {
   color: #fff;
@@ -214,8 +228,10 @@ function handleLogout() {
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  min-width: 140px;
+  min-width: 100px;
   justify-content: flex-end;
+  position: relative;
+  z-index: 1;
 }
 .topbar-right :deep(.el-button) { color: rgba(255, 255, 255, 0.9); }
 .user-info {
