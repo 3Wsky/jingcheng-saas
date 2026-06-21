@@ -380,7 +380,7 @@ function registerAdminManagementRoutes(app) {
     category: z.string().trim().max(64).optional().default(''),
     contactName: z.string().trim().max(64).optional().default(''),
     contactPhone: z.string().trim().max(20).optional().default(''),
-    loginUid: z.coerce.number().int().positive(),
+    loginUid: z.coerce.number().int().nonnegative().optional().default(0),
     canVerify: z.boolean().optional().default(true)
   });
 

@@ -13,6 +13,14 @@
           <el-descriptions-item label="归属店员">
             {{ profile.spreadNickname ? `${profile.spreadNickname} (${profile.spreadUid})` : '—' }}
           </el-descriptions-item>
+          <el-descriptions-item label="商家角色">
+            <template v-if="merchantRoles.length">
+              <el-tag v-for="item in merchantRoles" :key="item.merchantId" size="small" style="margin-right: 4px">
+                {{ item.merchantName }} · {{ item.role === 'manager' ? '店长' : '店员' }}
+              </el-tag>
+            </template>
+            <span v-else>—</span>
+          </el-descriptions-item>
           <el-descriptions-item label="积分">{{ integralSummary?.totalIntegral ?? 0 }}</el-descriptions-item>
         </el-descriptions>
 
@@ -23,6 +31,7 @@
           <el-button size="small" @click="showGrantMembership = true">手动开通会员</el-button>
           <el-button size="small" @click="changeSpread">变更归属</el-button>
           <el-button size="small" @click="toggleStaff">{{ profile.isStaff ? '撤销店员' : '开通店员' }}</el-button>
+          <el-button size="small" @click="openMerchantRole">商家角色</el-button>
         </el-space>
 
         <el-tabs v-model="activeTab" class="mt-16">
@@ -105,6 +114,34 @@
         <el-button type="primary" @click="confirmGrantMembership">确认开通</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showMerchantRole" title="商家角色" width="460px" append-to-body>
+      <p class="hint">用户需先在小程序登录（有 UID/头像/昵称）。开通后可在「我的 → 商家核销与提现」入口使用。</p>
+      <el-form label-width="88px">
+        <el-form-item label="商家" required>
+          <el-select v-model="merchantForm.merchantId" filterable placeholder="选择商家" style="width: 100%">
+            <el-option v-for="item in merchantOptions" :key="item.id" :label="item.merchantName" :value="item.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="角色" required>
+          <el-radio-group v-model="merchantForm.role">
+            <el-radio value="staff">商家店员（可核销）</el-radio>
+            <el-radio value="manager">商家店长（核销+提现）</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <div v-if="merchantRoles.length" class="current-roles">
+        <div class="current-title">当前角色</div>
+        <div v-for="item in merchantRoles" :key="item.merchantId" class="role-row">
+          <span>{{ item.merchantName }} · {{ item.role === 'manager' ? '店长' : '店员' }}</span>
+          <el-button link type="danger" @click="revokeMerchantRole(item.merchantId)">撤销</el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="showMerchantRole = false">取消</el-button>
+        <el-button type="primary" @click="confirmMerchantRole">确认开通</el-button>
+      </template>
+    </el-dialog>
   </el-drawer>
 </template>
 
@@ -134,6 +171,10 @@ const staffStoreName = ref('')
 const grantForm = ref({ amount: 1000, batchType: 'gift', remark: '超管手动发放' })
 const voucherForm = ref({ amount: 100, remark: '超管手动发放' })
 const membershipForm = ref({ tierCode: 'SW199' as 'SW199' | 'SW299' })
+const merchantRoles = ref<any[]>([])
+const merchantOptions = ref<Array<{ id: number; merchantName: string }>>([])
+const showMerchantRole = ref(false)
+const merchantForm = ref({ merchantId: undefined as number | undefined, role: 'staff' as 'staff' | 'manager' })
 
 watch(() => [props.uid, visible.value], ([uid, open]) => {
   if (open && uid) loadDetail(uid as number)
@@ -153,6 +194,7 @@ async function loadDetail(uid: number) {
     integralBatches.value = data.integralBatches || []
     cashVoucherBatches.value = data.cashVoucherBatches || []
     approvalHistory.value = data.approvalHistory || []
+    merchantRoles.value = data.merchantRoles || []
   } catch {
     profile.value = null
   } finally {
@@ -282,10 +324,58 @@ async function confirmGrantStaff() {
     loadDetail(props.uid)
   } catch { /* handled by request interceptor */ }
 }
+
+async function loadMerchantOptions() {
+  try {
+    const data = await request.get('/api/admin/merchant/options')
+    merchantOptions.value = data?.list || []
+  } catch {
+    merchantOptions.value = []
+  }
+}
+
+function openMerchantRole() {
+  merchantForm.value = { merchantId: undefined, role: 'staff' }
+  showMerchantRole.value = true
+  loadMerchantOptions()
+}
+
+async function confirmMerchantRole() {
+  if (!props.uid || !merchantForm.value.merchantId) {
+    ElMessage.warning('请选择商家')
+    return
+  }
+  try {
+    await request.put(`/api/admin/members/${props.uid}/merchant-role`, {
+      action: 'grant',
+      merchantId: merchantForm.value.merchantId,
+      role: merchantForm.value.role
+    })
+    ElMessage.success('商家角色已开通')
+    showMerchantRole.value = false
+    loadDetail(props.uid)
+  } catch { /* handled */ }
+}
+
+async function revokeMerchantRole(merchantId: number) {
+  if (!props.uid) return
+  try {
+    await ElMessageBox.confirm('确认撤销该用户的商家角色？', '撤销商家角色', { type: 'warning' })
+    await request.put(`/api/admin/members/${props.uid}/merchant-role`, {
+      action: 'revoke',
+      merchantId
+    })
+    ElMessage.success('商家角色已撤销')
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
 </script>
 
 <style scoped>
 .mb-16 { margin-bottom: 16px; }
 .mt-16 { margin-top: 16px; }
-.hint { margin: 0; font-size: 12px; color: #909399; line-height: 1.6; }
+.hint { margin: 0 0 12px; font-size: 12px; color: #909399; line-height: 1.6; }
+.current-roles { margin-top: 8px; padding-top: 12px; border-top: 1px solid #eee; }
+.current-title { font-size: 12px; color: #909399; margin-bottom: 8px; }
+.role-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
 </style>

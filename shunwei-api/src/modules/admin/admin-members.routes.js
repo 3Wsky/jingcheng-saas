@@ -3,6 +3,7 @@ const { ok, fail } = require('../../shared/http');
 const { requireAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { AdminMembersService } = require('./admin-members.service');
+const { AdminMerchantStaffService } = require('../merchant/admin-merchant-staff.service');
 const { IntegralService } = require('../integral/integral.service');
 
 const listQuerySchema = z.object({
@@ -41,10 +42,34 @@ const integralGrantSchema = z.object({
   remark: z.string().trim().max(200).optional().default('超管手动发放')
 });
 
+const merchantRoleSchema = z.object({
+  action: z.enum(['grant', 'revoke']),
+  merchantId: z.coerce.number().int().positive().optional(),
+  role: z.enum(['staff', 'manager']).optional()
+}).superRefine((data, ctx) => {
+  if (data.action === 'grant' && (!data.merchantId || !data.role)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: '开通商家角色需选择商家与角色', path: ['merchantId'] });
+  }
+  if (data.action === 'revoke' && !data.merchantId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: '撤销商家角色需指定商家', path: ['merchantId'] });
+  }
+});
+
 function registerAdminMembersRoutes(app) {
   const membersService = new AdminMembersService();
+  const merchantStaffService = new AdminMerchantStaffService();
   const integralService = new IntegralService();
   const auditService = new AdminAuditService();
+
+  app.get('/api/admin/merchant/options', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      const list = await merchantStaffService.listMerchantOptions();
+      return ok({ list });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '商家列表加载失败');
+    }
+  });
 
   app.get('/api/admin/members/list', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
@@ -142,6 +167,34 @@ function registerAdminMembersRoutes(app) {
         ip: getClientIp(request)
       });
       return fail(reply, error.statusCode || 500, error.message || '店员权限更新失败');
+    }
+  });
+
+  app.put('/api/admin/members/:uid/merchant-role', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'uid 无效');
+    const parsed = merchantRoleSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const session = getAdminSession(request);
+    try {
+      const result = await merchantStaffService.updateUserMerchantRole(
+        uid,
+        parsed.data.action,
+        parsed.data.merchantId,
+        parsed.data.role
+      );
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: parsed.data.action === 'grant' ? 'merchant_role_grant' : 'merchant_role_revoke',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(result, parsed.data.action === 'grant' ? '商家角色已开通' : '商家角色已撤销');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '商家角色更新失败');
     }
   });
 

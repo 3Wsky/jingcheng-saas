@@ -43,11 +43,17 @@
     </template>
 
     <el-form v-else :model="createForm" label-width="120px" style="max-width:500px">
+      <el-alert type="info" :closable="false" show-icon class="create-tip">
+        商家资料用于小程序「现金券 → 可核销商家」展示。人员权限请在<strong>会员管理 → 商家角色</strong>开通（用户需先登录小程序）。
+      </el-alert>
       <el-form-item label="商家名称"><el-input v-model="createForm.merchantName" /></el-form-item>
       <el-form-item label="类目"><el-input v-model="createForm.category" /></el-form-item>
       <el-form-item label="联系人"><el-input v-model="createForm.contactName" /></el-form-item>
       <el-form-item label="联系电话"><el-input v-model="createForm.contactPhone" /></el-form-item>
-      <el-form-item label="绑定UID"><el-input-number v-model="createForm.loginUid" :min="1" /></el-form-item>
+      <el-form-item label="绑定UID">
+        <el-input-number v-model="createForm.loginUid" :min="0" />
+        <p class="field-hint">可选。也可稍后在会员详情开通「商家店长」自动绑定。</p>
+      </el-form-item>
       <el-form-item label="核销权限"><el-switch v-model="createForm.canVerify" /></el-form-item>
     </el-form>
   </PageShell>
@@ -303,6 +309,7 @@ function fmtTs(val?: number) {
 <MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 
 <style scoped>
+.create-tip { margin-bottom: 16px; }
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
 .log-filter { margin-bottom: 12px; }
 .log-pagination { margin-top: 12px; justify-content: flex-end; }

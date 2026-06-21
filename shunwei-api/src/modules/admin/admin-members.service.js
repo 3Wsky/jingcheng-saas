@@ -1,5 +1,6 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { AdminStoresService } = require('./admin-stores.service');
+const { AdminMerchantStaffService } = require('../merchant/admin-merchant-staff.service');
 const { swTable } = require('../../shared/sw-mysql');
 const { IntegralService } = require('../integral/integral.service');
 
@@ -195,6 +196,11 @@ class AdminMembersService {
       [uid]
     );
 
+    let merchantRoles = { list: [], owned: [], assigned: [] };
+    try {
+      merchantRoles = await new AdminMerchantStaffService().getUserMerchantRoles(uid);
+    } catch { /* ignore */ }
+
     const tags = buildTags({
       tier_code: tierRow?.tier_code,
       is_staff: user.is_staff,
@@ -227,8 +233,9 @@ class AdminMembersService {
       cashVoucherBatches,
       membershipRecords: memberships,
       approvalHistory,
-      isMerchant: Boolean(merchantRow),
-      merchantId: merchantRow?.id || null
+      isMerchant: Boolean(merchantRow) || merchantRoles.list.length > 0,
+      merchantId: merchantRow?.id || merchantRoles.list[0]?.merchantId || null,
+      merchantRoles: merchantRoles.list
     };
   }
 
