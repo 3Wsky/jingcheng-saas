@@ -162,26 +162,6 @@ class StaffService {
     return { isStaff, isManager };
   }
 
-  async getRole(uid) {
-    const [[user]] = await getPool().query(
-      `SELECT uid, nickname, is_staff, division_id FROM ${legacyTable('user')}
-       WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
-      [uid]
-    );
-    if (!user) {
-      return { uid: Number(uid), nickname: '', isStaff: false, isManager: false, divisionId: 0 };
-    }
-    const isStaff = Number(user.is_staff) === 1;
-    const isManager = await this.isManager(uid);
-    return {
-      uid: Number(uid),
-      nickname: user.nickname || '',
-      isStaff,
-      isManager,
-      divisionId: Number(user.division_id || 0)
-    };
-  }
-
   async getStats(staffUid) {
     const access = await this.assertStaffOrManager(staffUid);
 

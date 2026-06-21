@@ -15,15 +15,6 @@ const membersQuerySchema = z.object({
 function registerStaffRoutes(app) {
   const service = new StaffService();
 
-  app.get('/api/staff/me', async (request, reply) => {
-    if (!request.auth.uid) return fail(reply, 401, '请先登录');
-    try {
-      return ok(await service.getRole(request.auth.uid));
-    } catch (error) {
-      return fail(reply, error.statusCode || 500, error.message || '角色查询失败');
-    }
-  });
-
   app.get('/api/staff/members', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const parsed = membersQuerySchema.safeParse(request.query || {});
