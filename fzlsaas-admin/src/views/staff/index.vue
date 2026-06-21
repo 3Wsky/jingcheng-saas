@@ -111,8 +111,9 @@ async function loadList() {
     const data = await request.get('/api/admin/staff/list', {
       params: {
         keyword: keyword.value || undefined,
-        divisionId: divisionId.value || undefined,
-        pageSize: 500,
+        divisionId: divisionId.value > 0 ? divisionId.value : undefined,
+        page: 1,
+        pageSize: 100,
       },
     })
     list.value = data?.list || []

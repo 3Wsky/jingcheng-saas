@@ -134,6 +134,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import { fmtUnixTime, fmtMoney } from '@/utils/format'
 import { downloadCsv } from '@/utils/csvExport'
+import { fetchAllPages } from '@/utils/fetchAllPages'
 
 const route = useRoute()
 const loading = ref(false)
@@ -232,21 +233,13 @@ async function loadRecords() {
 }
 
 async function fetchAllMerchants() {
-  const data = await request.get('/api/admin/finance/settlement/list', {
-    params: {
-      page: 1,
-      pageSize: 500,
-      keyword: filters.value.keyword || undefined,
-    },
+  return fetchAllPages('/api/admin/finance/settlement/list', {
+    keyword: filters.value.keyword || undefined,
   })
-  return data?.list || []
 }
 
 async function fetchAllRecords() {
-  const data = await request.get('/api/admin/finance/settlement/records', {
-    params: { page: 1, pageSize: 500 },
-  })
-  return data?.list || []
+  return fetchAllPages('/api/admin/finance/settlement/records')
 }
 
 async function exportCsv() {
