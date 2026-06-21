@@ -48,9 +48,10 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="240" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row.uid)">详情</el-button>
+          <el-button link type="primary" @click="openCard(row.uid)">名片</el-button>
           <el-button link type="primary" @click="goApproval(row.uid)">审批记录</el-button>
         </template>
       </el-table-column>
@@ -68,7 +69,7 @@
     </template>
   </PageShell>
 
-  <StaffDetailDrawer v-model="drawerOpen" :uid="selectedUid" />
+  <StaffDetailDrawer v-model="drawerOpen" :uid="selectedUid" :initial-tab="drawerTab" />
 </template>
 
 <script setup lang="ts">
@@ -90,6 +91,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const drawerOpen = ref(false)
 const selectedUid = ref<number | null>(null)
+const drawerTab = ref('members')
 
 const filteredList = computed(() => {
   let rows = list.value
@@ -139,6 +141,13 @@ function onSizeChange() {
 
 function openDetail(uid: number) {
   selectedUid.value = uid
+  drawerTab.value = 'members'
+  drawerOpen.value = true
+}
+
+function openCard(uid: number) {
+  selectedUid.value = uid
+  drawerTab.value = 'card'
   drawerOpen.value = true
 }
 

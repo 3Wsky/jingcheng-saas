@@ -71,7 +71,20 @@
           </el-tab-pane>
 
           <el-tab-pane label="名片配置" name="card">
+            <div v-if="cardPreview" class="card-preview">
+              <el-avatar :size="48" :src="cardPreview.avatar || undefined">{{ (cardPreview.displayName || '?')[0] }}</el-avatar>
+              <div>
+                <div class="card-preview-name">{{ cardPreview.displayName || '—' }}</div>
+                <div class="card-preview-sub">{{ cardPreview.jobTitle || '—' }} · {{ cardPreview.storeName || '—' }}</div>
+              </div>
+              <el-tag :type="cardForm.isPublished ? 'success' : 'info'" size="small">
+                {{ cardForm.isPublished ? '已发布' : '未发布' }}
+              </el-tag>
+            </div>
             <el-form :model="cardForm" label-width="90px">
+              <el-form-item label="头像">
+                <ImageUrlInput v-model="cardForm.avatar" placeholder="头像 URL 或上传" />
+              </el-form-item>
               <el-form-item label="展示名"><el-input v-model="cardForm.displayName" /></el-form-item>
               <el-form-item label="职位"><el-input v-model="cardForm.jobTitle" /></el-form-item>
               <el-form-item label="简介"><el-input v-model="cardForm.bio" type="textarea" maxlength="120" show-word-limit /></el-form-item>
@@ -85,13 +98,7 @@
                 <el-input-number v-model="cardForm.longitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" />
               </el-form-item>
               <el-form-item label="微信二维码">
-                <el-input v-model="cardForm.wechatQrcode" placeholder="二维码图片 URL" />
-                <el-image
-                  v-if="cardForm.wechatQrcode"
-                  :src="cardForm.wechatQrcode"
-                  style="width: 96px; height: 96px; margin-top: 8px"
-                  fit="cover"
-                />
+                <ImageUrlInput v-model="cardForm.wechatQrcode" placeholder="二维码 URL 或上传" />
               </el-form-item>
               <el-form-item label="发布"><el-switch v-model="cardForm.isPublished" /></el-form-item>
               <el-button type="primary" @click="saveCard">保存名片</el-button>
@@ -106,14 +113,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
+import ImageUrlInput from '@/components/ImageUrlInput.vue'
 
-const props = defineProps<{ uid: number | null }>()
+const props = defineProps<{ uid: number | null; initialTab?: string }>()
 const visible = defineModel<boolean>({ default: false })
 
 const router = useRouter()
@@ -122,15 +130,21 @@ const activeTab = ref('members')
 const profile = ref<any>(null)
 const stats = ref<any>(null)
 const cardForm = ref<any>({
-  displayName: '', jobTitle: '', bio: '', storeName: '', storeAddress: '',
+  displayName: '', avatar: '', jobTitle: '', bio: '', storeName: '', storeAddress: '',
   storePhone: '', businessHours: '', latitude: 0, longitude: 0, wechatQrcode: '', isPublished: true
 })
+const cardPreview = computed(() => ({
+  displayName: cardForm.value.displayName || profile.value?.nickname || '',
+  avatar: cardForm.value.avatar || profile.value?.avatar || '',
+  jobTitle: cardForm.value.jobTitle || '',
+  storeName: cardForm.value.storeName || profile.value?.divisionName || ''
+}))
 const memberOpen = ref(false)
 const memberUid = ref<number | null>(null)
 
-watch(() => [props.uid, visible.value], async ([uid, open]) => {
+watch(() => [props.uid, visible.value, props.initialTab], async ([uid, open]) => {
   if (!open || !uid) return
-  activeTab.value = 'members'
+  activeTab.value = props.initialTab || 'members'
   loading.value = true
   try {
     const row = await request.get('/api/admin/staff/list', { params: { keyword: String(uid), pageSize: 1 } })
@@ -139,6 +153,7 @@ watch(() => [props.uid, visible.value], async ([uid, open]) => {
     const card = await request.get(`/api/admin/staff/${uid}/card`).catch(() => ({}))
     cardForm.value = {
       displayName: card.displayName || '',
+      avatar: card.avatar || profile.value?.avatar || '',
       jobTitle: card.jobTitle || '',
       bio: card.bio || '',
       storeName: card.storeName || '',
@@ -206,4 +221,15 @@ async function saveCard() {
 .mt-16 { margin-top: 16px; }
 .tab-actions { margin-top: 12px; }
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
+.card-preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: #FAFAFA;
+  border-radius: 8px;
+}
+.card-preview-name { font-size: 15px; font-weight: 600; }
+.card-preview-sub { font-size: 12px; color: #9CA3AF; margin-top: 4px; }
 </style>
