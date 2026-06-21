@@ -2,6 +2,10 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
 class ApprovalService {
+  fixedGiftIntegral(tierCode) {
+    return tierCode === 'SW299' ? 299000 : tierCode === 'SW199' ? 199000 : 0;
+  }
+
   async matchTierRule(consumeAmount) {
     const amount = Number(consumeAmount || 0);
     const [rules] = await getPool().query(
@@ -13,45 +17,113 @@ class ApprovalService {
     return rules[0] || null;
   }
 
+  async getTierRules() {
+    const [rows] = await getPool().query(
+      `SELECT id, min_amount, max_amount, tier_code, voucher_amount, gift_integral
+       FROM ${swTable('tier_rule')} WHERE is_active = 1 ORDER BY min_amount ASC`
+    );
+    return rows.map((row) => ({
+      id: Number(row.id),
+      minAmount: Number(row.min_amount),
+      maxAmount: row.max_amount === null ? null : Number(row.max_amount),
+      tierCode: row.tier_code,
+      voucherAmount: Number(row.voucher_amount),
+      giftIntegral: this.fixedGiftIntegral(row.tier_code)
+    }));
+  }
+
+  async getTierRuleById(ruleId) {
+    const [[rule]] = await getPool().query(
+      `SELECT * FROM ${swTable('tier_rule')} WHERE id = ? AND is_active = 1 LIMIT 1`,
+      [ruleId]
+    );
+    return rule || null;
+  }
+
   async createRequest(params) {
-    const { clerkUid, customerUid, consumeAmount, receiptNo, rule } = params;
+    const { clerkUid, customerUid, receiptNo, rule } = params;
+    const consumeAmount = Number(rule.min_amount || params.consumeAmount || 0);
     const now = Math.floor(Date.now() / 1000);
 
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
 
+      const [[staff]] = await connection.query(
+        `SELECT uid, division_id, is_staff FROM ${legacyTable('user')}
+         WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [clerkUid]
+      );
+      const [[managerRole]] = staff ? await connection.query(
+        `SELECT 1 AS v FROM ${swTable('store_manager')}
+         WHERE manager_uid = ? AND is_active = 1 LIMIT 1`,
+        [clerkUid]
+      ) : [[]];
+      if (!staff || (Number(staff.is_staff) !== 1 && !managerRole)) {
+        throw Object.assign(new Error('当前账号无会员管理权限'), { statusCode: 403 });
+      }
+      const [[customer]] = await connection.query(
+        `SELECT uid, spread_uid FROM ${legacyTable('user')}
+         WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [customerUid]
+      );
+      if (!customer) throw Object.assign(new Error('会员不存在'), { statusCode: 404 });
+      if (Number(customer.spread_uid || 0) !== Number(clerkUid)) {
+        throw Object.assign(new Error('只能为本人名下会员申请权益'), { statusCode: 403 });
+      }
+      const [[pending]] = await connection.query(
+        `SELECT id FROM ${swTable('approval_request')}
+         WHERE customer_uid = ? AND staff_uid = ? AND status IN ('manager_review', 'admin_review')
+         LIMIT 1 FOR UPDATE`,
+        [customerUid, clerkUid]
+      );
+      if (pending) throw Object.assign(new Error('该会员已有待审批申请'), { statusCode: 409 });
+
+      const requestNo = `AP${now}${clerkUid}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const [reqResult] = await connection.query(
         `INSERT INTO ${swTable('approval_request')}
-         (customer_uid, clerk_uid, consume_amount, receipt_no, tier_rule_id,
-          matched_tier_code, matched_voucher_amount, matched_integral,
+         (request_no, biz_type, customer_uid, staff_uid, division_id, consumption_amount,
+          matched_tier_code, matched_voucher_amount, matched_integral, receipt_no,
           status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manager_review', ?, ?)`,
-        [customerUid, clerkUid, consumeAmount, receiptNo || '',
-         rule.id, rule.tier_code, Number(rule.voucher_amount || 0),
-         Number(rule.gift_integral || 0), now, now]
+         VALUES (?, 'consumption_grant', ?, ?, ?, ?, ?, ?, ?, ?, 'manager_review', ?, ?)`,
+        [requestNo, customerUid, clerkUid, Number(staff.division_id || 0), consumeAmount,
+         rule.tier_code, Number(rule.voucher_amount || 0),
+         this.fixedGiftIntegral(rule.tier_code), receiptNo || '', now, now]
       );
       const requestId = reqResult.insertId;
 
       await connection.query(
         `INSERT INTO ${swTable('approval_step')}
-         (request_id, step_order, role, assignee_uid, action, created_at)
-         VALUES (?, 1, 'clerk', ?, 'submit', ?)`,
+         (request_id, step_role, operator_uid, action, comment, created_at)
+         VALUES (?, 'staff', ?, 'submit', '', ?)`,
         [requestId, clerkUid, now]
       );
 
       const managers = await this.getManagersForClerk(connection, clerkUid);
+      if (!managers.length) {
+        throw Object.assign(new Error('当前门店未配置店长，无法提交'), { statusCode: 400 });
+      }
       for (const mgr of managers) {
         await connection.query(
           `INSERT INTO ${swTable('approval_todo')}
-           (request_id, assignee_uid, role, status, created_at)
-           VALUES (?, ?, 'manager', 'pending', ?)`,
+           (request_id, assignee_uid, todo_type, is_done, created_at, done_at)
+           VALUES (?, ?, 'manager_review', 0, ?, 0)`,
           [requestId, mgr.uid, now]
         );
       }
 
       await connection.commit();
-      return { requestId, status: 'manager_review', matchedRule: rule };
+      return {
+        requestId,
+        requestNo,
+        status: 'manager_review',
+        matchedRule: {
+          id: Number(rule.id),
+          tierCode: rule.tier_code,
+          voucherAmount: Number(rule.voucher_amount || 0),
+          giftIntegral: this.fixedGiftIntegral(rule.tier_code)
+        }
+      };
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -73,6 +145,13 @@ class ApprovalService {
       );
       if (!req) throw Object.assign(new Error('审批单不存在'), { statusCode: 404 });
       if (req.status !== 'manager_review') throw Object.assign(new Error('当前状态不允许店长审批'), { statusCode: 400 });
+      const [[todo]] = await connection.query(
+        `SELECT id FROM ${swTable('approval_todo')}
+         WHERE request_id = ? AND assignee_uid = ? AND todo_type = 'manager_review' AND is_done = 0
+         LIMIT 1 FOR UPDATE`,
+        [requestId, managerUid]
+      );
+      if (!todo) throw Object.assign(new Error('没有该审批单的店长权限'), { statusCode: 403 });
 
       if (action === 'approve') {
         await connection.query(
@@ -81,13 +160,13 @@ class ApprovalService {
         );
         await connection.query(
           `INSERT INTO ${swTable('approval_step')}
-           (request_id, step_order, role, assignee_uid, action, remark, created_at)
-           VALUES (?, 2, 'manager', ?, 'approve', '', ?)`,
-          [requestId, managerUid, now]
+           (request_id, step_role, operator_uid, action, comment, created_at)
+           VALUES (?, 'manager', ?, 'approve', ?, ?)`,
+          [requestId, managerUid, reason, now]
         );
         await connection.query(
-          `UPDATE ${swTable('approval_todo')} SET status = 'done', updated_at = ?
-           WHERE request_id = ? AND role = 'manager'`,
+          `UPDATE ${swTable('approval_todo')} SET is_done = 1, done_at = ?
+           WHERE request_id = ? AND todo_type = 'manager_review'`,
           [now, requestId]
         );
 
@@ -95,8 +174,8 @@ class ApprovalService {
         for (const adminUid of admins) {
           await connection.query(
             `INSERT INTO ${swTable('approval_todo')}
-             (request_id, assignee_uid, role, status, created_at)
-             VALUES (?, ?, 'admin', 'pending', ?)`,
+             (request_id, assignee_uid, todo_type, is_done, created_at, done_at)
+             VALUES (?, ?, 'admin_review', 0, ?, 0)`,
             [requestId, adminUid, now]
           );
         }
@@ -107,13 +186,13 @@ class ApprovalService {
         );
         await connection.query(
           `INSERT INTO ${swTable('approval_step')}
-           (request_id, step_order, role, assignee_uid, action, remark, created_at)
-           VALUES (?, 2, 'manager', ?, 'reject', ?, ?)`,
+           (request_id, step_role, operator_uid, action, comment, created_at)
+           VALUES (?, 'manager', ?, 'reject', ?, ?)`,
           [requestId, managerUid, reason, now]
         );
         await connection.query(
-          `UPDATE ${swTable('approval_todo')} SET status = 'done', updated_at = ?
-           WHERE request_id = ? AND role = 'manager'`,
+          `UPDATE ${swTable('approval_todo')} SET is_done = 1, done_at = ?
+           WHERE request_id = ? AND todo_type = 'manager_review'`,
           [now, requestId]
         );
       }
@@ -152,9 +231,9 @@ class ApprovalService {
         );
         await connection.query(
           `INSERT INTO ${swTable('approval_step')}
-           (request_id, step_order, role, assignee_uid, action, created_at)
-           VALUES (?, 3, 'admin', ?, 'approve', ?)`,
-          [requestId, adminUid, now]
+           (request_id, step_role, operator_uid, action, comment, created_at)
+           VALUES (?, 'admin', ?, 'approve', ?, ?)`,
+          [requestId, adminUid, reason, now]
         );
 
         await this.executeGrant(connection, req);
@@ -165,15 +244,15 @@ class ApprovalService {
         );
         await connection.query(
           `INSERT INTO ${swTable('approval_step')}
-           (request_id, step_order, role, assignee_uid, action, remark, created_at)
-           VALUES (?, 3, 'admin', ?, 'reject', ?, ?)`,
+           (request_id, step_role, operator_uid, action, comment, created_at)
+           VALUES (?, 'admin', ?, 'reject', ?, ?)`,
           [requestId, adminUid, reason, now]
         );
       }
 
       await connection.query(
-        `UPDATE ${swTable('approval_todo')} SET status = 'done', updated_at = ?
-         WHERE request_id = ? AND role = 'admin'`,
+        `UPDATE ${swTable('approval_todo')} SET is_done = 1, done_at = ?
+         WHERE request_id = ? AND todo_type = 'admin_review'`,
         [now, requestId]
       );
 
@@ -207,30 +286,14 @@ class ApprovalService {
       );
     }
 
-    if (Number(req.matched_integral) > 0) {
-      const { IntegralService } = require('../integral/integral.service');
-      const integralService = new IntegralService();
-      await integralService.grantMembershipGiftIntegral(connection, {
-        uid,
-        amount: req.matched_integral,
-        sourceType: 'approval_grant',
-        sourceId: `APR${req.id}`,
-        expireDays: 365,
-        bizId: `APR${req.id}`,
-        remark: `消费 ${req.consume_amount} 审批赠积分`,
-      });
-    }
-
     if (req.matched_tier_code) {
       const { MembershipService } = require('../membership/membership.service');
       const membershipService = new MembershipService();
-      try {
-        await membershipService.claimGift(uid, {
-          tierCode: req.matched_tier_code,
-          channel: 'offline_approval',
-          refId: `APR${req.id}`,
-        });
-      } catch { /* already exists or duplicate — ok */ }
+      await membershipService.grantApprovalMembership(connection, uid, {
+        tierCode: req.matched_tier_code,
+        refId: `APR${req.id}`,
+        integralAmount: Number(req.matched_integral || 0)
+      });
     }
   }
 
@@ -500,8 +563,8 @@ class ApprovalService {
       );
       await connection.query(
         `INSERT INTO ${swTable('approval_step')}
-         (request_id, step_order, role, assignee_uid, action, remark, created_at)
-         VALUES (?, 4, 'admin', ?, 'revoke', ?, ?)`,
+         (request_id, step_role, operator_uid, action, comment, created_at)
+         VALUES (?, 'admin', ?, 'revoke', ?, ?)`,
         [requestId, adminUid, reason || '超管撤销终批', now]
       );
 
@@ -640,11 +703,11 @@ class ApprovalService {
     const divisionId = Number(user?.division_id || 0);
 
     const [managers] = await connection.query(
-      `SELECT uid FROM ${swTable('store_manager')}
+      `SELECT manager_uid AS uid FROM ${swTable('store_manager')}
        WHERE (division_id = ? OR division_id = 0) AND is_active = 1`,
       [divisionId]
     );
-    return managers.length ? managers : [{ uid: clerkUid }];
+    return managers;
   }
 
   async getAdminUids(connection) {

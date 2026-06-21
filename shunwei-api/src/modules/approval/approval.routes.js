@@ -5,8 +5,11 @@ const { ApprovalService } = require('./approval.service');
 
 const submitSchema = z.object({
   customerUid: z.coerce.number().int().positive(),
-  consumeAmount: z.coerce.number().positive(),
+  tierRuleId: z.coerce.number().int().positive().optional(),
+  consumeAmount: z.coerce.number().positive().optional(),
   receiptNo: z.string().trim().max(64).optional().default('')
+}).refine((value) => value.tierRuleId || value.consumeAmount, {
+  message: '请选择权益档位'
 });
 
 const reviewSchema = z.object({
@@ -17,6 +20,15 @@ const reviewSchema = z.object({
 
 function registerApprovalRoutes(app) {
   const service = new ApprovalService();
+
+  app.get('/api/approval/tier-options', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      return ok(await service.getTierRules());
+    } catch (error) {
+      return failApproval(reply, error);
+    }
+  });
 
   app.get('/api/approval/tier-rules', async (request, reply) => {
     try {
@@ -42,7 +54,7 @@ function registerApprovalRoutes(app) {
         matched: true,
         tierCode: rule.tier_code,
         voucherAmount: Number(rule.voucher_amount || 0),
-        giftIntegral: Number(rule.gift_integral || 0),
+        giftIntegral: service.fixedGiftIntegral(rule.tier_code),
         minAmount: Number(rule.min_amount),
         maxAmount: Number(rule.max_amount || 0)
       } : { matched: false });
@@ -57,13 +69,15 @@ function registerApprovalRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     try {
-      const rule = await service.matchTierRule(parsed.data.consumeAmount);
+      const rule = parsed.data.tierRuleId
+        ? await service.getTierRuleById(parsed.data.tierRuleId)
+        : await service.matchTierRule(parsed.data.consumeAmount);
       if (!rule) return fail(reply, 400, '消费金额不在任何档位范围内');
 
       const result = await service.createRequest({
         clerkUid: request.auth.uid,
         customerUid: parsed.data.customerUid,
-        consumeAmount: parsed.data.consumeAmount,
+        consumeAmount: parsed.data.consumeAmount || Number(rule.min_amount),
         receiptNo: parsed.data.receiptNo,
         rule
       });

@@ -210,6 +210,84 @@ class StaffService {
     };
   }
 
+  async getAccess(staffUid) {
+    const access = await this.assertStaffOrManager(staffUid);
+    const [[user]] = await getPool().query(
+      `SELECT uid, nickname, division_id FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+      [staffUid]
+    );
+    return {
+      uid: Number(staffUid),
+      nickname: user?.nickname || '',
+      divisionId: Number(user?.division_id || 0),
+      isStaff: access.isStaff,
+      isManager: access.isManager
+    };
+  }
+
+  async listOwnedMembers(staffUid, params = {}) {
+    await this.assertStaffOrManager(staffUid);
+    const page = Math.max(1, Number(params.page || 1));
+    const pageSize = Math.min(50, Math.max(1, Number(params.pageSize || 20)));
+    const keyword = String(params.keyword || '').trim();
+    const conditions = ['u.spread_uid = ?', 'COALESCE(u.is_del, 0) = 0'];
+    const values = [staffUid];
+    if (keyword) {
+      if (/^\d+$/.test(keyword)) {
+        conditions.push('(u.uid = ? OR u.phone LIKE ? OR u.nickname LIKE ?)');
+        values.push(Number(keyword), `%${keyword}%`, `%${keyword}%`);
+      } else {
+        conditions.push('(u.nickname LIKE ? OR u.phone LIKE ?)');
+        values.push(`%${keyword}%`, `%${keyword}%`);
+      }
+    }
+    const where = conditions.join(' AND ');
+    const [[countRow]] = await getPool().query(
+      `SELECT COUNT(*) AS total FROM ${legacyTable('user')} u WHERE ${where}`,
+      values
+    );
+    const offset = (page - 1) * pageSize;
+    const [rows] = await getPool().query(
+      `SELECT u.uid, u.nickname, u.phone, u.avatar, u.integral, u.add_time,
+              (SELECT um.tier_code FROM ${swTable('user_membership')} um
+               WHERE um.uid = u.uid AND um.status = 1 AND um.expire_at > UNIX_TIMESTAMP()
+               ORDER BY CASE um.tier_code WHEN 'SW299' THEN 2 WHEN 'SW199' THEN 1 ELSE 0 END DESC,
+                        um.expire_at DESC LIMIT 1) AS tier_code,
+              (SELECT um.expire_at FROM ${swTable('user_membership')} um
+               WHERE um.uid = u.uid AND um.status = 1 AND um.expire_at > UNIX_TIMESTAMP()
+               ORDER BY CASE um.tier_code WHEN 'SW299' THEN 2 WHEN 'SW199' THEN 1 ELSE 0 END DESC,
+                        um.expire_at DESC LIMIT 1) AS membership_expire_at,
+              COALESCE((SELECT SUM(v.remain_amount) FROM ${swTable('cash_voucher_batch')} v
+                        WHERE v.uid = u.uid AND v.status = 1 AND v.remain_amount > 0
+                          AND (v.expire_at = 0 OR v.expire_at > UNIX_TIMESTAMP())), 0) AS cash_voucher,
+              (SELECT ar.status FROM ${swTable('approval_request')} ar
+               WHERE ar.customer_uid = u.uid AND ar.staff_uid = ?
+               ORDER BY ar.id DESC LIMIT 1) AS latest_approval_status
+       FROM ${legacyTable('user')} u
+       WHERE ${where}
+       ORDER BY u.add_time DESC
+       LIMIT ? OFFSET ?`,
+      [staffUid, ...values, pageSize, offset]
+    );
+    return {
+      total: Number(countRow?.total || 0),
+      page,
+      pageSize,
+      list: rows.map((row) => ({
+        uid: Number(row.uid),
+        nickname: row.nickname || '',
+        phone: maskPhone(row.phone),
+        avatar: row.avatar || '',
+        integral: Number(row.integral || 0),
+        cashVoucher: Number(row.cash_voucher || 0),
+        tierCode: row.tier_code || '',
+        membershipExpireAt: Number(row.membership_expire_at || 0),
+        registerAt: Number(row.add_time || 0),
+        latestApprovalStatus: row.latest_approval_status || ''
+      }))
+    };
+  }
+
   async getCard(staffUid, { publicView = false } = {}) {
     await this.assertStaff(staffUid);
 

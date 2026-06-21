@@ -6,8 +6,25 @@ const bindSchema = z.object({
   staffUid: z.coerce.number().int().positive()
 });
 
+const membersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).optional().default(20),
+  keyword: z.string().trim().max(40).optional().default('')
+});
+
 function registerStaffRoutes(app) {
   const service = new StaffService();
+
+  app.get('/api/staff/members', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const parsed = membersQuerySchema.safeParse(request.query || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      return ok(await service.listOwnedMembers(request.auth.uid, parsed.data));
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '会员列表加载失败');
+    }
+  });
 
   app.get('/api/staff/stats', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');

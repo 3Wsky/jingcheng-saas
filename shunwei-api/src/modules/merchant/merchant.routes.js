@@ -14,6 +14,36 @@ const verifySchema = z.object({
 function registerMerchantRoutes(app) {
   const cvService = new CashVoucherService();
 
+  app.get('/api/merchants/available', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      const [rows] = await getPool().query(
+        `SELECT id, merchant_name, category, contact_phone, store_address,
+                latitude, longitude, store_images, business_hours
+         FROM ${swTable('merchant')}
+         WHERE is_active = 1 AND can_verify = 1
+         ORDER BY id DESC`
+      );
+      return ok(rows.map((row) => {
+        let images = [];
+        try { images = JSON.parse(row.store_images || '[]'); } catch { images = []; }
+        return {
+          id: Number(row.id),
+          merchantName: row.merchant_name || '',
+          category: row.category || '',
+          contactPhone: row.contact_phone || '',
+          storeAddress: row.store_address || '',
+          latitude: Number(row.latitude || 0),
+          longitude: Number(row.longitude || 0),
+          cover: images[0] || '',
+          businessHours: row.business_hours || ''
+        };
+      }));
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
   app.get('/api/merchant/me', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {

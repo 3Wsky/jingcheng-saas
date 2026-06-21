@@ -197,6 +197,90 @@ class MembershipService {
     }
   }
 
+  /**
+   * 在调用方事务中发放线下审批会员权益。
+   * 审批流必须把会员、积分和现金券放在同一个事务内，因此不能调用
+   * 会自行开启事务的 claimGift()。
+   */
+  async grantApprovalMembership(connection, uid, input) {
+    const tierCode = this.normalizeTierCode(input.tierCode);
+    const sourceChannel = 'offline_approval';
+    const sourceRef = String(input.refId || '').trim();
+    const operatorUid = Number(input.operatorUid || 0);
+    const integralAmount = Number(input.integralAmount || 0);
+    if (!sourceRef) throw Object.assign(new Error('refId 不能为空'), { statusCode: 400 });
+
+    const [[existing]] = await connection.query(
+      `SELECT * FROM ${swTable('user_membership')}
+       WHERE source_channel = ? AND source_ref = ? LIMIT 1`,
+      [sourceChannel, sourceRef]
+    );
+    if (existing) return { duplicate: true, membershipId: existing.id, integral: { granted: 0 } };
+
+    const [[tierMeta]] = await connection.query(
+      `SELECT tier_code, eb_member_ship_id, gift_integral, tier_rank
+       FROM ${swTable('membership_ship_map')}
+       WHERE tier_code = ? AND is_active = 1 LIMIT 1`,
+      [tierCode]
+    );
+    if (!tierMeta) throw Object.assign(new Error('会员档位未配置'), { statusCode: 400 });
+
+    const [[user]] = await connection.query(
+      `SELECT uid, integral, is_money_level, overdue_time
+       FROM ${legacyTable('user')}
+       WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1 FOR UPDATE`,
+      [uid]
+    );
+    if (!user) throw Object.assign(new Error('用户不存在'), { statusCode: 404 });
+
+    const [[activeTier]] = await connection.query(
+      `SELECT um.tier_code, um.expire_at, sm.tier_rank
+       FROM ${swTable('user_membership')} um
+       LEFT JOIN ${swTable('membership_ship_map')} sm ON sm.tier_code = um.tier_code
+       WHERE um.uid = ? AND um.status = 1 AND um.expire_at > UNIX_TIMESTAMP()
+       ORDER BY sm.tier_rank DESC, um.expire_at DESC LIMIT 1`,
+      [uid]
+    );
+    const [[daysConfig]] = await connection.query(
+      `SELECT config_value FROM ${swTable('system_config')}
+       WHERE config_key = 'member_vip_days' LIMIT 1`
+    );
+    const vipDays = Number(daysConfig?.config_value || 365);
+    const change = this.resolveMembershipChange(
+      activeTier?.tier_code || '',
+      tierCode,
+      Number(activeTier?.expire_at || user.overdue_time || 0),
+      vipDays
+    );
+    const now = Math.floor(Date.now() / 1000);
+
+    await connection.query(
+      `UPDATE ${legacyTable('user')}
+       SET is_money_level = 2, is_ever_level = 0, overdue_time = ? WHERE uid = ?`,
+      [change.afterOverdue, uid]
+    );
+    const [membershipResult] = await connection.query(
+      `INSERT INTO ${swTable('user_membership')}
+       (uid, tier_code, eb_member_ship_id, source_channel, source_ref, granted_integral,
+        start_at, expire_at, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      [uid, change.afterTier, tierMeta.eb_member_ship_id, sourceChannel, sourceRef,
+       integralAmount, now, change.afterOverdue, now, now]
+    );
+
+    const integral = await this.integralService.grantMembershipGiftIntegral(connection, {
+      uid,
+      amount: integralAmount,
+      sourceType: 'approval_grant',
+      sourceId: sourceRef,
+      expireDays: 365,
+      bizId: sourceRef,
+      remark: `${change.afterTier} 审批开通赠送`,
+      operatorUid
+    });
+    return { duplicate: false, membershipId: membershipResult.insertId, integral };
+  }
+
   async adminGrant(input) {
     return this.claimGift(Number(input.uid), {
       tierCode: input.tierCode,

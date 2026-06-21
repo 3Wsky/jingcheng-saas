@@ -13,6 +13,15 @@ const verifySchema = z.object({
 function registerCashVoucherRoutes(app) {
   const service = new CashVoucherService();
 
+  app.get('/api/member/assets', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      return ok(await service.getAssets(request.auth.uid));
+    } catch (error) {
+      return failCV(reply, error);
+    }
+  });
+
   app.get('/api/cash-voucher/wallet', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {

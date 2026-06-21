@@ -1,7 +1,22 @@
-const { getPool } = require('../../shared/mysql');
+const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
 class CashVoucherService {
+  async getAssets(uid) {
+    const [[user]] = await getPool().query(
+      `SELECT uid, integral FROM ${legacyTable('user')}
+       WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+      [uid]
+    );
+    if (!user) throw Object.assign(new Error('用户不存在'), { statusCode: 404 });
+    const wallet = await this.getWallet(uid);
+    return {
+      uid: Number(uid),
+      integral: Number(user.integral || 0),
+      cashVoucher: Number(wallet.balance || 0)
+    };
+  }
+
   async getWallet(uid) {
     const [batches] = await getPool().query(
       `SELECT id, total_amount, remain_amount, expire_at, status, created_at
@@ -22,8 +37,18 @@ class CashVoucherService {
       }
     }
 
+    const [[totals]] = await getPool().query(
+      `SELECT
+         COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS total_granted,
+         COALESCE(SUM(CASE WHEN direction = 0 THEN amount ELSE 0 END), 0) AS total_used
+       FROM ${swTable('cash_voucher_ledger')} WHERE uid = ?`,
+      [uid]
+    );
+
     return {
       balance: totalBalance,
+      totalGranted: Number(totals?.total_granted || 0),
+      totalUsed: Number(totals?.total_used || 0),
       batchCount: batches.length,
       expiringSoon,
       batches: batches.map(b => ({
@@ -43,10 +68,12 @@ class CashVoucherService {
       [uid]
     );
     const [rows] = await getPool().query(
-      `SELECT id, direction, amount, batch_id, merchant_id, operator_uid, biz_id, remark, created_at
-       FROM ${swTable('cash_voucher_ledger')}
-       WHERE uid = ?
-       ORDER BY created_at DESC
+      `SELECT l.id, l.direction, l.amount, l.batch_id, l.merchant_id, l.operator_uid,
+              l.biz_id, l.remark, l.created_at, m.merchant_name
+       FROM ${swTable('cash_voucher_ledger')} l
+       LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
+       WHERE l.uid = ?
+       ORDER BY l.created_at DESC
        LIMIT ? OFFSET ?`,
       [uid, limit, offset]
     );
@@ -58,6 +85,7 @@ class CashVoucherService {
         amount: Number(r.amount),
         batchId: r.batch_id,
         merchantId: Number(r.merchant_id),
+        merchantName: r.merchant_name || '',
         operatorUid: Number(r.operator_uid),
         remark: r.remark || '',
         createdAt: Number(r.created_at)
