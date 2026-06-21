@@ -25,7 +25,8 @@
       <el-button @click="exportList">导出 CSV</el-button>
     </template>
 
-    <el-table :data="pagedList" v-loading="loading">
+    <TableSkeleton v-if="loading && !pagedList.length" :cols="7" />
+    <el-table v-else :data="pagedList" v-loading="loading && pagedList.length > 0">
       <template #empty>
         <el-empty description="暂无店员" />
       </template>
@@ -79,6 +80,7 @@ import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import PageShell from '@/components/PageShell.vue'
+import TableSkeleton from '@/components/TableSkeleton.vue'
 import StaffDetailDrawer from './components/StaffDetailDrawer.vue'
 
 const router = useRouter()

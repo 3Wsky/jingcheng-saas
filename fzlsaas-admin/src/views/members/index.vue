@@ -89,10 +89,12 @@
       </div>
     </template>
 
+    <TableSkeleton v-if="loading && !list.length" :cols="8" />
     <el-table
+      v-else
       ref="tableRef"
       :data="list"
-      v-loading="loading"
+      v-loading="loading && list.length > 0"
       row-key="uid"
       @selection-change="onSelect"
     >
@@ -236,6 +238,7 @@ import { ElMessage } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import MemberDetailDrawer from './components/MemberDetailDrawer.vue'
 import MemberTag from '@/components/MemberTag.vue'
+import TableSkeleton from '@/components/TableSkeleton.vue'
 import { downloadCsv } from '@/utils/csvExport'
 
 const loading = ref(false)

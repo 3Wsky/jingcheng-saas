@@ -12,7 +12,8 @@
     </template>
 
     <template v-if="activeTab === 'list'">
-      <el-table :data="list" v-loading="loading">
+      <TableSkeleton v-if="loading && !list.length" :cols="6" />
+      <el-table v-else :data="list" v-loading="loading && list.length > 0">
         <template #empty>
           <el-empty description="暂无商家">
             <el-button type="primary" @click="activeTab = 'create'">开通商家</el-button>
@@ -145,6 +146,7 @@ import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
+import TableSkeleton from '@/components/TableSkeleton.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
 import UidLink from '@/components/UidLink.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'

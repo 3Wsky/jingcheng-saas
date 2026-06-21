@@ -74,7 +74,8 @@
       </el-form>
     </template>
 
-    <el-table :data="tableData" v-loading="loading">
+    <TableSkeleton v-if="loading && !tableData.length" :cols="6" />
+    <el-table v-else :data="tableData" v-loading="loading && tableData.length > 0">
       <template #empty>
         <el-empty :description="activeTab === 'pending' ? '暂无待终审记录' : '暂无审批记录'" />
       </template>
@@ -148,6 +149,7 @@ import ApprovalStatusTag from './components/ApprovalStatusTag.vue'
 import ApprovalDetailDialog from './components/ApprovalDetailDialog.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
 import UidLink from '@/components/UidLink.vue'
+import TableSkeleton from '@/components/TableSkeleton.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
 
 const route = useRoute()
@@ -264,8 +266,16 @@ function openDetail(row: any) {
 
 async function handleApprove(row: any) {
   try {
-    await ElMessageBox.confirm('确认通过该审批并发放权益？', '终审通过', { type: 'warning' })
-    await request.post('/api/admin/approval/review', { requestId: row.requestId, action: 'approve' })
+    const { value } = await ElMessageBox.prompt('确认通过该审批并发放权益？可填写审批备注。', '终审通过', {
+      type: 'warning',
+      inputPlaceholder: '审批备注（选填）',
+      inputValidator: (text: string) => text.length <= 200 || '备注不能超过200字'
+    })
+    await request.post('/api/admin/approval/review', {
+      requestId: row.requestId,
+      action: 'approve',
+      reason: value?.trim() || undefined
+    })
     ElMessage.success('已通过')
     loadPending()
   } catch { /* cancel or error */ }
@@ -280,7 +290,7 @@ async function onDetailApprove(detail: any, comment: string) {
     await request.post('/api/admin/approval/review', {
       requestId: detail.requestId,
       action: 'approve',
-      comment: comment || undefined
+      reason: comment || undefined
     })
     ElMessage.success('已通过')
     detailOpen.value = false
