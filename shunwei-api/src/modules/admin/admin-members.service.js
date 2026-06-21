@@ -333,12 +333,17 @@ class AdminMembersService {
     }
 
     const [[staff]] = await pool.query(
-      `SELECT uid, nickname FROM ${legacyTable('user')}
-       WHERE uid = ? AND COALESCE(is_del, 0) = 0 AND is_staff = 1 LIMIT 1`,
+      `SELECT u.uid, u.nickname FROM ${legacyTable('user')} u
+       WHERE u.uid = ? AND COALESCE(u.is_del, 0) = 0
+         AND (u.is_staff = 1 OR EXISTS(
+           SELECT 1 FROM ${swTable('store_manager')} sm
+           WHERE sm.manager_uid = u.uid AND sm.is_active = 1
+         ))
+       LIMIT 1`,
       [spreadUid]
     );
     if (!staff) {
-      const error = new Error('归属店员不存在或未开通店员权限');
+      const error = new Error('归属店员不存在或未开通店员/店长权限');
       error.statusCode = 400;
       throw error;
     }

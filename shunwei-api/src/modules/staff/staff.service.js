@@ -265,19 +265,53 @@ class StaffService {
               (SELECT um.expire_at FROM ${swTable('user_membership')} um
                WHERE um.uid = u.uid AND um.status = 1 AND um.expire_at > UNIX_TIMESTAMP()
                ORDER BY CASE um.tier_code WHEN 'SW299' THEN 2 WHEN 'SW199' THEN 1 ELSE 0 END DESC,
-                        um.expire_at DESC LIMIT 1) AS membership_expire_at,
-              COALESCE((SELECT SUM(v.remain_amount) FROM ${swTable('cash_voucher_batch')} v
-                        WHERE v.uid = u.uid AND v.status = 1 AND v.remain_amount > 0
-                          AND (v.expire_at = 0 OR v.expire_at > UNIX_TIMESTAMP())), 0) AS cash_voucher,
-              (SELECT ar.status FROM ${swTable('approval_request')} ar
-               WHERE ar.customer_uid = u.uid AND ar.staff_uid = ?
-               ORDER BY ar.id DESC LIMIT 1) AS latest_approval_status
+                        um.expire_at DESC LIMIT 1) AS membership_expire_at
        FROM ${legacyTable('user')} u
        WHERE ${where}
        ORDER BY u.add_time DESC
        LIMIT ? OFFSET ?`,
-      [staffUid, ...values, pageSize, offset]
+      [...values, pageSize, offset]
     );
+
+    let approvalMap = {};
+    const uids = rows.map((row) => Number(row.uid)).filter((id) => id > 0);
+    if (uids.length) {
+      try {
+        const [approvalRows] = await getPool().query(
+          `SELECT ar.customer_uid, ar.status
+           FROM ${swTable('approval_request')} ar
+           INNER JOIN (
+             SELECT customer_uid, MAX(id) AS max_id
+             FROM ${swTable('approval_request')}
+             WHERE staff_uid = ? AND customer_uid IN (${uids.map(() => '?').join(',')})
+             GROUP BY customer_uid
+           ) latest ON latest.max_id = ar.id`,
+          [staffUid, ...uids]
+        );
+        approvalMap = Object.fromEntries(
+          (approvalRows || []).map((row) => [Number(row.customer_uid), row.status || ''])
+        );
+      } catch { /* ignore */ }
+    }
+
+    let voucherMap = {};
+    if (uids.length) {
+      try {
+        const [voucherRows] = await getPool().query(
+          `SELECT uid, COALESCE(SUM(remain_amount), 0) AS cash_voucher
+           FROM ${swTable('cash_voucher_batch')}
+           WHERE uid IN (${uids.map(() => '?').join(',')})
+             AND status = 1 AND remain_amount > 0
+             AND (expire_at = 0 OR expire_at > UNIX_TIMESTAMP())
+           GROUP BY uid`,
+          uids
+        );
+        voucherMap = Object.fromEntries(
+          (voucherRows || []).map((row) => [Number(row.uid), Number(row.cash_voucher || 0)])
+        );
+      } catch { /* ignore */ }
+    }
+
     return {
       total: Number(countRow?.total || 0),
       page,
@@ -288,11 +322,11 @@ class StaffService {
         phone: maskPhone(row.phone),
         avatar: row.avatar || '',
         integral: Number(row.integral || 0),
-        cashVoucher: Number(row.cash_voucher || 0),
+        cashVoucher: voucherMap[Number(row.uid)] || 0,
         tierCode: row.tier_code || '',
         membershipExpireAt: Number(row.membership_expire_at || 0),
         registerAt: Number(row.add_time || 0),
-        latestApprovalStatus: row.latest_approval_status || ''
+        latestApprovalStatus: approvalMap[Number(row.uid)] || ''
       }))
     };
   }
