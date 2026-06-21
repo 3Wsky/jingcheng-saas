@@ -428,6 +428,98 @@ class StaffService {
       throw error;
     }
   }
+
+  async listSpreadStaffCandidates() {
+    const userTable = legacyTable('user');
+    const [rows] = await getPool().query(
+      `SELECT sp.uid, sp.nickname, sp.phone, sp.is_staff, sp.division_id,
+              COUNT(m.uid) AS memberCount
+       FROM ${userTable} m
+       INNER JOIN ${userTable} sp ON sp.uid = m.spread_uid
+       WHERE m.spread_uid > 0
+         AND COALESCE(m.is_del, 0) = 0
+         AND COALESCE(sp.is_del, 0) = 0
+       GROUP BY sp.uid, sp.nickname, sp.phone, sp.is_staff, sp.division_id
+       ORDER BY memberCount DESC, sp.uid ASC`
+    );
+
+    return Promise.all((rows || []).map(async (row) => ({
+      uid: Number(row.uid),
+      nickname: row.nickname || '',
+      phone: maskPhone(row.phone),
+      isStaff: Number(row.is_staff || 0) === 1,
+      divisionId: Number(row.division_id || 0),
+      divisionName: await this.resolveDivisionName(row.division_id),
+      memberCount: Number(row.memberCount || 0)
+    })));
+  }
+
+  async previewBatchGrantFromSpread() {
+    const candidates = await this.listSpreadStaffCandidates();
+    const pending = candidates.filter((item) => !item.isStaff);
+    const existing = candidates.filter((item) => item.isStaff);
+    return {
+      totalCandidates: candidates.length,
+      pendingCount: pending.length,
+      existingCount: existing.length,
+      pending,
+      existing
+    };
+  }
+
+  async batchGrantFromSpread(params = {}) {
+    const storeName = String(params.storeName || '米古里').trim() || '米古里';
+    const storesService = new AdminStoresService();
+    const store = await storesService.resolveOrCreateByName(storeName);
+    const preview = await this.previewBatchGrantFromSpread();
+    const results = [];
+
+    for (const row of preview.pending) {
+      try {
+        await getPool().query(
+          `UPDATE ${legacyTable('user')} SET is_staff = 1, division_id = ? WHERE uid = ?`,
+          [store.id, row.uid]
+        );
+        results.push({
+          uid: row.uid,
+          nickname: row.nickname,
+          memberCount: row.memberCount,
+          status: 'granted'
+        });
+      } catch (error) {
+        results.push({
+          uid: row.uid,
+          nickname: row.nickname,
+          status: 'failed',
+          message: error.message || '开通失败'
+        });
+      }
+    }
+
+    return {
+      storeName: store.name,
+      divisionId: store.id,
+      granted: results.filter((item) => item.status === 'granted').length,
+      skipped: preview.existingCount,
+      failed: results.filter((item) => item.status === 'failed').length,
+      results
+    };
+  }
+
+  async updateStaffStore(uid, storeName) {
+    await this.assertStaff(uid);
+    const storesService = new AdminStoresService();
+    const store = await storesService.resolveOrCreateByName(storeName);
+    await getPool().query(
+      `UPDATE ${legacyTable('user')} SET division_id = ? WHERE uid = ?`,
+      [store.id, uid]
+    );
+    return {
+      uid,
+      divisionId: store.id,
+      storeName: store.name
+    };
+  }
 }
 
 module.exports = { StaffService };

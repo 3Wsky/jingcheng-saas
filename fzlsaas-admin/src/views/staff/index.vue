@@ -22,6 +22,7 @@
     </template>
 
     <template #toolbar>
+      <el-button type="primary" @click="openBatchGrant">从归属关系批量开通</el-button>
       <el-button @click="exportList">导出 CSV</el-button>
     </template>
 
@@ -72,18 +73,44 @@
     </template>
   </PageShell>
 
-  <StaffDetailDrawer v-model="drawerOpen" :uid="selectedUid" :initial-tab="drawerTab" />
+  <StaffDetailDrawer v-model="drawerOpen" :uid="selectedUid" :initial-tab="drawerTab" @updated="loadList" />
+
+  <el-dialog v-model="batchDialogOpen" title="从归属关系批量开通店员" width="560px">
+    <p class="batch-tip">将把「至少 1 名会员归属其 UID」且尚未开通店员的用户，批量加入店员管理。</p>
+    <el-form label-width="88px">
+      <el-form-item label="默认门店">
+        <StoreNameSelect v-model="batchStoreName" placeholder="默认：米古里" />
+      </el-form-item>
+    </el-form>
+    <el-alert v-if="batchPreview" type="info" :closable="false" show-icon class="batch-alert">
+      <template #title>
+        待开通 {{ batchPreview.pendingCount }} 人 · 已是店员 {{ batchPreview.existingCount }} 人 · 归属店员共 {{ batchPreview.totalCandidates }} 人
+      </template>
+    </el-alert>
+    <el-table v-if="batchPreview?.pending?.length" :data="batchPreview.pending.slice(0, 8)" size="small" max-height="220" class="batch-table">
+      <el-table-column prop="uid" label="UID" width="80" />
+      <el-table-column prop="nickname" label="昵称" />
+      <el-table-column prop="memberCount" label="名下会员" width="90" />
+    </el-table>
+    <template #footer>
+      <el-button @click="batchDialogOpen = false">取消</el-button>
+      <el-button type="primary" :loading="batchSubmitting" :disabled="!batchPreview?.pendingCount" @click="confirmBatchGrant">
+        确认开通 {{ batchPreview?.pendingCount || 0 }} 人
+      </el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import PageShell from '@/components/PageShell.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import StoreNameSelect from '@/components/StoreNameSelect.vue'
+import { rememberStoreName } from '@/utils/recentStores'
 import StaffDetailDrawer from './components/StaffDetailDrawer.vue'
 
 const router = useRouter()
@@ -97,6 +124,10 @@ const pageSize = ref(20)
 const drawerOpen = ref(false)
 const selectedUid = ref<number | null>(null)
 const drawerTab = ref('members')
+const batchDialogOpen = ref(false)
+const batchStoreName = ref('米古里')
+const batchPreview = ref<any>(null)
+const batchSubmitting = ref(false)
 
 const filteredList = computed(() => {
   let rows = list.value
@@ -175,4 +206,44 @@ function exportList() {
   )
   ElMessage.success('已导出 CSV')
 }
+
+async function openBatchGrant() {
+  batchStoreName.value = '米古里'
+  batchDialogOpen.value = true
+  batchPreview.value = null
+  try {
+    batchPreview.value = await request.get('/api/admin/staff/batch-grant/preview')
+  } catch {
+    batchPreview.value = null
+  }
+}
+
+async function confirmBatchGrant() {
+  const store = String(batchStoreName.value || '米古里').trim() || '米古里'
+  try {
+    await ElMessageBox.confirm(
+      `确认为 ${batchPreview.value?.pendingCount || 0} 人开通店员，并设置门店为「${store}」？`,
+      '批量开通确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  batchSubmitting.value = true
+  try {
+    const data = await request.post('/api/admin/staff/batch-grant-from-spread', { storeName: store })
+    rememberStoreName(store)
+    ElMessage.success(`已开通 ${data.granted} 人${data.failed ? `，失败 ${data.failed} 人` : ''}`)
+    batchDialogOpen.value = false
+    loadList()
+  } finally {
+    batchSubmitting.value = false
+  }
+}
 </script>
+
+<style scoped>
+.batch-tip { margin: 0 0 12px; color: #606266; font-size: 13px; line-height: 1.6; }
+.batch-alert { margin: 12px 0; }
+.batch-table { margin-top: 8px; }
+</style>

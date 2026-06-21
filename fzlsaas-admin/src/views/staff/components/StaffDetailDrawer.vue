@@ -8,6 +8,7 @@
             <div class="profile-name">{{ profile.nickname || '—' }}</div>
             <div class="profile-sub">{{ profile.phone || '—' }} · {{ profile.divisionName || '—' }}</div>
           </div>
+          <el-button size="small" @click="openStoreDialog">修改门店</el-button>
         </div>
 
         <el-row :gutter="12" class="stat-row">
@@ -110,6 +111,14 @@
   </el-drawer>
 
   <MemberDetailDrawer v-model="memberOpen" :uid="memberUid" />
+
+  <el-dialog v-model="storeDialogOpen" title="修改所属门店" width="420px" append-to-body>
+    <StoreNameSelect v-model="storeFormName" placeholder="选择或输入门店名称" />
+    <template #footer>
+      <el-button @click="storeDialogOpen = false">取消</el-button>
+      <el-button type="primary" :loading="storeSaving" @click="saveStore">保存</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -120,9 +129,12 @@ import { ElMessage } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
 import ImageUrlInput from '@/components/ImageUrlInput.vue'
+import StoreNameSelect from '@/components/StoreNameSelect.vue'
+import { rememberStoreName } from '@/utils/recentStores'
 
 const props = defineProps<{ uid: number | null; initialTab?: string }>()
 const visible = defineModel<boolean>({ default: false })
+const emit = defineEmits<{ updated: [] }>()
 
 const router = useRouter()
 const loading = ref(false)
@@ -141,6 +153,9 @@ const cardPreview = computed(() => ({
 }))
 const memberOpen = ref(false)
 const memberUid = ref<number | null>(null)
+const storeDialogOpen = ref(false)
+const storeFormName = ref('')
+const storeSaving = ref(false)
 
 watch(() => [props.uid, visible.value, props.initialTab], async ([uid, open]) => {
   if (!open || !uid) return
@@ -208,10 +223,39 @@ async function saveCard() {
     ElMessage.success('名片已保存')
   } catch { /* handled */ }
 }
+
+function openStoreDialog() {
+  storeFormName.value = profile.value?.divisionName || ''
+  storeDialogOpen.value = true
+}
+
+async function saveStore() {
+  if (!props.uid) return
+  const storeName = String(storeFormName.value || '').trim()
+  if (!storeName) {
+    ElMessage.warning('请选择或输入门店名称')
+    return
+  }
+  storeSaving.value = true
+  try {
+    const data = await request.put(`/api/admin/staff/${props.uid}/store`, { storeName })
+    rememberStoreName(storeName)
+    if (profile.value) {
+      profile.value.divisionName = data.storeName
+      profile.value.divisionId = data.divisionId
+    }
+    ElMessage.success('门店已更新')
+    storeDialogOpen.value = false
+    emit('updated')
+  } finally {
+    storeSaving.value = false
+  }
+}
 </script>
 
 <style scoped>
 .profile-header { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+.profile-meta { flex: 1; min-width: 0; }
 .profile-name { font-size: 16px; font-weight: 600; }
 .profile-sub { font-size: 13px; color: #9CA3AF; margin-top: 4px; }
 .stat-row { margin-bottom: 8px; }
