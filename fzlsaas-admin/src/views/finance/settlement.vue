@@ -1,9 +1,24 @@
 <template>
   <PageShell title="商家结算" subtitle="异业商家核销台账，线下结算后在此标记">
     <template #toolbar>
-      <div class="summary-bar">
-        <span>全平台待结算 <b class="pending">{{ fmtMoney(summary.pendingTotal) }}</b></span>
-        <span>累计已结算 <b>{{ fmtMoney(summary.settledTotal) }}</b></span>
+      <div class="toolbar-row">
+        <div class="summary-bar">
+          <span>全平台待结算 <b class="pending">{{ fmtMoney(summary.pendingTotal) }}</b></span>
+          <span>累计已结算 <b>{{ fmtMoney(summary.settledTotal) }}</b></span>
+        </div>
+        <div class="toolbar-actions">
+          <template v-if="activeTab === 'merchants'">
+            <el-button
+              type="primary"
+              :disabled="!selectedRows.length"
+              :loading="batchMarking"
+              @click="batchMark"
+            >
+              批量标记已结算 ({{ selectedRows.length }})
+            </el-button>
+          </template>
+          <el-button :loading="exporting" @click="exportCsv">导出 CSV</el-button>
+        </div>
       </div>
     </template>
 
@@ -26,7 +41,17 @@
       </el-tabs>
     </template>
 
-    <el-table v-if="activeTab === 'merchants'" :data="list" v-loading="loading" size="small">
+    <el-table
+      v-if="activeTab === 'merchants'"
+      ref="tableRef"
+      :data="list"
+      v-loading="loading"
+      size="small"
+      class="admin-table"
+      row-key="id"
+      @selection-change="onSelect"
+    >
+      <el-table-column type="selection" width="48" :selectable="canSelect" />
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="merchantName" label="商家名称" min-width="140" />
       <el-table-column prop="category" label="类目" width="100" />
@@ -53,7 +78,7 @@
       </el-table-column>
     </el-table>
 
-    <el-table v-else :data="records" v-loading="recordsLoading" size="small">
+    <el-table v-else :data="records" v-loading="recordsLoading" size="small" class="admin-table">
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="merchantName" label="商家" min-width="140" />
       <el-table-column label="结算金额" width="110">
@@ -103,16 +128,21 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import type { TableInstance } from 'element-plus'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import { fmtUnixTime, fmtMoney } from '@/utils/format'
+import { downloadCsv } from '@/utils/csvExport'
 
 const route = useRoute()
 const loading = ref(false)
 const recordsLoading = ref(false)
+const exporting = ref(false)
+const batchMarking = ref(false)
 const list = ref<any[]>([])
 const records = ref<any[]>([])
+const selectedRows = ref<any[]>([])
 const total = ref(0)
 const recordsTotal = ref(0)
 const page = ref(1)
@@ -120,6 +150,7 @@ const pageSize = ref(20)
 const activeTab = ref('merchants')
 const filters = ref({ keyword: '' })
 const summary = ref({ pendingTotal: 0, settledTotal: 0 })
+const tableRef = ref<TableInstance>()
 
 const markOpen = ref(false)
 const marking = ref(false)
@@ -146,6 +177,14 @@ onMounted(async () => {
   }
 })
 
+function canSelect(row: any) {
+  return Number(row.pendingSettlement) > 0
+}
+
+function onSelect(rows: any[]) {
+  selectedRows.value = rows
+}
+
 async function loadSummary() {
   try {
     const data = await request.get('/api/admin/finance/summary')
@@ -166,6 +205,8 @@ async function load() {
     })
     list.value = data?.list || []
     total.value = data?.total || 0
+    selectedRows.value = []
+    tableRef.value?.clearSelection()
   } catch {
     list.value = []
     total.value = 0
@@ -190,8 +231,103 @@ async function loadRecords() {
   }
 }
 
+async function fetchAllMerchants() {
+  const data = await request.get('/api/admin/finance/settlement/list', {
+    params: {
+      page: 1,
+      pageSize: 500,
+      keyword: filters.value.keyword || undefined,
+    },
+  })
+  return data?.list || []
+}
+
+async function fetchAllRecords() {
+  const data = await request.get('/api/admin/finance/settlement/records', {
+    params: { page: 1, pageSize: 500 },
+  })
+  return data?.list || []
+}
+
+async function exportCsv() {
+  exporting.value = true
+  try {
+    if (activeTab.value === 'merchants') {
+      const rows = await fetchAllMerchants()
+      if (!rows.length) {
+        ElMessage.info('暂无数据可导出')
+        return
+      }
+      downloadCsv(
+        'merchant-settlement-pending.csv',
+        ['ID', '商家名称', '类目', '电话', '待结算(元)', '累计已结算(元)', '备注'],
+        rows.map((r: any) => [
+          r.id,
+          r.merchantName,
+          r.category,
+          r.contactPhone,
+          r.pendingSettlement,
+          r.settledTotal,
+          r.settlementNote || '',
+        ])
+      )
+    } else {
+      const rows = await fetchAllRecords()
+      if (!rows.length) {
+        ElMessage.info('暂无数据可导出')
+        return
+      }
+      downloadCsv(
+        'merchant-settlement-records.csv',
+        ['ID', '商家', '结算金额(元)', '状态', '备注', '结算时间'],
+        rows.map((r: any) => [
+          r.id,
+          r.merchantName,
+          r.amount,
+          r.status === 'settled' ? '已结算' : '待结算',
+          r.remark,
+          fmtUnixTime(r.settledAt || r.createdAt),
+        ])
+      )
+    }
+    ElMessage.success('CSV 已导出')
+  } catch { /* handled */ }
+  finally { exporting.value = false }
+}
+
+async function batchMark() {
+  if (!selectedRows.value.length) return
+  const totalAmount = selectedRows.value.reduce((s, r) => s + Number(r.pendingSettlement || 0), 0)
+  try {
+    await ElMessageBox.confirm(
+      `将批量标记 ${selectedRows.value.length} 家商家为已结算，合计 ${fmtMoney(totalAmount)}（按各商家全部待结算金额）。`,
+      '批量结算确认',
+      { type: 'warning', confirmButtonText: '确认批量标记' }
+    )
+  } catch {
+    return
+  }
+
+  batchMarking.value = true
+  try {
+    const data = await request.post('/api/admin/finance/settlement/mark-batch', {
+      items: selectedRows.value.map((r) => ({
+        merchantId: r.id,
+        amount: r.pendingSettlement,
+      })),
+      remark: '批量线下已结算',
+    })
+    ElMessage.success(`完成：成功 ${data?.success ?? 0} / 失败 ${data?.failed ?? 0}`)
+    loadSummary()
+    load()
+    if (activeTab.value === 'records') loadRecords()
+  } catch { /* handled */ }
+  finally { batchMarking.value = false }
+}
+
 function onTabChange() {
   page.value = 1
+  selectedRows.value = []
   if (activeTab.value === 'records') loadRecords()
   else load()
 }
@@ -255,6 +391,15 @@ async function submitMark() {
 </script>
 
 <style scoped>
+.toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+.toolbar-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .summary-bar {
   display: flex;
   gap: 24px;
