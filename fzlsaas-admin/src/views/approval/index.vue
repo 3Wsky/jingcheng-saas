@@ -77,7 +77,9 @@
     <TableSkeleton v-if="loading && !tableData.length" :cols="6" />
     <el-table v-else :data="tableData" v-loading="loading && tableData.length > 0">
       <template #empty>
-        <el-empty :description="activeTab === 'pending' ? '暂无待终审记录' : '暂无审批记录'" />
+        <el-empty :description="activeTab === 'pending' ? '暂无待终审记录' : '暂无审批记录'">
+          <el-button v-if="activeTab === 'pending'" link type="primary" @click="activeTab = 'all'; loadAll()">查看全部记录</el-button>
+        </el-empty>
       </template>
       <el-table-column prop="requestId" label="ID" width="70" />
       <el-table-column prop="customerUid" label="客户" width="100">

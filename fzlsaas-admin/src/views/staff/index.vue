@@ -28,7 +28,9 @@
     <TableSkeleton v-if="loading && !pagedList.length" :cols="7" />
     <el-table v-else :data="pagedList" v-loading="loading && pagedList.length > 0">
       <template #empty>
-        <el-empty description="暂无店员" />
+        <el-empty description="暂无店员">
+          <el-button type="primary" @click="$router.push('/members')">前往会员管理开通店员</el-button>
+        </el-empty>
       </template>
       <el-table-column prop="uid" label="UID" width="80" />
       <el-table-column prop="nickname" label="姓名" />
