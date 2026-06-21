@@ -30,7 +30,9 @@
           <el-button size="small" @click="showGrantVoucher = true">发放现金券</el-button>
           <el-button size="small" @click="showGrantMembership = true">手动开通会员</el-button>
           <el-button size="small" @click="changeSpread">变更归属</el-button>
+          <el-button size="small" @click="clearSpread">清除归属</el-button>
           <el-button size="small" @click="toggleStaff">{{ profile.isStaff ? '撤销店员' : '开通店员' }}</el-button>
+          <el-button size="small" @click="toggleStoreManager">{{ profile.isManager ? '撤销店长' : '设为店长' }}</el-button>
           <el-button size="small" @click="openMerchantRole">商家角色</el-button>
         </el-space>
 
@@ -100,6 +102,19 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showGrantManager" title="设为店长" width="420px" append-to-body>
+      <el-form label-width="88px">
+        <el-form-item label="所属门店">
+          <StoreNameSelect v-model="managerStoreName" placeholder="留空则使用用户当前门店 division_id" />
+        </el-form-item>
+        <p class="hint">设店长会自动开通店员权限；同一门店可配置 1–2 名店长。</p>
+      </el-form>
+      <template #footer>
+        <el-button @click="showGrantManager = false">取消</el-button>
+        <el-button type="primary" @click="confirmGrantManager">确认设店长</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showGrantMembership" title="手动开通会员" width="400px" append-to-body>
       <el-form :model="membershipForm" label-width="88px">
         <el-form-item label="会员档位">
@@ -166,8 +181,10 @@ const activeTab = ref('batches')
 const showGrantIntegral = ref(false)
 const showGrantVoucher = ref(false)
 const showGrantStaff = ref(false)
+const showGrantManager = ref(false)
 const showGrantMembership = ref(false)
 const staffStoreName = ref('')
+const managerStoreName = ref('')
 const grantForm = ref({ amount: 1000, batchType: 'gift', remark: '超管手动发放' })
 const voucherForm = ref({ amount: 100, remark: '超管手动发放' })
 const membershipForm = ref({ tierCode: 'SW199' as 'SW199' | 'SW299' })
@@ -278,6 +295,47 @@ async function changeSpread() {
     ElMessage.success('归属店员已更新')
     loadDetail(props.uid)
   } catch { /* cancel or error */ }
+}
+
+async function clearSpread() {
+  if (!props.uid) return
+  try {
+    await ElMessageBox.confirm('确认清除该会员的归属店员？', '清除归属', { type: 'warning' })
+    await request.put(`/api/admin/members/${props.uid}/spread`, { spreadUid: 0 })
+    ElMessage.success('归属已清除')
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function toggleStoreManager() {
+  if (!props.uid || !profile.value) return
+  const isManager = profile.value.isManager
+  if (isManager) {
+    try {
+      await ElMessageBox.confirm('确认撤销该用户的店长身份？', '撤销店长', { type: 'warning' })
+      await request.put(`/api/admin/members/${props.uid}/store-manager`, { action: 'revoke' })
+      ElMessage.success('店长已撤销')
+      loadDetail(props.uid)
+    } catch { /* cancel */ }
+    return
+  }
+  managerStoreName.value = ''
+  showGrantManager.value = true
+}
+
+async function confirmGrantManager() {
+  if (!props.uid) return
+  const storeName = String(managerStoreName.value || '').trim()
+  try {
+    await request.put(`/api/admin/members/${props.uid}/store-manager`, {
+      action: 'grant',
+      ...(storeName ? { storeName } : {})
+    })
+    if (storeName) rememberStoreName(storeName)
+    ElMessage.success('店长已设置')
+    showGrantManager.value = false
+    loadDetail(props.uid)
+  } catch { /* handled */ }
 }
 
 async function toggleStaff() {

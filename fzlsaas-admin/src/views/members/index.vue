@@ -41,6 +41,9 @@
           <el-form-item label="归属店员UID">
             <el-input-number v-model="filters.spreadUid" :min="0" controls-position="right" style="width: 140px" />
           </el-form-item>
+          <el-form-item label="无归属">
+            <el-switch v-model="filters.unownedOnly" />
+          </el-form-item>
         </template>
         <el-form-item class="filter-actions">
           <el-button type="primary" @click="search">查询</el-button>
@@ -73,6 +76,9 @@
         </el-button>
         <el-button :disabled="!selectedRows.length" @click="openBatch('membership')">
           批量设置
+        </el-button>
+        <el-button :disabled="!selectedRows.length" @click="openSpreadBatch">
+          批量指定归属
         </el-button>
         <el-button @click="downloadTemplate">查看导入模板</el-button>
         <el-upload
@@ -210,6 +216,30 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="spreadOpen" title="批量指定归属店员" width="480px" destroy-on-close>
+    <p class="batch-tip">将已勾选的会员归属到指定店员；默认跳过已有归属的会员。</p>
+    <el-form label-width="120px">
+      <el-form-item label="归属店员 UID" required>
+        <el-input-number v-model="spreadTargetUid" :min="1" controls-position="right" style="width: 100%" />
+      </el-form-item>
+      <el-form-item label="仅无归属">
+        <el-switch v-model="spreadOnlyUnowned" />
+      </el-form-item>
+      <el-form-item label="已选会员">
+        <span>{{ selectedRows.length }} 人</span>
+      </el-form-item>
+    </el-form>
+    <div v-if="spreadResults.length" class="batch-results">
+      <div v-for="r in spreadResults" :key="r.uid" :class="{ fail: !r.ok }">
+        UID {{ r.uid }}: {{ r.ok ? '成功' : r.error }}
+      </div>
+    </div>
+    <template #footer>
+      <el-button @click="spreadOpen = false">取消</el-button>
+      <el-button type="primary" :loading="spreadRunning" @click="runSpreadBatch">确定</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="csvOpen" title="CSV 导入结果" width="480px" destroy-on-close>
     <el-alert
       v-if="csvSummary"
@@ -253,7 +283,8 @@ const filters = ref({
   keyword: '',
   tag: '',
   paidOnly: '' as '' | 'yes' | 'no',
-  spreadUid: undefined as number | undefined
+  spreadUid: undefined as number | undefined,
+  unownedOnly: false
 })
 const drawerOpen = ref(false)
 const selectedUid = ref<number | null>(null)
@@ -269,6 +300,11 @@ const batchRemark = ref('批量发放')
 const batchRunning = ref(false)
 const batchProgress = ref(0)
 const batchResults = ref<any[]>([])
+const spreadOpen = ref(false)
+const spreadTargetUid = ref<number | undefined>(undefined)
+const spreadOnlyUnowned = ref(true)
+const spreadRunning = ref(false)
+const spreadResults = ref<any[]>([])
 const tableRef = ref<TableInstance>()
 
 const batchTitle = computed(() => ({
@@ -342,6 +378,35 @@ async function runBatch() {
   finally { batchRunning.value = false }
 }
 
+function openSpreadBatch() {
+  if (!selectedRows.value.length) {
+    ElMessage.warning('请先勾选用户')
+    return
+  }
+  spreadResults.value = []
+  spreadOpen.value = true
+}
+
+async function runSpreadBatch() {
+  if (!selectedRows.value.length || !spreadTargetUid.value) {
+    ElMessage.warning('请填写归属店员 UID')
+    return
+  }
+  spreadRunning.value = true
+  spreadResults.value = []
+  try {
+    const data = await request.post('/api/admin/members/batch-spread', {
+      spreadUid: spreadTargetUid.value,
+      uids: selectedRows.value.map((r) => r.uid),
+      onlyUnowned: spreadOnlyUnowned.value
+    })
+    spreadResults.value = data?.results || []
+    ElMessage.success(`完成：成功 ${data?.success ?? 0} / 失败 ${data?.failed ?? 0}`)
+    loadList()
+  } catch { /* handled */ }
+  finally { spreadRunning.value = false }
+}
+
 async function loadList() {
   loading.value = true
   try {
@@ -351,7 +416,8 @@ async function loadList() {
       keyword: filters.value.keyword || undefined,
       searchType: filters.value.searchType !== 'all' ? filters.value.searchType : undefined,
       tag: filters.value.tag || undefined,
-      spreadUid: filters.value.spreadUid || undefined
+      spreadUid: filters.value.spreadUid || undefined,
+      unownedOnly: filters.value.unownedOnly || undefined
     }
     const data = await request.get('/api/admin/members/list', { params })
     let rows = data?.list || []
@@ -376,7 +442,7 @@ function search() {
 }
 
 function reset() {
-  filters.value = { searchType: 'all', keyword: '', tag: '', paidOnly: '', spreadUid: undefined }
+  filters.value = { searchType: 'all', keyword: '', tag: '', paidOnly: '', spreadUid: undefined, unownedOnly: false }
   activeTab.value = 'all'
   search()
 }

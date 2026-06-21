@@ -13,7 +13,8 @@ const listQuerySchema = z.object({
   tag: z.string().trim().max(128).optional().default(''),
   searchType: z.enum(['all', 'uid', 'phone', 'nickname']).optional().default('all'),
   sortBy: z.string().optional().default('register_desc'),
-  spreadUid: z.coerce.number().int().positive().optional()
+  spreadUid: z.coerce.number().int().positive().optional(),
+  unownedOnly: z.coerce.boolean().optional()
 });
 
 const staffRoleSchema = z.object({
@@ -31,7 +32,19 @@ const staffRoleSchema = z.object({
 });
 
 const spreadUpdateSchema = z.object({
-  spreadUid: z.coerce.number().int().positive()
+  spreadUid: z.coerce.number().int().min(0)
+});
+
+const storeManagerSchema = z.object({
+  action: z.enum(['grant', 'revoke']),
+  divisionId: z.coerce.number().int().optional(),
+  storeName: z.string().trim().min(1).max(80).optional()
+});
+
+const batchSpreadSchema = z.object({
+  spreadUid: z.coerce.number().int().positive(),
+  uids: z.array(z.coerce.number().int().positive()).min(1).max(200),
+  onlyUnowned: z.boolean().optional().default(true)
 });
 
 const integralGrantSchema = z.object({
@@ -127,6 +140,88 @@ function registerAdminMembersRoutes(app) {
         ip: getClientIp(request)
       });
       return fail(reply, error.statusCode || 500, error.message || '归属更新失败');
+    }
+  });
+
+  app.post('/api/admin/members/batch-spread', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = batchSpreadSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    const session = getAdminSession(request);
+    try {
+      const result = await membersService.batchAssignSpread(
+        parsed.data.spreadUid,
+        parsed.data.uids,
+        { onlyUnowned: parsed.data.onlyUnowned }
+      );
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'member_spread_batch_update',
+        targetType: 'user',
+        targetId: parsed.data.spreadUid,
+        payload: {
+          spreadUid: parsed.data.spreadUid,
+          uids: parsed.data.uids,
+          onlyUnowned: parsed.data.onlyUnowned,
+          success: result.success,
+          failed: result.failed
+        },
+        ip: getClientIp(request)
+      });
+      return ok(result, `归属已更新：成功 ${result.success} / 失败 ${result.failed}`);
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'member_spread_batch_update',
+        targetType: 'user',
+        targetId: parsed.data.spreadUid,
+        payload: parsed.data,
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '批量归属更新失败');
+    }
+  });
+
+  app.put('/api/admin/members/:uid/store-manager', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'uid 无效');
+
+    const parsed = storeManagerSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    const session = getAdminSession(request);
+    try {
+      const result = await membersService.updateStoreManagerRole(
+        uid,
+        parsed.data.action,
+        parsed.data.divisionId,
+        parsed.data.storeName
+      );
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: parsed.data.action === 'grant' ? 'store_manager_grant' : 'store_manager_revoke',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(result, parsed.data.action === 'grant' ? '店长已设置' : '店长已撤销');
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'store_manager_update',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '店长设置失败');
     }
   });
 
