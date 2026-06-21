@@ -44,7 +44,7 @@
             <el-col :span="8">
               <div class="benefit-box">
                 <div class="benefit-label">匹配档位</div>
-                <div class="benefit-value">{{ detail.matchedTierCode || '—' }}</div>
+                <div class="benefit-value">{{ formatTier(detail.matchedTierCode) }}</div>
               </div>
             </el-col>
             <el-col :span="8">
@@ -161,6 +161,12 @@ function fmtTime(ts?: number) {
 function formatNum(v: any) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
+}
+
+function formatTier(code?: string) {
+  if (code === 'SW199') return '锦程199会员'
+  if (code === 'SW299') return '锦程299会员'
+  return code || '—'
 }
 
 function goMember(uid: number) {
