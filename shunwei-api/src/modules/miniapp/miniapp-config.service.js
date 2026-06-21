@@ -20,8 +20,8 @@ class MiniappConfigService {
     );
     const map = Object.fromEntries(rows.map((row) => [row.config_key, row.config_value]));
     return {
-      staffEntryRoleOnly: parseBool(map[CONFIG_KEYS.staffEntryRoleOnly], true),
-      merchantEntryRoleOnly: parseBool(map[CONFIG_KEYS.merchantEntryRoleOnly], true)
+      staffEntryRoleOnly: parseBool(map[CONFIG_KEYS.staffEntryRoleOnly], false),
+      merchantEntryRoleOnly: parseBool(map[CONFIG_KEYS.merchantEntryRoleOnly], false)
     };
   }
 
