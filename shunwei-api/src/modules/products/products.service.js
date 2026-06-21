@@ -148,14 +148,28 @@ class ProductsService {
 
   async importFromPriceTags(options = {}) {
     const dataDir = path.resolve(options.dataDir || config.priceTag.dataDir);
+    const brandSet = Array.isArray(options.brands) && options.brands.length
+      ? new Set(options.brands.map((b) => String(b).trim()).filter(Boolean))
+      : null;
+    const sourceSet = Array.isArray(options.sources) && options.sources.length
+      ? new Set(options.sources.map((s) => String(s).trim()).filter(Boolean))
+      : null;
     const incomingProducts = [];
     const fileResults = [];
 
     for (const source of PRICE_TAG_FILES) {
+      if (sourceSet && !sourceSet.has(source.type)) continue;
       const filePath = path.join(dataDir, source.fileName);
       const result = await readPriceTagFile(filePath, source);
-      fileResults.push(result.file);
-      incomingProducts.push(...result.products);
+      const filteredProducts = brandSet
+        ? result.products.filter((product) => brandSet.has(product.brand))
+        : result.products;
+      fileResults.push({
+        ...result.file,
+        matchedCount: filteredProducts.length,
+        filteredByBrand: Boolean(brandSet)
+      });
+      incomingProducts.push(...filteredProducts);
     }
 
     let importSummary = null;
@@ -192,11 +206,12 @@ class ProductsService {
         id: nanoid(10),
         source: 'digital-price-tag-generator',
         dataDir,
+        brands: brandSet ? [...brandSet] : [],
         files: fileResults,
         total: incomingProducts.length,
         createdCount,
         updatedCount,
-        skippedCount: fileResults.reduce((sum, item) => sum + item.skippedCount, 0),
+        skippedCount: fileResults.reduce((sum, item) => sum + (item.skippedCount || 0), 0),
         importedAt
       };
       state.imports = [importRecord].concat(state.imports || []).slice(0, 20);
@@ -208,6 +223,34 @@ class ProductsService {
     });
 
     return importSummary;
+  }
+
+  async previewCollectBrands(options = {}) {
+    const dataDir = path.resolve(options.dataDir || config.priceTag.dataDir);
+    const sourceSet = Array.isArray(options.sources) && options.sources.length
+      ? new Set(options.sources.map((s) => String(s).trim()).filter(Boolean))
+      : null;
+    const brandCounts = {};
+
+    for (const source of PRICE_TAG_FILES) {
+      if (sourceSet && !sourceSet.has(source.type)) continue;
+      const filePath = path.join(dataDir, source.fileName);
+      const result = await readPriceTagFile(filePath, source);
+      for (const product of result.products) {
+        const brand = product.brand || '未分类';
+        brandCounts[brand] = (brandCounts[brand] || 0) + 1;
+      }
+    }
+
+    const brandList = Object.entries(brandCounts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'zh-CN'));
+
+    return {
+      brandList,
+      total: brandList.reduce((sum, item) => sum + item.count, 0),
+      sources: sourceSet ? [...sourceSet] : ['phone', 'dji']
+    };
   }
 
   async importFromCrmeb(options = {}) {
@@ -698,13 +741,7 @@ function buildStoreInfo(brand, title, features, specs) {
 }
 
 function normalizeBrand(value) {
-  const text = cleanText(value);
-  if (/honor|荣耀/i.test(text)) return '荣耀';
-  if (/huawei|华为/i.test(text)) return '华为';
-  if (/iqoo/i.test(text)) return 'iQOO';
-  if (/vivo/i.test(text)) return 'vivo';
-  if (/dji|大疆/i.test(text)) return 'DJI';
-  return text || '未分类';
+  return helperNormalizeBrand(value);
 }
 
 function cleanModelName(title, brand) {

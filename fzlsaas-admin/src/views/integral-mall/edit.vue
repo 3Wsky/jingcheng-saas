@@ -15,15 +15,27 @@
         </div>
       </div>
 
-      <!-- Step 0: 选择商品 -->
+      <!-- Step 0: 创建方式 -->
       <div v-show="current === 0" class="step-body">
         <el-form label-width="110px">
-          <el-form-item label="选择商品" required>
+          <el-form-item label="创建方式" required>
+            <el-radio-group v-model="createMode">
+              <el-radio value="manual">手动创建（独立上架）</el-radio>
+              <el-radio value="import">从展示商品导入</el-radio>
+            </el-radio-group>
+            <p class="field-hint block-hint">
+              {{ createMode === 'manual'
+                ? '无需先在商品管理上架，直接填写标题、主图、积分价与库存即可独立上架积分商品。'
+                : '从已上架展示商品快速导入信息，可在此基础上调整积分价与库存。' }}
+            </p>
+          </el-form-item>
+          <el-form-item v-if="createMode === 'import'" label="选择商品" required>
             <div class="pick-box" @click="selectOpen = true">
               <el-image v-if="form.image" :src="form.image" style="width:80px;height:80px" fit="cover" />
-              <div v-else class="pick-placeholder"><el-icon><Goods /></el-icon><span>点击选择 CRMEB 商品</span></div>
+              <div v-else class="pick-placeholder"><el-icon><Goods /></el-icon><span>点击选择已上架展示商品</span></div>
             </div>
-            <p v-if="form.productId" class="hint">已关联商品 ID：{{ form.productId }} · {{ form.title }}</p>
+            <p v-if="form.showcaseId" class="hint">展示商品 ID：{{ form.showcaseId }} · {{ form.title }}</p>
+            <p v-if="form.productId" class="hint muted">关联 CRMEB ID：{{ form.productId }}</p>
           </el-form-item>
         </el-form>
       </div>
@@ -120,7 +132,7 @@
       </div>
     </div>
 
-    <CrmebProductSelectDialog v-model="selectOpen" @select="onProductSelected" />
+    <ShowcaseProductSelectDialog v-model="selectOpen" @select="onProductSelected" />
   </div>
 </template>
 
@@ -130,7 +142,7 @@ import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Goods } from '@element-plus/icons-vue'
-import CrmebProductSelectDialog from '@/components/CrmebProductSelectDialog.vue'
+import ShowcaseProductSelectDialog from '@/components/ShowcaseProductSelectDialog.vue'
 import ImageUrlInput from '@/components/ImageUrlInput.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
 import LazyRichTextEditor from '@/components/LazyRichTextEditor'
@@ -140,14 +152,16 @@ const router = useRouter()
 const productId = computed(() => route.params.id ? Number(route.params.id) : null)
 const isEdit = computed(() => !!productId.value)
 
-const stepList = ['选择积分商品', '填写基础信息', '修改商品详情']
+const stepList = ['创建方式', '填写基础信息', '修改商品详情']
 const current = ref(0)
 const saving = ref(false)
 const selectOpen = ref(false)
+const createMode = ref<'manual' | 'import'>('manual')
 const skuList = ref<any[]>([])
 const selectedSkus = ref<any[]>([])
 
 const defaultForm = () => ({
+  showcaseId: '',
   productId: 0,
   title: '',
   image: '',
@@ -196,7 +210,8 @@ async function loadSkus(crmebId: number, savedAttrs: any[] = []) {
 }
 
 function onProductSelected(detail: any) {
-  form.value.productId = detail.id
+  form.value.showcaseId = detail.id
+  form.value.productId = Number(detail.crmebId || 0)
   form.value.title = detail.storeName
   form.value.image = detail.image
   form.value.images = detail.sliderImages?.length ? [...detail.sliderImages] : (detail.image ? [detail.image] : [])
@@ -204,16 +219,13 @@ function onProductSelected(detail: any) {
   form.value.sort = detail.sort || 0
   form.value.description = detail.description || detail.storeInfo || ''
   form.value.specType = detail.specType || 0
-  if (detail.specType === 0) {
+  if (detail.specType === 0 || !detail.crmebId) {
     form.value.price = Math.max(1000, Number(detail.price || 0) * 10)
-    form.value.stock = detail.stock || 0
+    form.value.stock = detail.stock || 100
     skuList.value = []
+    form.value.specType = 0
   } else {
-    skuList.value = (detail.skus || []).map((s: any) => ({
-      ...s,
-      integralPrice: Math.max(1000, Number(s.price || 0) * 10),
-      integralQuota: 1
-    }))
+    loadSkus(Number(detail.crmebId))
   }
 }
 
@@ -230,26 +242,42 @@ function prev() {
 }
 
 function next() {
-  if (current.value === 0 && !form.value.productId) {
-    ElMessage.warning('请先选择商品')
+  if (current.value === 0 && createMode.value === 'import' && !form.value.showcaseId) {
+    ElMessage.warning('请先选择已上架展示商品，或切换为「手动创建」')
     return
   }
   if (current.value === 1 && !form.value.title.trim()) {
     ElMessage.warning('请填写商品标题')
     return
   }
+  if (current.value === 1 && createMode.value === 'manual' && !form.value.image?.trim() && !form.value.images.filter(Boolean).length) {
+    ElMessage.warning('请上传商品主图')
+    return
+  }
   if (current.value < 2) current.value += 1
 }
 
 async function save() {
-  if (!form.value.productId) {
-    ElMessage.warning('请先选择商品')
+  if (createMode.value === 'import' && !form.value.showcaseId) {
+    ElMessage.warning('请先选择已上架展示商品，或切换为「手动创建」')
     current.value = 0
+    return
+  }
+  if (!form.value.title.trim()) {
+    ElMessage.warning('请填写商品标题')
+    current.value = 1
+    return
+  }
+  if (!form.value.image?.trim() && !form.value.images.filter(Boolean).length) {
+    ElMessage.warning('请上传商品主图')
+    current.value = 1
     return
   }
   saving.value = true
   const payload: any = {
     ...form.value,
+    productId: form.value.productId || undefined,
+    showcaseId: createMode.value === 'import' ? form.value.showcaseId : undefined,
     images: form.value.images.filter(Boolean),
     image: form.value.image || form.value.images[0] || ''
   }
@@ -303,6 +331,7 @@ async function save() {
 }
 .pick-placeholder { text-align: center; color: #999; font-size: 12px; }
 .field-hint { margin-left: 12px; font-size: 12px; color: rgba(0,0,0,0.45); }
+.block-hint { display: block; margin: 8px 0 0; margin-left: 0 !important; max-width: 520px; line-height: 1.6; }
 .detail-preview {
   width: 280px; min-height: 400px; border: 1px solid #f0f0f0; border-radius: 8px;
   padding: 12px; background: #fafafa; overflow: auto; font-size: 13px;

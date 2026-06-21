@@ -21,7 +21,14 @@ const collectFromCrmebSchema = z.object({
 
 const importSchema = z.object({
   isShow: z.boolean().optional(),
-  dataDir: z.string().trim().max(260).optional()
+  dataDir: z.string().trim().max(260).optional(),
+  brands: z.array(z.string().trim().max(40)).max(20).optional(),
+  sources: z.array(z.enum(['phone', 'dji'])).max(2).optional()
+});
+
+const collectPreviewSchema = z.object({
+  dataDir: z.string().trim().max(260).optional(),
+  sources: z.string().trim().max(40).optional()
 });
 
 const collectUrlSchema = z.object({
@@ -110,6 +117,24 @@ function registerProductRoutes(app) {
       return ok(await service.importFromPriceTags(parsed.data), '商品采集完成');
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '商品采集失败');
+    }
+  });
+
+  app.get('/api/admin/products/collect/preview', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    const parsed = collectPreviewSchema.safeParse(request.query || {});
+    if (!parsed.success) return fail(reply, 400, '预览参数错误', parsed.error.flatten());
+    const sources = String(parsed.data.sources || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s === 'phone' || s === 'dji');
+    try {
+      return ok(await service.previewCollectBrands({
+        dataDir: parsed.data.dataDir,
+        sources: sources.length ? sources : undefined
+      }));
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '品牌预览失败');
     }
   });
 

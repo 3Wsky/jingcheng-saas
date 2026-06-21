@@ -16,6 +16,7 @@ const extRepo = new IntegralProductExtRepository();
 const productsService = new ProductsService();
 
 const productSchema = z.object({
+  showcaseId: z.string().trim().min(1).max(80).optional(),
   productId: z.coerce.number().int().min(1).optional(),
   title: z.string().trim().min(1).max(128),
   image: z.string().trim().max(512).optional().default(''),
@@ -85,17 +86,20 @@ async function mapProduct(row) {
     description: ext.description || '',
     specType: Number(ext.specType || 0),
     attrs: ext.attrs || [],
+    showcaseId: ext.showcaseId || '',
     productType: 'integral_verify',
     deliveryType: 'local_verify'
   };
 }
 
 async function saveExt(productId, data) {
-  await extRepo.save(productId, {
+  const payload = {
     description: data.description || '',
     specType: data.specType || 0,
     attrs: data.attrs || []
-  });
+  };
+  if (data.showcaseId !== undefined) payload.showcaseId = String(data.showcaseId || '');
+  await extRepo.save(productId, payload);
 }
 
 function normalizeIntegralPayload(d) {
@@ -114,6 +118,26 @@ async function findIntegralByTitle(pool, title) {
     [title]
   );
   return row || null;
+}
+
+async function getShowcaseProduct(showcaseId) {
+  const id = String(showcaseId || '').trim();
+  if (!id) return null;
+  const data = await productsService.listAdminProducts({ status: 'all' });
+  return (data.list || []).find((item) => String(item.id) === id) || null;
+}
+
+async function requireShownShowcase(showcaseId, reply) {
+  const showcase = await getShowcaseProduct(showcaseId);
+  if (!showcase) {
+    fail(reply, 404, '展示商品不存在');
+    return null;
+  }
+  if (!showcase.isShow) {
+    fail(reply, 400, '仅可选择已上架的展示商品');
+    return null;
+  }
+  return showcase;
 }
 
 async function insertIntegralProduct(pool, payload, overrides = {}) {
@@ -228,24 +252,42 @@ function registerAdminIntegralMallRoutes(app) {
 
   app.post('/api/admin/integral-mall/products', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
-    const parsed = productSchema.safeParse(request.body || {});
+    const showcaseId = String(request.body?.showcaseId || '').trim();
+    const body = { ...request.body };
+
+    if (showcaseId) {
+      const showcase = await requireShownShowcase(showcaseId, reply);
+      if (!showcase) return;
+      if (!body.productId && showcase.crmebId) body.productId = showcase.crmebId;
+    }
+
+    const parsed = productSchema.safeParse(body);
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
-    if (!parsed.data.productId) return fail(reply, 400, '请先选择关联商品');
 
     const d = normalizeIntegralPayload(parsed.data);
+    if (!showcaseId) {
+      if (!d.title?.trim()) return fail(reply, 400, '请填写商品标题');
+      const hasImage = Boolean(d.image?.trim()) || (d.images?.length > 0);
+      if (!hasImage) return fail(reply, 400, '请上传商品主图');
+    }
     const images = d.images?.length ? d.images : (d.image ? [d.image] : []);
     const now = Math.floor(Date.now() / 1000);
+    const cols = ['title', 'image', 'images', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
+    const vals = [
+      d.title, d.image || images[0] || '', serializeImages(images), d.price, d.stock,
+      d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, now
+    ];
+    if (d.productId) {
+      cols.unshift('product_id');
+      vals.unshift(d.productId);
+    }
+
     const [result] = await getPool().query(
-      `INSERT INTO ${legacyTable('store_integral')}
-       (product_id, title, image, images, price, stock, is_show, sort, unit_name, is_host, quota, once_num, num, is_del, add_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
-      [
-        d.productId, d.title, d.image || images[0] || '', serializeImages(images), d.price, d.stock,
-        d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, now
-      ]
+      `INSERT INTO ${legacyTable('store_integral')} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      vals
     );
 
-    await saveExt(result.insertId, d);
+    await saveExt(result.insertId, showcaseId ? { ...d, showcaseId } : d);
 
     const session = getAdminSession(request);
     await audit.write({
@@ -384,9 +426,8 @@ function registerAdminIntegralMallRoutes(app) {
     const showcaseId = String(request.body?.showcaseId || '').trim();
     if (!showcaseId) return fail(reply, 400, '请选择展示商品');
 
-    const data = await productsService.listAdminProducts({ status: 'all' });
-    const source = (data.list || []).find((item) => String(item.id) === showcaseId);
-    if (!source) return fail(reply, 404, '展示商品不存在');
+    const source = await requireShownShowcase(showcaseId, reply);
+    if (!source) return;
 
     const result = await insertIntegralProduct(getPool(), source, { isShow: false });
     if (!result.ok) {
@@ -404,7 +445,7 @@ function registerAdminIntegralMallRoutes(app) {
     const importAll = Boolean(request.body?.all);
     const sourceFilter = String(request.body?.source || '').trim();
 
-    const data = await productsService.listAdminProducts({ status: 'all', source: sourceFilter || undefined });
+    const data = await productsService.listAdminProducts({ status: 'shown', source: sourceFilter || undefined });
     let sources = data.list || [];
     if (showcaseIds.length) {
       const idSet = new Set(showcaseIds);
@@ -413,7 +454,8 @@ function registerAdminIntegralMallRoutes(app) {
       return fail(reply, 400, '请选择展示商品或勾选全部导入');
     }
 
-    if (!sources.length) return fail(reply, 404, '未找到可导入的展示商品');
+    sources = sources.filter((item) => item.isShow);
+    if (!sources.length) return fail(reply, 404, '未找到已上架的展示商品');
 
     const pool = getPool();
     const results = [];
@@ -427,51 +469,12 @@ function registerAdminIntegralMallRoutes(app) {
 
   app.post('/api/admin/integral-mall/products/collect-from-crmeb', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
-    const ids = Array.isArray(request.body?.ids) ? request.body.ids.map(Number).filter((n) => n > 0) : [];
-    if (!ids.length) return fail(reply, 400, '请选择 CRMEB 商品');
-
-    const pool = getPool();
-    const rows = await fetchCrmebProducts(pool, ids);
-    if (!rows.length) return fail(reply, 404, '未找到所选 CRMEB 商品');
-
-    const results = [];
-    for (const row of rows) {
-      const r = await insertIntegralProduct(pool, row, { isShow: false });
-      results.push({ ...r, title: row.storeName });
-    }
-    const summary = summarizeBatch(results);
-    return ok(summary, `CRMEB 导入完成：新增 ${summary.createdCount}，跳过 ${summary.skippedCount}`);
+    return fail(reply, 400, '积分商品请从已上架展示商品导入，不支持直接导入 CRMEB 商品');
   });
 
   app.post('/api/admin/integral-mall/products/collect-from-price-tags', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
-    const isShow = request.body?.isShow !== undefined ? Boolean(request.body.isShow) : false;
-
-    let importResult;
-    try {
-      importResult = await productsService.importFromPriceTags({ isShow });
-    } catch (error) {
-      return fail(reply, error.statusCode || 500, error.message || '价签采集失败');
-    }
-
-    const data = await productsService.listAdminProducts({ status: 'all' });
-    const importedAt = importResult?.importedAt;
-    const sources = (data.list || []).filter((item) => {
-      if (!importedAt) return ['official', 'dji'].includes(item.source);
-      return item.importedAt === importedAt || item.updatedAt === importedAt;
-    });
-
-    const pool = getPool();
-    const results = [];
-    for (const source of sources) {
-      const r = await insertIntegralProduct(pool, source, { isShow: false });
-      results.push({ ...r, title: source.storeName });
-    }
-    const summary = summarizeBatch(results);
-    return ok({
-      priceTagImport: importResult,
-      ...summary
-    }, `价签采集并转积分完成：展示 ${importResult?.createdCount || 0}+${importResult?.updatedCount || 0}，积分新增 ${summary.createdCount}`);
+    return fail(reply, 400, '请先在商品管理中采集价签并上架展示商品，再从展示商品导入积分商城');
   });
 
   app.post('/api/admin/integral-mall/products/collect-url', async (request, reply) => {
