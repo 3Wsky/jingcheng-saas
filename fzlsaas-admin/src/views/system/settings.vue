@@ -41,6 +41,27 @@
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :xs="24" :md="12">
         <el-card shadow="never">
+          <template #header><span>管理员账户</span></template>
+          <el-descriptions :column="1" border size="small" v-loading="accountLoading">
+            <el-descriptions-item label="账户名">{{ accountInfo.username || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="登录时间">{{ accountInfo.loginAt ? new Date(accountInfo.loginAt).toLocaleString('zh-CN') : '—' }}</el-descriptions-item>
+            <el-descriptions-item label="会话有效期">{{ Math.round((accountInfo.sessionMaxAge || 0) / 3600) }} 小时</el-descriptions-item>
+          </el-descriptions>
+          <el-divider />
+          <el-form label-width="100px" label-position="top">
+            <el-form-item label="修改密码">
+              <el-input v-model="pwdForm.currentPassword" type="password" placeholder="当前密码" show-password style="margin-bottom: 8px" />
+              <el-input v-model="pwdForm.newPassword" type="password" placeholder="新密码（至少8位）" show-password />
+            </el-form-item>
+            <el-form-item>
+              <el-button type="primary" :loading="pwdSaving" @click="changePassword">修改密码</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-col>
+
+      <el-col :xs="24" :md="12">
+        <el-card shadow="never">
           <template #header><span>小程序入口显示</span></template>
           <el-form label-width="120px" label-position="top" v-loading="entryLoading">
             <el-form-item label="员工工作台">
@@ -73,7 +94,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 
 const router = useRouter()
@@ -84,10 +105,15 @@ const entrySaving = ref(false)
 const form = ref({ consumption: false, integralMall: false })
 const entryForm = ref({ staffEntryRoleOnly: false, merchantEntryRoleOnly: false })
 const lastModified = ref('')
+const accountLoading = ref(false)
+const accountInfo = ref<any>({})
+const pwdForm = ref({ currentPassword: '', newPassword: '' })
+const pwdSaving = ref(false)
 
 onMounted(() => {
   loadConfig()
   loadEntryConfig()
+  loadAccountInfo()
 })
 
 async function loadConfig() {
@@ -135,6 +161,43 @@ async function saveEntryConfig() {
     /* handled by interceptor */
   } finally {
     entrySaving.value = false
+  }
+}
+
+async function loadAccountInfo() {
+  accountLoading.value = true
+  try {
+    accountInfo.value = await request.get('/api/admin/account/info')
+  } catch {
+    accountInfo.value = {}
+  } finally {
+    accountLoading.value = false
+  }
+}
+
+async function changePassword() {
+  if (!pwdForm.value.currentPassword) {
+    ElMessage.warning('请输入当前密码')
+    return
+  }
+  if (!pwdForm.value.newPassword || pwdForm.value.newPassword.length < 8) {
+    ElMessage.warning('新密码至少8位')
+    return
+  }
+  try {
+    await ElMessageBox.confirm('确认修改管理员密码？修改后需用新密码重新登录。', '修改密码', { type: 'warning' })
+  } catch {
+    return
+  }
+  pwdSaving.value = true
+  try {
+    await request.put('/api/admin/account/password', pwdForm.value)
+    ElMessage.success('密码已修改')
+    pwdForm.value = { currentPassword: '', newPassword: '' }
+  } catch {
+    /* handled */
+  } finally {
+    pwdSaving.value = false
   }
 }
 </script>

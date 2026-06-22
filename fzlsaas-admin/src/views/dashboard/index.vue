@@ -1,5 +1,5 @@
 <template>
-  <PageShell title="数据看板">
+  <PageShell title="数据看板" subtitle="系统实时运行状态与核心业务指标概览">
     <template #actions>
       <el-space wrap :size="12">
         <el-radio-group v-model="range" size="default" @change="loadSummary">
@@ -7,7 +7,7 @@
           <el-radio-button value="7d">近7日</el-radio-button>
           <el-radio-button value="30d">近30日</el-radio-button>
         </el-radio-group>
-        <el-button :loading="exporting" @click="exportReport">导出报表</el-button>
+        <el-button :loading="exporting" @click="exportReport" icon="Download">导出报表</el-button>
       </el-space>
     </template>
 
@@ -26,8 +26,8 @@
 
     <div class="chart-section">
       <div class="section-head">
-        <span class="section-title">积分趋势</span>
-        <span class="section-desc">新增 vs 消耗（{{ rangeLabel }}）</span>
+        <span class="section-title">积分趋势分析</span>
+        <span class="section-desc">积分新增与消耗对比趋势（{{ rangeLabel }}）</span>
       </div>
       <LazyIntegralTrendChart
         :labels="trend.labels"
@@ -37,16 +37,19 @@
     </div>
 
     <div class="quick-section">
-      <span class="quick-label">快捷入口</span>
-      <el-space wrap :size="16">
-        <el-link type="primary" @click="router.push('/approval?tab=pending')">
-          待审批 {{ cards.pendingApproval ?? 0 }} 条
+      <span class="quick-label">业务快捷入口</span>
+      <el-space wrap :size="24">
+        <el-link type="primary" @click="router.push('/approval?tab=pending')" class="quick-link">
+          <el-icon><Stamp /></el-icon>
+          待审批业务 <strong class="badge-num">{{ cards.pendingApproval ?? 0 }}</strong> 项
         </el-link>
-        <el-link @click="router.push('/approval?status=approved')">
-          今日通过 {{ cards.approvalApprovedToday ?? 0 }} 条
+        <el-link @click="router.push('/approval?status=approved')" class="quick-link">
+          <el-icon><CircleCheck /></el-icon>
+          今日已通过 <strong class="badge-num">{{ cards.approvalApprovedToday ?? 0 }}</strong> 项
         </el-link>
-        <el-link type="primary" @click="router.push('/finance-settlement')">
-          待结算 ¥{{ formatNum(cards.pendingSettlement) }}
+        <el-link type="primary" @click="router.push('/finance-settlement')" class="quick-link">
+          <el-icon><Wallet /></el-icon>
+          待结算金额 <strong class="badge-num">¥{{ formatNum(cards.pendingSettlement) }}</strong>
         </el-link>
       </el-space>
     </div>
@@ -73,16 +76,16 @@ const trend = ref({ labels: [] as string[], integralGranted: [] as number[], int
 let timer: ReturnType<typeof setInterval> | null = null
 
 const statCards = computed(() => [
-  { key: 'member', type: 'member', icon: 'User', title: '会员总数', value: cards.value.memberTotal },
-  { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: '今日新注册', value: cards.value.newUsersToday, onClick: () => router.push('/members') },
-  { key: 'grant', type: 'grant', icon: 'TrendCharts', title: '今日积分新增', value: cards.value.integralGrantedToday },
-  { key: 'consume', type: 'consume', icon: 'Minus', title: '今日积分消耗', value: cards.value.integralConsumedToday },
-  { key: 'verify', type: 'verify', icon: 'Checked', title: '今日核销', value: cards.value.verifyToday },
+  { key: 'member', type: 'member', icon: 'User', title: '全网会员总数', value: cards.value.memberTotal },
+  { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: '今日新注册会员', value: cards.value.newUsersToday, onClick: () => router.push('/members') },
+  { key: 'grant', type: 'grant', icon: 'TrendCharts', title: '今日积分发放总量', value: cards.value.integralGrantedToday },
+  { key: 'consume', type: 'consume', icon: 'Minus', title: '今日积分消耗总量', value: cards.value.integralConsumedToday },
+  { key: 'verify', type: 'verify', icon: 'Checked', title: '今日核销订单数', value: cards.value.verifyToday },
   {
     key: 'approval',
     type: 'approval',
     icon: 'Document',
-    title: '待审批',
+    title: '待审批申请数',
     value: cards.value.pendingApproval,
     onClick: () => router.push('/approval?tab=pending')
   },
@@ -157,36 +160,62 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.stat-row { margin-bottom: 4px; }
-.chart-section {
-  margin-top: 8px;
-  padding-top: 20px;
-  border-top: 1px solid #f0f0f0;
+.stat-row {
+  margin-bottom: 8px;
 }
+
+.chart-section {
+  margin-top: 16px;
+  padding-top: 24px;
+  border-top: 1px solid var(--gov-border);
+}
+
 .section-head {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 16px;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 20px;
 }
+
 .section-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--gov-text-primary);
 }
+
 .section-desc {
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  color: var(--gov-text-secondary);
 }
+
 .quick-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px dashed #f0f0f0;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--gov-border);
 }
+
 .quick-label {
   display: block;
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.45);
-  margin-bottom: 10px;
+  font-weight: 600;
+  color: var(--gov-text-secondary);
+  margin-bottom: 12px;
+}
+
+.quick-link {
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-link :deep(.el-icon) {
+  font-size: 14px;
+}
+
+.badge-num {
+  font-weight: 700;
+  margin: 0 2px;
 }
 </style>

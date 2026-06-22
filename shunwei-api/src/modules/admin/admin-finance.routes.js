@@ -31,6 +31,10 @@ const settlementBatchSchema = z.object({
   remark: z.string().trim().max(255).optional().default('批量线下已结算')
 });
 
+const withdrawalSettleSchema = z.object({
+  remark: z.string().trim().max(255).optional().default('T+3线下打款完成')
+});
+
 function fmtTs(ts) {
   return Number(ts || 0);
 }
@@ -57,9 +61,10 @@ function registerAdminFinanceRoutes(app) {
        FROM ${swTable('integral_ledger')}`
     );
     const [[settleRow]] = await pool.query(
-      `SELECT COALESCE(SUM(pending_settlement), 0) AS pendingTotal,
-              COALESCE(SUM(settled_total), 0) AS settledTotal
-       FROM ${swTable('merchant')} WHERE is_active = 1`
+      `SELECT
+         COALESCE((SELECT SUM(pending_settlement) FROM ${swTable('merchant')} WHERE is_active = 1), 0)
+           + COALESCE((SELECT SUM(amount) FROM ${swTable('merchant_settlement')} WHERE status = 'pending'), 0) AS pendingTotal,
+         COALESCE((SELECT SUM(settled_total) FROM ${swTable('merchant')} WHERE is_active = 1), 0) AS settledTotal`
     );
     const [[rechargeRow]] = await pool.query(
       `SELECT COUNT(*) AS total,
@@ -384,7 +389,8 @@ function registerAdminFinanceRoutes(app) {
       );
       const [rows] = await getPool().query(
         `SELECT s.id, s.merchant_id AS merchantId, s.amount, s.status, s.settled_by AS settledBy,
-                s.settled_at AS settledAt, s.remark, s.created_at AS createdAt,
+                s.settled_at AS settledAt, s.expected_at AS expectedAt,
+                s.applicant_uid AS applicantUid, s.remark, s.created_at AS createdAt,
                 m.merchant_name AS merchantName
          FROM ${swTable('merchant_settlement')} s
          LEFT JOIN ${swTable('merchant')} m ON m.id = s.merchant_id
@@ -406,6 +412,8 @@ function registerAdminFinanceRoutes(app) {
           status: r.status,
           settledBy: Number(r.settledBy || 0),
           settledAt: fmtTs(r.settledAt),
+          expectedAt: fmtTs(r.expectedAt),
+          applicantUid: Number(r.applicantUid || 0),
           remark: r.remark || '',
           createdAt: fmtTs(r.createdAt)
         }))
@@ -415,6 +423,54 @@ function registerAdminFinanceRoutes(app) {
         return ok({ total: 0, page, pageSize, list: [] });
       }
       throw error;
+    }
+  });
+
+  app.post('/api/admin/finance/settlement/:id/settle', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id || 0);
+    if (!id) return fail(reply, 400, '提现申请ID无效');
+    const parsed = withdrawalSettleSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const connection = await getPool().getConnection();
+    const now = Math.floor(Date.now() / 1000);
+    try {
+      await connection.beginTransaction();
+      const [[record]] = await connection.query(
+        `SELECT id, merchant_id, amount, status FROM ${swTable('merchant_settlement')}
+         WHERE id = ? FOR UPDATE`,
+        [id]
+      );
+      if (!record) throw Object.assign(new Error('提现申请不存在'), { statusCode: 404 });
+      if (record.status !== 'pending') {
+        throw Object.assign(new Error('该提现申请已处理'), { statusCode: 400 });
+      }
+      await connection.query(
+        `UPDATE ${swTable('merchant_settlement')}
+         SET status = 'settled', settled_at = ?, remark = ? WHERE id = ?`,
+        [now, parsed.data.remark, id]
+      );
+      await connection.query(
+        `UPDATE ${swTable('merchant')}
+         SET settled_total = settled_total + ?, updated_at = ? WHERE id = ?`,
+        [record.amount, now, record.merchant_id]
+      );
+      await connection.commit();
+      const session = getAdminSession(request);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'withdrawal_settle',
+        targetType: 'merchant_settlement',
+        targetId: id,
+        payload: { amount: Number(record.amount), remark: parsed.data.remark },
+        ip: getClientIp(request)
+      });
+      return ok({ id, amount: Number(record.amount), settledAt: now }, '提现申请已确认打款');
+    } catch (error) {
+      await connection.rollback();
+      return fail(reply, error.statusCode || 500, error.message || '提现申请处理失败');
+    } finally {
+      connection.release();
     }
   });
 

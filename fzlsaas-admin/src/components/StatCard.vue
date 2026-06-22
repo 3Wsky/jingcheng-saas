@@ -1,7 +1,7 @@
 <template>
   <div class="stat-card" :class="['stat-' + type, { clickable: clickable }]" @click="$emit('click')">
     <div class="stat-icon-wrap">
-      <el-icon :size="22"><component :is="icon" /></el-icon>
+      <el-icon :size="20"><component :is="icon" /></el-icon>
     </div>
     <div class="stat-body">
       <div class="stat-title">{{ title }}</div>
@@ -37,52 +37,89 @@ const displayValue = computed(() => {
 <style scoped>
 .stat-card {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  background: var(--sw-bg-card, #fff);
-  border-radius: var(--sw-radius-card, 12px);
-  padding: 20px 24px;
+  align-items: center;
+  gap: 16px;
+  background: var(--gov-bg-card, #fff);
+  border-radius: var(--gov-radius-card, 6px);
+  padding: 18px 20px;
   margin-bottom: 16px;
-  border: 1px solid var(--sw-border, rgba(0, 0, 0, 0.06));
-  box-shadow: 0 4px 16px rgba(26, 31, 54, 0.04);
-  transition: box-shadow 0.2s, border-color 0.2s;
+  border: 1px solid var(--gov-border);
+  box-shadow: var(--gov-shadow-card);
+  transition: all 0.2s cubic-bezier(0.38, 0, 0.24, 1);
   cursor: default;
   height: 100%;
   box-sizing: border-box;
 }
-.stat-card.clickable { cursor: pointer; }
-.stat-card.clickable:hover {
-  border-color: #d9d9d9;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+.stat-card.clickable {
+  cursor: pointer;
 }
 
-.stat-member .stat-icon-wrap { background: var(--sw-gold-soft, #fbf6e8); color: var(--sw-gold, #c9a227); }
-.stat-newuser .stat-icon-wrap { background: #f6ffed; color: #52c41a; }
-.stat-grant .stat-icon-wrap { background: var(--sw-gold-soft, #fbf6e8); color: var(--sw-gold-dark, #8b6914); }
-.stat-consume .stat-icon-wrap { background: #fff7e6; color: #d48806; }
-.stat-verify .stat-icon-wrap { background: #f9f0ff; color: #722ed1; }
-.stat-approval .stat-icon-wrap { background: #e6fffb; color: #13c2c2; }
+.stat-card.clickable:hover {
+  border-color: var(--gov-primary);
+  box-shadow: 0 4px 12px rgba(0, 82, 217, 0.08);
+  transform: translateY(-1px);
+}
+
+/* 大厂政企专业风指标卡配色 */
+.stat-member .stat-icon-wrap {
+  background: var(--gov-primary-light, #ebf2ff);
+  color: var(--gov-primary, #0052D9);
+}
+
+.stat-newuser .stat-icon-wrap {
+  background: var(--gov-success-light, #edfaf5);
+  color: var(--gov-success, #00a870);
+}
+
+.stat-grant .stat-icon-wrap {
+  background: var(--gov-warning-light, #fef3eb);
+  color: var(--gov-warning, #ed7b2f);
+}
+
+.stat-consume .stat-icon-wrap {
+  background: var(--gov-danger-light, #fdedee);
+  color: var(--gov-danger, #e34d59);
+}
+
+.stat-verify .stat-icon-wrap {
+  background: #f3eeff;
+  color: #7b4fd4;
+}
+
+.stat-approval .stat-icon-wrap {
+  background: #e6fffb;
+  color: #13c2c2;
+}
 
 .stat-icon-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--sw-radius, 8px);
+  width: 42px;
+  height: 42px;
+  border-radius: var(--gov-radius, 4px);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
-.stat-title {
-  font-size: 14px;
-  color: rgba(0, 0, 0, 0.45);
-  line-height: 22px;
+
+.stat-body {
+  flex: 1;
+  min-width: 0;
 }
+
+.stat-title {
+  font-size: 13px;
+  color: var(--gov-text-secondary);
+  line-height: 20px;
+  font-weight: 500;
+}
+
 .stat-num {
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
-  color: rgba(0, 0, 0, 0.85);
-  margin-top: 4px;
-  line-height: 38px;
+  color: var(--gov-text-primary);
+  margin-top: 2px;
+  line-height: 32px;
   font-variant-numeric: tabular-nums;
 }
 </style>

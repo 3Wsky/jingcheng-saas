@@ -1,40 +1,70 @@
-/* 锦程数码 Admin · 轻奢会员风 Design Tokens（与小程序 v4 对齐） */
+/* FZLSaas 管理后台 · 大厂政企双色高端专业风 Design Tokens */
 
 :root {
-  /* 深色基调 */
-  --sw-dark: #1a1f36;
-  --sw-dark-mid: #2d3561;
-  --sw-bg-dark-gradient: linear-gradient(135deg, #1a1f36 0%, #2d3561 100%);
+  /* 品牌与主色调：大厂高端政企蓝 (Tencent Blue / Arco Blue) */
+  --gov-primary: #0052D9;
+  --gov-primary-hover: #1a66ec;
+  --gov-primary-active: #0040b0;
+  --gov-primary-light: #ebf2ff;
+  --gov-primary-light-3: #4081ec;
+  --gov-primary-light-5: #80b0f3;
+  --gov-primary-light-7: #bfd7fa;
+  --gov-primary-light-9: #f0f5ff;
 
-  /* 品牌金 */
-  --sw-gold: #c9a227;
-  --sw-gold-light: #d4af37;
-  --sw-gold-pale: #f5e6a3;
-  --sw-gold-dark: #8b6914;
-  --sw-gold-soft: #fbf6e8;
+  /* 辅助/状态色 (标准大厂规范) */
+  --gov-success: #00a870;
+  --gov-success-hover: #26b887;
+  --gov-success-light: #edfaf5;
+  
+  --gov-warning: #ed7b2f;
+  --gov-warning-hover: #f19558;
+  --gov-warning-light: #fef3eb;
+  
+  --gov-danger: #e34d59;
+  --gov-danger-hover: #e8707a;
+  --gov-danger-light: #fdedee;
 
-  /* 页面背景 */
-  --sw-bg-page: #f5f3f0;
-  --sw-bg-card: #ffffff;
-  --sw-border: rgba(0, 0, 0, 0.06);
+  /* 中性色与排版 (Arco Design / TDesign 严谨规范) */
+  --gov-text-primary: #1d2129;    /* 主要文字：深灰，高对比度，严谨 */
+  --gov-text-secondary: #4e5969;  /* 次要文字：中灰 */
+  --gov-text-muted: #86909c;      /* 禁用/提示文字 */
+  --gov-text-disabled: #c9cdd4;   /* 禁用状态 */
+  
+  /* 页面背景与卡片 */
+  --gov-bg-page: #f2f3f5;         /* 页面背景：大厂标准浅灰 */
+  --gov-bg-card: #ffffff;         /* 卡片背景：纯白 */
+  --gov-border: #e5e6eb;          /* 边框颜色：极细极淡 */
+  --gov-divider: #f2f3f5;         /* 分割线颜色 */
 
-  /* 圆角 */
-  --sw-radius: 8px;
-  --sw-radius-card: 12px;
+  /* 严谨精致圆角 (替代娱乐风大圆角) */
+  --gov-radius: 4px;              /* 基础圆角：4px 严谨精密 */
+  --gov-radius-card: 6px;         /* 卡片圆角：6px 稳重高端 */
+  --gov-radius-small: 2px;        /* 小圆角：2px */
 
-  /* 顶栏（深色） */
-  --crmeb-topbar: var(--sw-dark);
-  --crmeb-topbar-dark: var(--sw-dark-mid);
-  --crmeb-topbar-gradient: var(--sw-bg-dark-gradient);
+  /* 阴影：极其克制、扁平、高端 */
+  --gov-shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+  --gov-shadow-button: 0 1px 2px 0 rgba(0, 53, 179, 0.08);
+  --gov-shadow-dropdown: 0 4px 10px rgba(0, 0, 0, 0.1);
 
-  /* Element Plus 主色 → 品牌金 */
-  --el-color-primary: var(--sw-gold);
-  --el-color-primary-light-3: #d4b84a;
-  --el-color-primary-light-5: #dfc96d;
-  --el-color-primary-light-7: #ead990;
-  --el-color-primary-light-9: var(--sw-gold-soft);
-  --el-color-primary-dark-2: var(--sw-gold-dark);
+  /* 顶栏：深邃权威的深靛蓝 (Slate 900) */
+  --crmeb-topbar: #0f172a;
+  --crmeb-topbar-dark: #020617;
+  --crmeb-topbar-gradient: linear-gradient(90deg, #0f172a 0%, #1e293b 100%);
 
-  --el-border-radius-base: var(--sw-radius);
-  --el-border-radius-small: 6px;
+  /* Element Plus 变量映射 */
+  --el-color-primary: var(--gov-primary);
+  --el-color-primary-light-3: var(--gov-primary-light-3);
+  --el-color-primary-light-5: var(--gov-primary-light-5);
+  --el-color-primary-light-7: var(--gov-primary-light-7);
+  --el-color-primary-light-9: var(--gov-primary-light-9);
+  --el-color-primary-dark-2: var(--gov-primary-active);
+
+  /* 状态色映射 */
+  --el-color-success: var(--gov-success);
+  --el-color-warning: var(--gov-warning);
+  --el-color-danger: var(--gov-danger);
+
+  /* 字体与边框圆角 */
+  --el-border-radius-base: var(--gov-radius);
+  --el-border-radius-small: var(--gov-radius-small);
 }

@@ -26,16 +26,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '会员管理', icon: 'User', module: 'member' },
       },
       {
+        path: 'membership-plans',
+        name: 'MembershipPlans',
+        component: () => import('@/views/membership/plans.vue'),
+        meta: { title: '会员卡方案', icon: 'Ticket', module: 'member' },
+      },
+      {
         path: 'staff',
         name: 'Staff',
         component: () => import('@/views/staff/index.vue'),
         meta: { title: '店员管理', icon: 'Avatar', module: 'member' },
-      },
-      {
-        path: 'voucher',
-        name: 'Voucher',
-        component: () => import('@/views/voucher/index.vue'),
-        meta: { title: '现金券管理', icon: 'Ticket', hidden: true },
       },
       {
         path: 'merchant',

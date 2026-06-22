@@ -26,6 +26,11 @@
             <el-option v-for="b in brandList" :key="b" :label="b" :value="b" />
           </el-select>
         </el-form-item>
+        <el-form-item label="分类">
+          <el-select v-model="categoryFilter" placeholder="全部" clearable style="width: 130px">
+            <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+          </el-select>
+        </el-form-item>
         <template v-if="filterExpanded">
           <el-form-item label="来源">
             <el-select v-model="sourceFilter" placeholder="全部" clearable style="width: 120px">
@@ -51,7 +56,9 @@
 
     <template #toolbar>
       <div class="toolbar-left">
+        <el-button type="primary" @click="openCreate">新建商品</el-button>
         <el-button type="success" @click="openCollect">商品采集</el-button>
+        <el-button @click="openCatDialog">分类管理</el-button>
         <el-dropdown :disabled="!selected.length" @command="batchShow">
           <el-button>
             批量设置<el-icon class="el-icon--right"><ArrowDown /></el-icon>
@@ -60,6 +67,18 @@
             <el-dropdown-menu>
               <el-dropdown-item :command="true">批量上架</el-dropdown-item>
               <el-dropdown-item :command="false">批量下架</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-dropdown :disabled="!selected.length" @command="batchCategory">
+          <el-button>
+            批量分类<el-icon class="el-icon--right"><ArrowDown /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="c in categories" :key="c.id" :command="c.id">{{ c.name }}</el-dropdown-item>
+              <el-dropdown-item v-if="!categories.length" disabled>暂无分类，请先在「分类管理」添加</el-dropdown-item>
+              <el-dropdown-item v-if="categories.length" :command="UNCATEGORIZED" divided>移除分类（设为未分类）</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -116,6 +135,12 @@
         </template>
       </el-table-column>
       <el-table-column prop="brand" label="品牌" width="88" />
+      <el-table-column label="分类" width="96">
+        <template #default="{ row }">
+          <span v-if="row.categoryId">{{ categoryName(row.categoryId) }}</span>
+          <span v-else class="sub-info">未分类</span>
+        </template>
+      </el-table-column>
       <el-table-column label="售价" width="100" align="right">
         <template #default="{ row }">
           <span v-if="row.price">¥{{ row.price }}</span>
@@ -136,10 +161,11 @@
           <el-tag :type="row.isShow ? 'success' : 'info'" size="small">{{ row.isShow ? '销售中' : '仓库' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right" align="center">
+      <el-table-column label="操作" width="200" fixed="right" align="center">
         <template #default="{ row }">
           <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
           <el-button link type="primary" @click="toggleShow(row)">{{ row.isShow ? '下架' : '上架' }}</el-button>
+          <el-button link type="danger" @click="removeProduct(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -158,10 +184,19 @@
 
   <ProductCollectDialog v-model="collectOpen" mode="showcase" @success="load" />
 
-  <el-drawer v-model="editOpen" title="编辑展示商品" size="680px" destroy-on-close>
+  <el-drawer v-model="editOpen" :title="editForm && editForm.id ? '编辑展示商品' : '新建展示商品'" size="680px" destroy-on-close>
     <el-form v-if="editForm" :model="editForm" label-width="96px">
-      <el-form-item label="商品名称"><el-input v-model="editForm.storeName" /></el-form-item>
+      <el-divider content-position="left">基础信息</el-divider>
+      <el-form-item label="商品名称" required><el-input v-model="editForm.storeName" placeholder="必填" /></el-form-item>
       <el-form-item label="简介"><el-input v-model="editForm.storeInfo" type="textarea" :rows="2" /></el-form-item>
+      <el-form-item label="品牌"><el-input v-model="editForm.brand" style="width: 200px" /></el-form-item>
+      <el-form-item label="型号"><el-input v-model="editForm.model" style="width: 200px" /></el-form-item>
+      <el-form-item label="分类">
+        <el-select v-model="editForm.categoryId" placeholder="未分类" clearable style="width: 200px">
+          <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
+        </el-select>
+        <el-button link type="primary" style="margin-left: 8px" @click="openCatDialog">管理分类</el-button>
+      </el-form-item>
       <el-form-item label="封面图">
         <ImageUrlInput v-model="editForm.image" placeholder="封面图 URL" />
       </el-form-item>
@@ -176,6 +211,38 @@
         <el-checkbox v-model="editForm.isBest">精品</el-checkbox>
       </el-form-item>
       <el-form-item label="上架"><el-switch v-model="editForm.isShow" /></el-form-item>
+
+      <el-divider content-position="left">规格</el-divider>
+      <el-form-item label="规格类型">
+        <el-radio-group v-model="editForm.specType">
+          <el-radio-button :value="0">单规格</el-radio-button>
+          <el-radio-button :value="1">多规格</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
+      <el-form-item v-if="editForm.specType === 1" label="规格/SKU">
+        <div class="sku-editor">
+          <div v-for="(sku, i) in editForm.skuPrices" :key="i" class="sku-row">
+            <el-input v-model="sku.version" placeholder="规格名（如 256G 黑色）" style="flex:1" />
+            <el-input-number v-model="sku.price" :min="0" :controls="false" placeholder="价格" style="width:120px" />
+            <el-button link type="danger" @click="removeSku(i)">删除</el-button>
+          </div>
+          <el-button size="small" @click="addSku">+ 添加规格</el-button>
+        </div>
+      </el-form-item>
+
+      <el-divider content-position="left">参数</el-divider>
+      <el-form-item label="参数表">
+        <div class="param-editor">
+          <div v-for="(p, i) in editForm.paramsList" :key="i" class="param-row">
+            <el-input v-model="p.name" placeholder="参数名（如 屏幕）" style="width:180px" />
+            <el-input v-model="p.value" placeholder="参数值（如 6.1英寸）" style="flex:1" />
+            <el-button link type="danger" @click="removeParam(i)">删除</el-button>
+          </div>
+          <el-button size="small" @click="addParam">+ 添加参数</el-button>
+        </div>
+      </el-form-item>
+
+      <el-divider content-position="left">详情</el-divider>
       <el-form-item label="详情">
         <LazyRichTextEditor v-model="editForm.description" :height="360" placeholder="编辑商品详情" max-width="100%" />
       </el-form-item>
@@ -185,6 +252,27 @@
       <el-button type="primary" :loading="saving" @click="saveEdit">保存</el-button>
     </template>
   </el-drawer>
+
+  <el-dialog v-model="catDialogOpen" title="商品分类管理" width="520px">
+    <div class="cat-add">
+      <el-input v-model="catForm.name" placeholder="新分类名称" style="width: 220px" @keyup.enter="submitCategory" />
+      <el-input-number v-model="catForm.sort" placeholder="排序" :controls="false" style="width: 90px" />
+      <el-button type="primary" :loading="catSaving" @click="submitCategory">{{ catForm.id ? '更新' : '添加' }}</el-button>
+      <el-button v-if="catForm.id" @click="resetCatForm">取消编辑</el-button>
+    </div>
+    <el-table :data="categories" size="small" style="margin-top: 12px">
+      <template #empty><el-empty description="暂无分类" :image-size="60" /></template>
+      <el-table-column prop="name" label="分类名称" />
+      <el-table-column prop="productCount" label="商品数" width="80" align="center" />
+      <el-table-column prop="sort" label="排序" width="70" align="center" />
+      <el-table-column label="操作" width="120" align="center">
+        <template #default="{ row }">
+          <el-button link type="primary" @click="editCategory(row)">编辑</el-button>
+          <el-button link type="danger" @click="removeCategory(row)">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
@@ -192,7 +280,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ArrowDown, Rank } from '@element-plus/icons-vue'
 import Sortable from 'sortablejs'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import ProductCollectDialog from '@/components/ProductCollectDialog.vue'
 import ImageUrlInput from '@/components/ImageUrlInput.vue'
@@ -208,6 +296,7 @@ const sourceList = ref<string[]>([])
 const activeTab = ref('shown')
 const keyword = ref('')
 const brand = ref('')
+const categoryFilter = ref('')
 const sourceFilter = ref('')
 const specFilter = ref('')
 const filterExpanded = ref(false)
@@ -216,8 +305,13 @@ const collectOpen = ref(false)
 const editOpen = ref(false)
 const editForm = ref<any>(null)
 const saving = ref(false)
+const categories = ref<any[]>([])
+const catDialogOpen = ref(false)
+const catForm = ref<{ id: string; name: string; sort: number }>({ id: '', name: '', sort: 0 })
+const catSaving = ref(false)
 const page = ref(1)
 const pageSize = 20
+const UNCATEGORIZED = '__uncategorized__'
 const sortMode = ref(false)
 const tableRef = ref<any>(null)
 let sortable: Sortable | null = null
@@ -226,6 +320,7 @@ const canSort = computed(() =>
   activeTab.value === 'shown' &&
   !keyword.value &&
   !brand.value &&
+  !categoryFilter.value &&
   !sourceFilter.value &&
   !specFilter.value
 )
@@ -241,6 +336,7 @@ const SOURCE_LABELS: Record<string, string> = {
   official: '官方',
   dji: '大疆',
   crmeb: 'CRMEB',
+  csv: 'CSV',
   'digital-price-tag-generator': '价签'
 }
 
@@ -253,6 +349,7 @@ const filteredList = computed(() => {
     rows = rows.filter((r) => [r.storeName, r.brand, r.model, r.keyword].join(' ').toLowerCase().includes(k))
   }
   if (brand.value) rows = rows.filter((r) => r.brand === brand.value)
+  if (categoryFilter.value) rows = rows.filter((r) => String(r.categoryId || '') === categoryFilter.value)
   if (sourceFilter.value) rows = rows.filter((r) => r.source === sourceFilter.value)
   if (specFilter.value === '1') rows = rows.filter((r) => r.specType)
   else if (specFilter.value === '0') rows = rows.filter((r) => !r.specType)
@@ -261,7 +358,21 @@ const filteredList = computed(() => {
 
 onMounted(() => {
   load()
+  loadCategories()
 })
+
+async function loadCategories() {
+  try {
+    categories.value = await request.get('/api/admin/product-categories')
+  } catch {
+    categories.value = []
+  }
+}
+
+function categoryName(id?: string) {
+  if (!id) return '—'
+  return categories.value.find((c) => String(c.id) === String(id))?.name || '—'
+}
 
 function sourceLabel(s?: string) {
   if (!s) return '—'
@@ -335,6 +446,7 @@ function search() { page.value = 1; load() }
 function reset() {
   keyword.value = ''
   brand.value = ''
+  categoryFilter.value = ''
   sourceFilter.value = ''
   specFilter.value = ''
   activeTab.value = 'shown'
@@ -343,11 +455,38 @@ function reset() {
 function onSelect(rows: any[]) { selected.value = rows }
 function openCollect() { collectOpen.value = true }
 
+function openCreate() {
+  editForm.value = {
+    id: '',
+    storeName: '',
+    storeInfo: '',
+    brand: '',
+    model: '',
+    categoryId: '',
+    image: '',
+    sliderImages: [''],
+    price: 0,
+    sort: 0,
+    isShow: true,
+    isHot: false,
+    isNew: false,
+    isBest: false,
+    specType: 0,
+    skuPrices: [],
+    paramsList: [],
+    description: ''
+  }
+  editOpen.value = true
+}
+
 function openEdit(row: any) {
   editForm.value = {
     id: row.id,
     storeName: row.storeName,
     storeInfo: row.storeInfo,
+    brand: row.brand || '',
+    model: row.model || '',
+    categoryId: row.categoryId || '',
     image: row.image,
     sliderImages: row.sliderImages?.length ? [...row.sliderImages] : [''],
     price: row.price,
@@ -356,19 +495,48 @@ function openEdit(row: any) {
     isHot: Boolean(row.isHot),
     isNew: Boolean(row.isNew),
     isBest: Boolean(row.isBest),
+    specType: Number(row.specType) ? 1 : 0,
+    skuPrices: (row.skuPrices || []).map((s: any) => ({ version: s.version || '', price: Number(s.priceValue ?? s.price ?? 0) })),
+    paramsList: (row.paramsList || []).map((p: any) => ({ name: p.name || '', value: p.value || '' })),
     description: row.description || ''
   }
   editOpen.value = true
 }
 
+function addSku() {
+  editForm.value.skuPrices.push({ version: '', price: 0 })
+}
+function removeSku(i: number) {
+  editForm.value.skuPrices.splice(i, 1)
+}
+function addParam() {
+  editForm.value.paramsList.push({ name: '', value: '' })
+}
+function removeParam(i: number) {
+  editForm.value.paramsList.splice(i, 1)
+}
+
 async function saveEdit() {
   if (!editForm.value) return
+  if (!editForm.value.storeName?.trim()) {
+    ElMessage.warning('请填写商品名称')
+    return
+  }
   saving.value = true
   try {
     const sliderImages = (editForm.value.sliderImages || []).filter((x: string) => x?.trim())
-    await request.put(`/api/admin/products/${editForm.value.id}`, {
-      storeName: editForm.value.storeName,
+    const skuPrices = (editForm.value.skuPrices || [])
+      .filter((s: any) => s.version?.trim() || Number(s.price) > 0)
+      .map((s: any) => ({ version: s.version?.trim() || '', price: Number(s.price) || 0 }))
+    const paramsList = (editForm.value.paramsList || [])
+      .filter((p: any) => p.name?.trim() && p.value?.trim())
+      .map((p: any) => ({ name: p.name.trim(), value: p.value.trim() }))
+    const payload: any = {
+      storeName: editForm.value.storeName.trim(),
       storeInfo: editForm.value.storeInfo,
+      brand: editForm.value.brand,
+      model: editForm.value.model,
+      categoryId: editForm.value.categoryId || '',
       image: editForm.value.image,
       sliderImages,
       price: editForm.value.price,
@@ -377,13 +545,79 @@ async function saveEdit() {
       isHot: editForm.value.isHot,
       isNew: editForm.value.isNew,
       isBest: editForm.value.isBest,
+      specType: editForm.value.specType ? 1 : 0,
+      skuPrices,
+      paramsList,
       description: editForm.value.description
-    })
-    ElMessage.success('已保存')
+    }
+    if (editForm.value.id) {
+      await request.put(`/api/admin/products/${editForm.value.id}`, payload)
+      ElMessage.success('已保存')
+    } else {
+      await request.post('/api/admin/products', payload)
+      ElMessage.success('商品已创建')
+    }
     editOpen.value = false
     load()
   } catch { /* handled */ }
   finally { saving.value = false }
+}
+
+// ── 分类管理 ──
+function openCatDialog() {
+  resetCatForm()
+  loadCategories()
+  catDialogOpen.value = true
+}
+function resetCatForm() {
+  catForm.value = { id: '', name: '', sort: 0 }
+}
+function editCategory(row: any) {
+  catForm.value = { id: row.id, name: row.name, sort: row.sort || 0 }
+}
+async function submitCategory() {
+  if (!catForm.value.name?.trim()) {
+    ElMessage.warning('请输入分类名称')
+    return
+  }
+  catSaving.value = true
+  try {
+    if (catForm.value.id) {
+      await request.put(`/api/admin/product-categories/${catForm.value.id}`, {
+        name: catForm.value.name.trim(),
+        sort: catForm.value.sort
+      })
+      ElMessage.success('分类已更新')
+    } else {
+      await request.post('/api/admin/product-categories', {
+        name: catForm.value.name.trim(),
+        sort: catForm.value.sort
+      })
+      ElMessage.success('分类已添加')
+    }
+    resetCatForm()
+    await loadCategories()
+  } catch { /* handled */ }
+  finally { catSaving.value = false }
+}
+async function removeCategory(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      row.productCount > 0
+        ? `分类「${row.name}」下有 ${row.productCount} 个商品，删除后这些商品将变为「未分类」。确认删除？`
+        : `确认删除分类「${row.name}」？`,
+      '删除确认',
+      { type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    await request.delete(`/api/admin/product-categories/${row.id}`)
+    ElMessage.success('分类已删除')
+    await loadCategories()
+    load()
+  } catch { /* handled */ }
 }
 
 async function toggleShow(row: any) {
@@ -394,11 +628,39 @@ async function toggleShow(row: any) {
   } catch { /* handled */ }
 }
 
+async function removeProduct(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除商品「${row.storeName}」？删除后不可恢复。`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    await request.delete(`/api/admin/products/${row.id}`)
+    ElMessage.success('商品已删除')
+    load()
+  } catch { /* handled */ }
+}
+
 async function batchShow(isShow: boolean) {
   if (!selected.value.length) return
   try {
     await request.patch('/api/admin/products/batch-show', { ids: selected.value.map((r) => r.id), isShow })
     ElMessage.success('批量更新成功')
+    load()
+  } catch { /* handled */ }
+}
+
+async function batchCategory(command: string) {
+  if (!selected.value.length) return
+  const categoryId = command === UNCATEGORIZED ? '' : command
+  try {
+    const res = await request.patch('/api/admin/products/batch-category', {
+      ids: selected.value.map((r) => r.id),
+      categoryId
+    })
+    const name = categoryId ? categoryName(categoryId) : '未分类'
+    ElMessage.success(`已将 ${res?.updatedCount ?? selected.value.length} 个商品设为「${name}」`)
+    await loadCategories()
     load()
   } catch { /* handled */ }
 }
@@ -491,4 +753,7 @@ onBeforeUnmount(() => destroySortable())
 .name-link { color: var(--el-color-primary); cursor: pointer; }
 .sub-info { font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 2px; }
 .no-img { font-size: 12px; color: #ccc; }
+.sku-editor, .param-editor { width: 100%; }
+.sku-row, .param-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.cat-add { display: flex; align-items: center; gap: 8px; }
 </style>

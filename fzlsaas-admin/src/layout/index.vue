@@ -9,17 +9,15 @@
       </div>
 
       <nav class="topbar-nav">
-        <div class="nav-pill">
-          <button
-            v-for="mod in MENU_MODULES"
-            :key="mod.key"
-            class="nav-tab"
-            :class="{ active: activeModule === mod.key }"
-            @click="switchModule(mod.key)"
-          >
-            {{ mod.label }}
-          </button>
-        </div>
+        <button
+          v-for="mod in MENU_MODULES"
+          :key="mod.key"
+          class="nav-tab"
+          :class="{ active: activeModule === mod.key }"
+          @click="switchModule(mod.key)"
+        >
+          {{ mod.label }}
+        </button>
       </nav>
 
       <div class="topbar-right">
@@ -63,7 +61,7 @@
         <main class="main-content">
           <router-view :key="route.fullPath" />
         </main>
-        <footer class="app-footer">锦程数码</footer>
+        <footer class="app-footer">锦程数码会员电商系统 · 2026</footer>
       </div>
     </div>
   </div>
@@ -133,118 +131,142 @@ function handleLogout() {
   overflow: hidden;
 }
 
-/* 顶栏：渐变色 + 中间圆角胶囊 Tab */
+/* 顶栏：大厂高端政企深邃蓝 + 扁平化横向 Tab */
 .topbar {
-  height: 72px; /* 顶部菜单栏更宽一点 */
+  height: 64px; /* 标准 64px 高度，更显精致 */
   flex-shrink: 0;
   display: flex;
   align-items: center;
   padding: 0 24px;
   background: var(--crmeb-topbar-gradient);
   color: #fff;
-  box-shadow: 0 4px 16px rgba(26, 31, 54, 0.25);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.15);
+  position: relative;
+  z-index: 10;
 }
+
 .topbar-left {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 220px;
+  flex-shrink: 0;
+  width: 240px;
 }
+
 .logo-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, var(--sw-gold), var(--sw-gold-dark));
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--gov-primary), #1a66ec);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
+  color: #fff;
 }
+
+.logo-text {
+  display: flex;
+  flex-direction: column;
+}
+
 .logo-title {
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.5px;
+  color: #ffffff;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .topbar-nav {
   flex: 1;
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-width: 0;
-  padding: 0 16px;
-  position: relative;
-  z-index: 2;
-  overflow: hidden;
-}
-.nav-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  backdrop-filter: blur(6px);
-  max-width: 100%;
+  height: 100%;
+  margin-left: 24px;
   overflow-x: auto;
   scrollbar-width: none;
 }
-.nav-pill::-webkit-scrollbar { display: none; }
+
+.topbar-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* 顶栏 Tab：大厂控制台扁平化设计 */
 .nav-tab {
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.92);
+  color: rgba(255, 255, 255, 0.8);
   font-size: 14px;
-  padding: 0 16px;
-  height: 36px;
-  line-height: 36px;
-  border-radius: 8px;
+  font-weight: 500;
+  padding: 0 20px;
+  height: 64px;
+  line-height: 64px;
   cursor: pointer;
-  transition: all 0.22s ease;
+  transition: all 0.2s ease;
   white-space: nowrap;
-  flex-shrink: 0;
   position: relative;
-  z-index: 1;
 }
+
 .nav-tab:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
 }
+
 .nav-tab.active {
-  color: var(--sw-dark);
-  background: #fff;
+  color: #ffffff;
   font-weight: 600;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  background: rgba(255, 255, 255, 0.08);
 }
+
+.nav-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 16px;
+  right: 16px;
+  height: 3px;
+  background-color: #ffffff;
+  border-radius: 1.5px;
+}
+
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
   flex-shrink: 0;
-  min-width: 100px;
-  justify-content: flex-end;
-  position: relative;
-  z-index: 1;
 }
-.topbar-right :deep(.el-button) { color: rgba(255, 255, 255, 0.9); }
+
+.topbar-right :deep(.el-button) {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.topbar-right :deep(.el-button):hover {
+  color: #ffffff;
+}
+
 .user-info {
   display: flex;
   align-items: center;
   gap: 6px;
   cursor: pointer;
   font-size: 13px;
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px 10px;
+  border-radius: var(--gov-radius);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s;
 }
-.user-info:hover { background: rgba(255, 255, 255, 0.12); }
+
+.user-info:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
 
 .app-body {
   flex: 1;
@@ -252,59 +274,84 @@ function handleLogout() {
   overflow: hidden;
 }
 
-/* 侧栏：白底 + 金色激活态 */
+/* 侧栏：极简白底 + 大厂专业激活态 */
 .sidebar {
   width: 200px;
   flex-shrink: 0;
-  background: var(--sw-bg-card);
-  border-right: 1px solid var(--sw-border);
+  background: var(--gov-bg-card);
+  border-right: 1px solid var(--gov-border);
   display: flex;
   flex-direction: column;
-  transition: width 0.2s;
+  transition: width 0.2s cubic-bezier(0.34, 0.69, 0.1, 1);
 }
-.sidebar.collapsed { width: 64px; }
+
+.sidebar.collapsed {
+  width: 64px;
+}
+
 .sidebar-head {
-  height: 44px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 12px 0 16px;
-  border-bottom: 1px solid #f0f0f0;
-  background: #fafafa;
+  border-bottom: 1px solid var(--gov-border);
+  background: #f7f8fa;
 }
+
 .sidebar-module {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: #333;
+  color: var(--gov-text-secondary);
+  letter-spacing: 0.5px;
 }
+
 .sidebar-toggle {
   cursor: pointer;
-  color: #999;
+  color: var(--gov-text-muted);
   display: flex;
   align-items: center;
+  padding: 4px;
+  border-radius: 4px;
+  transition: all 0.2s;
 }
+
+.sidebar-toggle:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--gov-text-primary);
+}
+
 .side-menu {
   border-right: none;
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: 12px 0;
+  background: var(--gov-bg-card);
 }
+
 .side-menu :deep(.el-menu-item) {
-  height: 44px;
-  line-height: 44px;
-  margin: 2px 8px;
-  border-radius: 4px;
-  color: #595959;
+  height: 40px;
+  line-height: 40px;
+  margin: 4px 12px;
+  border-radius: var(--gov-radius);
+  color: var(--gov-text-secondary);
+  font-size: 13px;
+  transition: all 0.2s ease;
 }
+
 .side-menu :deep(.el-menu-item:hover) {
-  color: var(--sw-gold-dark);
-  background: var(--sw-gold-soft);
+  color: var(--gov-primary);
+  background: var(--gov-bg-page);
 }
+
 .side-menu :deep(.el-menu-item.is-active) {
-  color: var(--sw-gold-dark);
-  background: var(--sw-gold-soft);
+  color: var(--gov-primary) !important;
+  background: var(--gov-primary-light) !important;
   font-weight: 600;
-  border-right: 3px solid var(--sw-gold);
+}
+
+.side-menu :deep(.el-menu-item.is-active .el-icon) {
+  color: var(--gov-primary) !important;
 }
 
 .content-wrap {
@@ -313,20 +360,22 @@ function handleLogout() {
   flex-direction: column;
   overflow: hidden;
 }
+
 .main-content {
   flex: 1;
   overflow: auto;
-  background: var(--sw-bg-page);
-  padding: 16px 20px;
+  background: var(--gov-bg-page);
+  padding: 20px 24px;
 }
+
 .app-footer {
   flex-shrink: 0;
-  height: 32px;
-  line-height: 32px;
+  height: 36px;
+  line-height: 36px;
   text-align: center;
   font-size: 12px;
-  color: #bfbfbf;
-  background: #fafafa;
-  border-top: 1px solid #e8e8e8;
+  color: var(--gov-text-muted);
+  background: var(--gov-bg-card);
+  border-top: 1px solid var(--gov-border);
 }
 </style>

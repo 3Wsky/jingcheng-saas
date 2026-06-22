@@ -144,6 +144,8 @@
       </el-tab-pane>
     </el-tabs>
   </el-drawer>
+
+  <MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 </template>
 
 <script setup lang="ts">
@@ -305,8 +307,6 @@ function fmtTs(val?: number) {
   return val ? new Date(val * 1000).toLocaleString('zh-CN') : '—'
 }
 </script>
-
-<MemberDetailDrawer v-model="memberDrawerOpen" :uid="memberUid" />
 
 <style scoped>
 .create-tip { margin-bottom: 16px; }

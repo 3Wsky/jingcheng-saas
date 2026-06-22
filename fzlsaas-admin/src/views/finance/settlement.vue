@@ -95,6 +95,12 @@
       <el-table-column label="结算时间" width="165">
         <template #default="{ row }">{{ fmtUnixTime(row.settledAt || row.createdAt) }}</template>
       </el-table-column>
+      <el-table-column label="操作" width="120" fixed="right">
+        <template #default="{ row }">
+          <el-button v-if="row.status === 'pending'" link type="primary" @click="settleWithdrawal(row)">确认打款</el-button>
+          <span v-else>—</span>
+        </template>
+      </el-table-column>
     </el-table>
 
     <template #footer>
@@ -230,6 +236,19 @@ async function loadRecords() {
   } finally {
     recordsLoading.value = false
   }
+}
+
+async function settleWithdrawal(row: any) {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `确认已向 ${row.merchantName} 打款 ${fmtMoney(row.amount)}？`,
+      '确认提现到账',
+      { inputValue: 'T+3线下打款完成', inputPlaceholder: '打款备注' },
+    )
+    await request.post(`/api/admin/finance/settlement/${row.id}/settle`, { remark: value || '' })
+    ElMessage.success('已确认打款')
+    await Promise.all([loadRecords(), loadSummary()])
+  } catch { /* cancel or handled */ }
 }
 
 async function fetchAllMerchants() {

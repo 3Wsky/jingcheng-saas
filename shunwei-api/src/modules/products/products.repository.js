@@ -4,7 +4,8 @@ const { config } = require('../../shared/config');
 
 const defaultState = {
   products: [],
-  imports: []
+  imports: [],
+  categories: []
 };
 
 class ProductsRepository {
@@ -47,7 +48,8 @@ function normalizeState(state) {
   const current = state && typeof state === 'object' ? state : {};
   return {
     products: Array.isArray(current.products) ? current.products : [],
-    imports: Array.isArray(current.imports) ? current.imports : []
+    imports: Array.isArray(current.imports) ? current.imports : [],
+    categories: Array.isArray(current.categories) ? current.categories : []
   };
 }
 

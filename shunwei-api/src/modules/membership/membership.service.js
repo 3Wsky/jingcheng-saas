@@ -36,7 +36,7 @@ class MembershipService {
           eb_member_ship_id: 0,
           gift_integral: Number(config.membership_gift_integral_sw199 || 199000),
           tier_rank: 1,
-          title: '顺为199会员',
+          title: '锦程199会员',
           vip_day: Number(config.member_vip_days || 365),
           pre_price: 199
         },
@@ -45,7 +45,7 @@ class MembershipService {
           eb_member_ship_id: 0,
           gift_integral: Number(config.membership_gift_integral_sw299 || 299000),
           tier_rank: 2,
-          title: '顺为299会员',
+          title: '锦程299会员',
           vip_day: Number(config.member_vip_days || 365),
           pre_price: 299
         }
@@ -55,12 +55,54 @@ class MembershipService {
     return maps.map((row) => ({
       memberShipId: row.eb_member_ship_id,
       tierCode: row.tier_code,
-      title: row.title || row.tier_code,
-      price: Number(row.pre_price || 0),
-      vipDays: Number(row.vip_day || 365),
+      title: row.plan_title || row.ship_title || row.title || row.tier_code,
+      price: Number(row.plan_price || row.ship_price || row.pre_price || 0),
+      vipDays: Number(row.plan_vip_days || row.ship_vip_day || row.vip_day || 365),
       giftIntegral: Number(row.gift_integral || 0),
       tierRank: Number(row.tier_rank || 0)
     }));
+  }
+
+  async listPlansAdmin() {
+    await this.repository.ensureTables();
+    const rows = await this.repository.listPlansAdmin();
+    return rows.map(toPlanDto);
+  }
+
+  async createPlan(input) {
+    const data = normalizePlanInput(input, false);
+    try {
+      const id = await this.repository.createPlan(data);
+      return { id, ...data, isActive: data.isActive };
+    } catch (error) {
+      throw translatePlanDupError(error);
+    }
+  }
+
+  async updatePlan(id, input) {
+    const data = normalizePlanInput(input, true);
+    let affected = 0;
+    try {
+      affected = await this.repository.updatePlan(id, data);
+    } catch (error) {
+      throw translatePlanDupError(error);
+    }
+    if (!affected) {
+      const error = new Error('会员卡方案不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    return { id: Number(id), ...data };
+  }
+
+  async deletePlan(id) {
+    const affected = await this.repository.deletePlan(id);
+    if (!affected) {
+      const error = new Error('会员卡方案不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    return { deleted: true };
   }
 
   async getMe(uid) {
@@ -130,7 +172,7 @@ class MembershipService {
 
     const activeTier = await this.repository.getActiveTierForUser(uid);
     const beforeTier = activeTier ? activeTier.tier_code : '';
-    const vipDays = Number(config.member_vip_days || 365);
+    const vipDays = Number(tierMeta.vipDays || config.member_vip_days || 365);
     const change = this.resolveMembershipChange(
       beforeTier,
       tierMeta.tierCode,
@@ -318,7 +360,8 @@ class MembershipService {
           tierCode: byShip.tier_code,
           memberShipId: byShip.eb_member_ship_id,
           giftIntegral: Number(byShip.gift_integral || 0),
-          tierRank: Number(byShip.tier_rank || 0)
+          tierRank: Number(byShip.tier_rank || 0),
+          vipDays: Number(byShip.vip_days || byShip.vip_day || 0)
         };
       }
     }
@@ -329,7 +372,8 @@ class MembershipService {
         tierCode: byTier.tier_code,
         memberShipId: byTier.eb_member_ship_id,
         giftIntegral: Number(byTier.gift_integral || 0),
-        tierRank: Number(byTier.tier_rank || 0)
+        tierRank: Number(byTier.tier_rank || 0),
+        vipDays: Number(byTier.vip_days || byTier.vip_day || 0)
       };
     }
 
@@ -338,7 +382,8 @@ class MembershipService {
         tierCode: 'SW299',
         memberShipId: 0,
         giftIntegral: Number(config.membership_gift_integral_sw299 || 299000),
-        tierRank: 2
+        tierRank: 2,
+        vipDays: Number(config.member_vip_days || 365)
       };
     }
 
@@ -346,7 +391,8 @@ class MembershipService {
       tierCode: 'SW199',
       memberShipId: 0,
       giftIntegral: Number(config.membership_gift_integral_sw199 || 199000),
-      tierRank: 1
+      tierRank: 1,
+      vipDays: Number(config.member_vip_days || 365)
     };
   }
 
@@ -381,6 +427,71 @@ class MembershipService {
       status: row.status
     };
   }
+}
+
+function toPlanDto(row) {
+  return {
+    id: Number(row.id),
+    tierCode: row.tier_code,
+    title: row.plan_title || row.ship_title || row.tier_code,
+    price: Number(row.plan_price || row.ship_price || 0),
+    vipDays: Number(row.plan_vip_days || row.ship_vip_day || 365),
+    giftIntegral: Number(row.gift_integral || 0),
+    memberShipId: Number(row.eb_member_ship_id || 0),
+    tierRank: Number(row.tier_rank || 0),
+    sort: Number(row.plan_sort || 0),
+    isActive: Number(row.is_active) === 1,
+    shipTitle: row.ship_title || ''
+  };
+}
+
+function normalizePlanInput(input = {}, partial = false) {
+  const data = {};
+  const setStr = (key, val, max) => { if (val !== undefined) data[key] = String(val).trim().slice(0, max); };
+  const setNum = (key, val) => { if (val !== undefined) data[key] = Number(val) || 0; };
+
+  if (input.tierCode !== undefined) data.tierCode = String(input.tierCode).trim().toUpperCase().slice(0, 16);
+  setStr('title', input.title, 64);
+  setNum('price', input.price);
+  setNum('vipDays', input.vipDays);
+  setNum('giftIntegral', input.giftIntegral);
+  setNum('memberShipId', input.memberShipId);
+  setNum('tierRank', input.tierRank);
+  setNum('sort', input.sort);
+  if (input.isActive !== undefined) data.isActive = Boolean(input.isActive);
+
+  if (!partial) {
+    if (!data.tierCode) { const e = new Error('档位代码不能为空'); e.statusCode = 400; throw e; }
+    if (!data.title) { const e = new Error('方案名称不能为空'); e.statusCode = 400; throw e; }
+    if (data.memberShipId === undefined) data.memberShipId = 0;
+    if (data.giftIntegral === undefined) data.giftIntegral = 0;
+    if (data.tierRank === undefined) data.tierRank = 0;
+    if (data.sort === undefined) data.sort = 0;
+    if (data.price === undefined) data.price = 0;
+    if (data.vipDays === undefined) data.vipDays = 365;
+    if (data.isActive === undefined) data.isActive = true;
+  }
+  return data;
+}
+
+function translatePlanDupError(error) {
+  if (error && error.code === 'ER_DUP_ENTRY') {
+    const msg = String(error.sqlMessage || '');
+    if (msg.includes('uk_tier_code')) {
+      const e = new Error('该档位代码已存在');
+      e.statusCode = 409;
+      return e;
+    }
+    if (msg.includes('uk_ship_id')) {
+      const e = new Error('该 CRMEB 会员卡已被其他方案关联（每张卡只能绑定一个方案）');
+      e.statusCode = 409;
+      return e;
+    }
+    const e = new Error('方案已存在（档位或关联卡重复）');
+    e.statusCode = 409;
+    return e;
+  }
+  return error;
 }
 
 module.exports = { MembershipService };

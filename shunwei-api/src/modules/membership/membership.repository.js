@@ -105,6 +105,8 @@ class MembershipRepository {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    await this.ensureShipMapColumns(pool);
+
     const now = Math.floor(Date.now() / 1000);
     const defaults = [
       ['integral_mall_skip_approval', '1', '积分商城免审开关'],
@@ -127,6 +129,23 @@ class MembershipRepository {
     }
 
     this.tablesReady = true;
+  }
+
+  /** 为 ship_map 增补方案管理列（title/price/vip_days/sort），幂等 */
+  async ensureShipMapColumns(pool) {
+    const [cols] = await pool.query(
+      `SELECT COLUMN_NAME FROM information_schema.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sw_membership_ship_map'`
+    );
+    const have = new Set(cols.map((c) => c.COLUMN_NAME));
+    const adds = [];
+    if (!have.has('title')) adds.push("ADD COLUMN title varchar(64) NOT NULL DEFAULT ''");
+    if (!have.has('price')) adds.push('ADD COLUMN price decimal(10,2) NOT NULL DEFAULT 0');
+    if (!have.has('vip_days')) adds.push('ADD COLUMN vip_days int(10) unsigned NOT NULL DEFAULT 0');
+    if (!have.has('sort')) adds.push('ADD COLUMN sort int(11) NOT NULL DEFAULT 0');
+    if (adds.length) {
+      await pool.query(`ALTER TABLE ${swTable('membership_ship_map')} ${adds.join(', ')}`);
+    }
   }
 
   async getAllConfig() {
@@ -173,14 +192,78 @@ class MembershipRepository {
     const [rows] = await getPool().query(
       `
       SELECT m.tier_code, m.eb_member_ship_id, m.gift_integral, m.tier_rank,
-             s.title, s.vip_day, s.pre_price, s.price
+             m.title AS plan_title, m.price AS plan_price, m.vip_days AS plan_vip_days, m.sort AS plan_sort,
+             s.title AS ship_title, s.vip_day AS ship_vip_day, s.pre_price AS ship_price
       FROM ${swTable('membership_ship_map')} m
       LEFT JOIN ${legacyTable('member_ship')} s ON s.id = m.eb_member_ship_id AND s.is_del = 0
       WHERE m.is_active = 1
-      ORDER BY m.tier_rank ASC
+      ORDER BY m.sort DESC, m.tier_rank ASC, m.id ASC
       `
     );
     return rows;
+  }
+
+  async listPlansAdmin() {
+    await this.ensureTables();
+    const [rows] = await getPool().query(
+      `
+      SELECT m.id, m.tier_code, m.eb_member_ship_id, m.gift_integral, m.tier_rank, m.is_active,
+             m.title AS plan_title, m.price AS plan_price, m.vip_days AS plan_vip_days, m.sort AS plan_sort,
+             s.title AS ship_title, s.vip_day AS ship_vip_day, s.pre_price AS ship_price
+      FROM ${swTable('membership_ship_map')} m
+      LEFT JOIN ${legacyTable('member_ship')} s ON s.id = m.eb_member_ship_id AND s.is_del = 0
+      ORDER BY m.sort DESC, m.tier_rank ASC, m.id ASC
+      `
+    );
+    return rows;
+  }
+
+  async createPlan(data) {
+    await this.ensureTables();
+    const now = Math.floor(Date.now() / 1000);
+    const [res] = await getPool().query(
+      `
+      INSERT INTO ${swTable('membership_ship_map')}
+        (tier_code, eb_member_ship_id, gift_integral, tier_rank, is_active, title, price, vip_days, sort, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      [data.tierCode, data.memberShipId, data.giftIntegral, data.tierRank, data.isActive ? 1 : 0, data.title, data.price, data.vipDays, data.sort, now, now]
+    );
+    return res.insertId;
+  }
+
+  async updatePlan(id, data) {
+    await this.ensureTables();
+    const now = Math.floor(Date.now() / 1000);
+    const fields = [];
+    const vals = [];
+    const set = (col, val) => { fields.push(`${col} = ?`); vals.push(val); };
+    if (data.tierCode !== undefined) set('tier_code', data.tierCode);
+    if (data.memberShipId !== undefined) set('eb_member_ship_id', data.memberShipId);
+    if (data.giftIntegral !== undefined) set('gift_integral', data.giftIntegral);
+    if (data.tierRank !== undefined) set('tier_rank', data.tierRank);
+    if (data.isActive !== undefined) set('is_active', data.isActive ? 1 : 0);
+    if (data.title !== undefined) set('title', data.title);
+    if (data.price !== undefined) set('price', data.price);
+    if (data.vipDays !== undefined) set('vip_days', data.vipDays);
+    if (data.sort !== undefined) set('sort', data.sort);
+    if (!fields.length) return 0;
+    set('updated_at', now);
+    vals.push(id);
+    const [res] = await getPool().query(
+      `UPDATE ${swTable('membership_ship_map')} SET ${fields.join(', ')} WHERE id = ?`,
+      vals
+    );
+    return res.affectedRows;
+  }
+
+  async deletePlan(id) {
+    await this.ensureTables();
+    const [res] = await getPool().query(
+      `DELETE FROM ${swTable('membership_ship_map')} WHERE id = ?`,
+      [id]
+    );
+    return res.affectedRows;
   }
 
   async getShipMapByTier(tierCode) {

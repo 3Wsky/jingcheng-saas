@@ -286,7 +286,7 @@ async function batchShow(isShow: boolean) {
       ids: selected.value.map((r) => r.id),
       isShow
     })
-    ElMessage.success('批量更新成功')
+    ElMessage.success(`已更新 ${selected.value.length} 个商品`)
     load()
   } catch { /* handled */ }
 }

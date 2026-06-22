@@ -26,15 +26,15 @@ const type = computed(() => meta[props.tag]?.type || 'normal')
 .member-tag {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 6px;
+  border-radius: var(--gov-radius, 4px);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
 }
-.tag-tier199 { background: var(--sw-gold-soft, #fbf6e8); color: var(--sw-gold-dark, #8b6914); }
-.tag-tier299 { background: linear-gradient(135deg, #f3eeff, #fbf6e8); color: #7b4fd4; border: 1px solid rgba(201, 162, 39, 0.2); }
-.tag-normal { background: #F3F4F6; color: #6B7280; }
-.tag-staff { background: #ECFDF3; color: #059669; }
-.tag-manager { background: #FFF4EC; color: #D97706; }
-.tag-merchant { background: #EFF6FF; color: #2563EB; }
+.tag-tier199 { background: var(--gov-primary-light, #ebf2ff); color: var(--gov-primary, #0052D9); }
+.tag-tier299 { background: #f3eeff; color: #7b4fd4; border: 1px solid rgba(123, 79, 212, 0.15); }
+.tag-normal { background: #f3f4f6; color: #6b7280; }
+.tag-staff { background: var(--gov-success-light, #edfaf5); color: var(--gov-success, #00a870); }
+.tag-manager { background: var(--gov-warning-light, #fef3eb); color: var(--gov-warning, #ed7b2f); }
+.tag-merchant { background: #eff6ff; color: #2563eb; }
 </style>

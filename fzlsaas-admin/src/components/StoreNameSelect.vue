@@ -47,7 +47,7 @@ const recentNames = ref<string[]>(readRecentStoreNames())
 
 const mergedOptions = computed(() => mergeStoreOptions(apiOptions.value, recentNames.value))
 const recentOptions = computed(() => mergedOptions.value.filter((item) => item.recent))
-const storeOptions = computed(() => apiOptions.value)
+const storeOptions = computed(() => mergedOptions.value.filter((item) => !item.recent))
 
 onMounted(async () => {
   loading.value = true

@@ -1,6 +1,7 @@
 <template>
   <div class="login-page">
     <div class="login-bg">
+      <div class="login-grid" />
       <div class="login-orb login-orb-1" />
       <div class="login-orb login-orb-2" />
     </div>
@@ -9,24 +10,24 @@
       <div class="login-header">
         <div class="login-logo">锦</div>
         <h1 class="login-title">锦程数码会员电商系统</h1>
-        <p class="login-subtitle">管理后台</p>
+        <p class="login-subtitle">安全管理控制台</p>
       </div>
 
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="handleLogin">
         <el-form-item prop="username">
-          <el-input v-model="form.username" placeholder="用户名" prefix-icon="User" size="large" />
+          <el-input v-model="form.username" placeholder="请输入用户名" prefix-icon="User" size="large" />
         </el-form-item>
         <el-form-item prop="password">
-          <el-input v-model="form.password" type="password" placeholder="密码" prefix-icon="Lock" size="large" show-password />
+          <el-input v-model="form.password" type="password" placeholder="请输入密码" prefix-icon="Lock" size="large" show-password />
         </el-form-item>
         <el-form-item>
           <el-button type="primary" size="large" class="login-btn" :loading="loading" @click="handleLogin">
-            登 录
+            安 全 登 录
           </el-button>
         </el-form-item>
       </el-form>
 
-      <p class="login-footer">锦程数码</p>
+      <p class="login-footer">系统已启用安全传输与审计审计保护</p>
     </div>
   </div>
 </template>
@@ -72,7 +73,7 @@ async function handleLogin() {
   justify-content: center;
   position: relative;
   overflow: hidden;
-  background: var(--sw-bg-dark-gradient, linear-gradient(135deg, #1a1f36 0%, #2d3561 100%));
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
 }
 
 .login-bg {
@@ -81,35 +82,45 @@ async function handleLogin() {
   pointer-events: none;
 }
 
+/* 高端科技感网格背景 */
+.login-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
 .login-orb {
   position: absolute;
   border-radius: 50%;
+  filter: blur(80px);
 }
 
 .login-orb-1 {
-  width: 480px;
-  height: 480px;
-  top: -120px;
-  right: -80px;
-  background: radial-gradient(circle, rgba(201, 162, 39, 0.12) 0%, transparent 70%);
+  width: 500px;
+  height: 500px;
+  top: -100px;
+  right: -50px;
+  background: radial-gradient(circle, rgba(0, 82, 217, 0.15) 0%, transparent 70%);
 }
 
 .login-orb-2 {
-  width: 320px;
-  height: 320px;
-  bottom: -80px;
-  left: -60px;
-  background: radial-gradient(circle, rgba(212, 175, 55, 0.08) 0%, transparent 70%);
+  width: 400px;
+  height: 400px;
+  bottom: -100px;
+  left: -50px;
+  background: radial-gradient(circle, rgba(0, 168, 112, 0.08) 0%, transparent 70%);
 }
 
 .login-card {
   position: relative;
   z-index: 1;
-  width: 400px;
-  background: var(--sw-bg-card, #fff);
-  border-radius: var(--sw-radius-card, 12px);
-  padding: 40px 40px 32px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+  width: 420px;
+  background: var(--gov-bg-card, #fff);
+  border-radius: 8px;
+  padding: 44px 40px 36px;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .login-header {
@@ -118,48 +129,62 @@ async function handleLogin() {
 }
 
 .login-logo {
-  width: 56px;
-  height: 56px;
+  width: 52px;
+  height: 52px;
   margin: 0 auto 16px;
-  background: linear-gradient(135deg, var(--sw-gold, #c9a227), var(--sw-gold-dark, #8b6914));
-  border-radius: 14px;
+  background: linear-gradient(135deg, var(--gov-primary), #1a66ec);
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 800;
   color: #fff;
-  letter-spacing: -1px;
-  box-shadow: 0 8px 24px rgba(201, 162, 39, 0.35);
+  box-shadow: 0 4px 12px rgba(0, 82, 217, 0.25);
 }
 
 .login-title {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
+  color: var(--gov-text-primary);
   margin: 0;
-  letter-spacing: 1px;
+  letter-spacing: 0.5px;
 }
 
 .login-subtitle {
   font-size: 13px;
-  color: #9ca3af;
-  margin: 10px 0 0;
+  color: var(--gov-text-secondary);
+  margin: 8px 0 0;
+  font-weight: 500;
+  letter-spacing: 1px;
 }
 
 .login-btn {
   width: 100%;
-  height: 44px;
-  font-size: 16px;
+  height: 40px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: 4px;
-  border-radius: var(--sw-radius, 8px);
+  border-radius: var(--gov-radius, 4px);
+  background-color: var(--gov-primary);
+  border-color: var(--gov-primary);
+  box-shadow: var(--gov-shadow-button);
+}
+
+.login-btn:hover {
+  background-color: var(--gov-primary-hover);
+  border-color: var(--gov-primary-hover);
+}
+
+.login-btn:active {
+  background-color: var(--gov-primary-active);
+  border-color: var(--gov-primary-active);
 }
 
 .login-footer {
   text-align: center;
   font-size: 12px;
-  color: #d1d5db;
-  margin: 24px 0 0;
+  color: var(--gov-text-muted);
+  margin: 28px 0 0;
 }
 </style>

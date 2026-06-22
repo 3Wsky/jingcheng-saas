@@ -16,6 +16,16 @@ const config = {
   priceTag: {
     dataDir: path.resolve(rootDir, process.env.PRICE_TAG_DATA_DIR || '../digital-price-tag-generator/public/data')
   },
+  imageGen: {
+    baseUrl: process.env.IMAGE_GEN_BASE_URL || process.env.STUDIO_IMAGE_BASE_URL || '',
+    apiKey: process.env.IMAGE_GEN_API_KEY || process.env.STUDIO_IMAGE_API_KEY || '',
+    model: process.env.AI_IMAGE_MODEL || process.env.STUDIO_IMAGE_MODEL || 'gpt-image-2',
+    quality: (process.env.AI_IMAGE_QUALITY || 'medium').toLowerCase(),
+    timeoutMs: Number(process.env.AI_IMAGE_TIMEOUT_MS || 300000),
+    get configured() {
+      return Boolean(this.baseUrl && this.apiKey);
+    }
+  },
   legacy: {
     appKey: process.env.CRMEB_APP_KEY || 'app_key_69e81b63719a8',
     tokenLeewaySeconds: Number(process.env.CRMEB_TOKEN_LEEWAY_SECONDS || 60),

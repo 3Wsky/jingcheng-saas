@@ -19,9 +19,9 @@ export function rememberStoreName(name: string) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
 }
 
-export function mergeStoreOptions(apiList: Array<{ id?: number; name: string }>, recent: string[] = readRecentStoreNames()) {
+export function mergeStoreOptions(apiList: Array<{ id?: number; name: string; staffCount?: number }>, recent: string[] = readRecentStoreNames()) {
   const seen = new Set<string>()
-  const merged: Array<{ id?: number; name: string; recent?: boolean }> = []
+  const merged: Array<{ id?: number; name: string; recent?: boolean; staffCount?: number }> = []
 
   recent.forEach((name) => {
     if (seen.has(name)) return
@@ -33,7 +33,7 @@ export function mergeStoreOptions(apiList: Array<{ id?: number; name: string }>,
     const name = String(item.name || '').trim()
     if (!name || seen.has(name)) return
     seen.add(name)
-    merged.push({ id: item.id, name })
+    merged.push({ id: item.id, name, staffCount: item.staffCount })
   })
 
   return merged

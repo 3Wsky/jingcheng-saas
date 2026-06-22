@@ -31,6 +31,14 @@ mysql -u so1988_shunwei -p so1988_shunwei < mvp3/002_sw_merchant.sql
 mysql -u so1988_shunwei -p so1988_shunwei < mvp3/003_sw_integral_recharge.sql
 ```
 
+### Admin-R5（商家提现申请）
+
+```bash
+mysql -u so1988_shunwei -p so1988_shunwei < admin-r5/001_merchant_withdrawal.sql
+```
+
+> 必须先执行本迁移，再部署包含 `/api/merchant/withdrawals` 的 API。
+
 ## 上线前必做
 
 1. `mysqldump` 全量备份生产库

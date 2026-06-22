@@ -16,9 +16,11 @@ const { registerAdminMerchantRoutes } = require('./modules/merchant/admin-mercha
 const { registerAdminBatchGrantRoutes } = require('./modules/admin/admin-batch-grant.routes');
 const { registerAdminAuditRoutes } = require('./modules/admin/admin-audit.routes');
 const { registerAdminIntegralMallRoutes } = require('./modules/admin/admin-integral-mall.routes');
+const { registerAdminAiGiftRoutes } = require('./modules/admin/admin-ai-gift.routes');
 const { registerAdminCrmebProductRoutes } = require('./modules/admin/admin-crmeb-products.routes');
 const { registerAdminUploadRoutes } = require('./modules/admin/admin-upload.routes');
 const { registerAdminFinanceRoutes } = require('./modules/admin/admin-finance.routes');
+const { registerAdminRecallRoutes } = require('./modules/admin/admin-recall.routes');
 const { registerNewcomerLotteryRoutes } = require('./modules/newcomer-lottery/newcomer-lottery.routes');
 const { registerProductRoutes } = require('./modules/products/products.routes');
 const { registerUserProfileRoutes } = require('./modules/user-profile/user-profile.routes');
@@ -83,9 +85,11 @@ async function buildServer() {
   registerAdminBatchGrantRoutes(app);
   registerAdminAuditRoutes(app);
   registerAdminIntegralMallRoutes(app);
+  registerAdminAiGiftRoutes(app);
   registerAdminCrmebProductRoutes(app);
   registerAdminUploadRoutes(app);
   registerAdminFinanceRoutes(app);
+  registerAdminRecallRoutes(app);
   registerNewcomerLotteryRoutes(app);
   registerProductRoutes(app);
   registerUserProfileRoutes(app);

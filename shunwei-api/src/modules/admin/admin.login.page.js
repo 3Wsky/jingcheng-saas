@@ -4,7 +4,7 @@ function renderAdminLoginPage(errorText = '') {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>顺为运营后台登录</title>
+  <title>锦程运营后台登录</title>
   <style>
     :root {
       color-scheme: light;
@@ -216,10 +216,10 @@ function renderAdminLoginPage(errorText = '') {
     <section class="intro">
       <div>
         <div class="brand">
-          <div class="mark">顺</div>
+          <div class="mark">锦</div>
           <div>
-            <strong>顺为运营后台</strong>
-            <div class="desc" style="margin-top: 3px;">Shunwei Admin</div>
+            <strong>锦程运营后台</strong>
+            <div class="desc" style="margin-top: 3px;">Jingcheng Admin</div>
           </div>
         </div>
         <h1>进入活动运营、奖品发放和后续业务管理。</h1>

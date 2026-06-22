@@ -143,11 +143,6 @@
       <el-table-column label="手机号" width="120">
         <template #default="{ row }">{{ maskPhone(row.phone) }}</template>
       </el-table-column>
-      <el-table-column label="用户类型" width="96" align="center">
-        <template #default>
-          <span>小程序</span>
-        </template>
-      </el-table-column>
       <el-table-column label="归属店员" min-width="108">
         <template #default="{ row }">
           {{ row.spreadNickname || (row.spreadUid ? `#${row.spreadUid}` : '—') }}

@@ -46,21 +46,21 @@ defineProps<{ title?: string; subtitle?: string }>()
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   gap: 16px;
 }
 .page-head-left { min-width: 0; }
 .page-title {
   margin: 0;
-  font-size: 20px;
+  font-size: 18px; /* 18px 更加克制、严谨 */
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.85);
-  line-height: 28px;
+  color: var(--gov-text-primary);
+  line-height: 26px;
 }
 .page-subtitle {
   margin: 4px 0 0;
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--gov-text-secondary);
   line-height: 20px;
 }
 .page-actions {
@@ -70,19 +70,19 @@ defineProps<{ title?: string; subtitle?: string }>()
   flex-shrink: 0;
 }
 
-/* 轻奢风内容面板 */
+/* 大厂政企专业风内容面板 */
 .page-panel {
-  background: var(--sw-bg-card, #fff);
-  border-radius: var(--sw-radius-card, 12px);
-  border: 1px solid var(--sw-border, rgba(0, 0, 0, 0.06));
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
-  padding: 16px 20px 20px;
+  background: var(--gov-bg-card, #fff);
+  border-radius: var(--gov-radius-card, 6px);
+  border: 1px solid var(--gov-border);
+  box-shadow: var(--gov-shadow-card);
+  padding: 20px;
 }
 
 .page-filter {
-  background: var(--sw-bg-page, #f5f3f0);
-  border: 1px solid var(--sw-border, rgba(0, 0, 0, 0.06));
-  border-radius: var(--sw-radius, 8px);
+  background: var(--gov-bg-page, #f2f3f5);
+  border: 1px solid var(--gov-border);
+  border-radius: var(--gov-radius, 4px);
   padding: 16px 16px 4px;
   margin-bottom: 16px;
 }
@@ -91,24 +91,38 @@ defineProps<{ title?: string; subtitle?: string }>()
   margin-right: 16px;
 }
 .page-filter :deep(.el-form-item__label) {
-  color: rgba(0, 0, 0, 0.65);
-  font-weight: 400;
+  color: var(--gov-text-secondary);
+  font-weight: 500;
+  font-size: 13px;
 }
 
 .page-tabs {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .page-tabs :deep(.el-tabs__header) {
   margin-bottom: 0;
+  border-bottom: 1px solid var(--gov-border);
+}
+.page-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
 }
 .page-tabs :deep(.el-tabs__item) {
   height: 40px;
   line-height: 40px;
   font-size: 14px;
+  color: var(--gov-text-secondary);
+  transition: all 0.2s;
+}
+.page-tabs :deep(.el-tabs__item:hover) {
+  color: var(--gov-primary);
 }
 .page-tabs :deep(.el-tabs__item.is-active) {
   font-weight: 600;
-  color: var(--el-color-primary);
+  color: var(--gov-primary);
+}
+.page-tabs :deep(.el-tabs__active-bar) {
+  background-color: var(--gov-primary);
+  height: 2.5px;
 }
 
 .page-toolbar {
@@ -117,8 +131,8 @@ defineProps<{ title?: string; subtitle?: string }>()
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 16px;
-  padding: 12px 0;
-  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--gov-border);
   flex-wrap: wrap;
   width: 100%;
 }
@@ -138,21 +152,28 @@ defineProps<{ title?: string; subtitle?: string }>()
 }
 .page-body :deep(.el-table) {
   font-size: 13px;
+  color: var(--gov-text-primary);
 }
 .page-body :deep(.el-table th.el-table__cell) {
-  background: #fafafa !important;
-  color: rgba(0, 0, 0, 0.85);
+  background: #f7f8fa !important;
+  color: var(--gov-text-secondary);
   font-weight: 600;
   font-size: 13px;
+  height: 40px;
+  padding: 0;
 }
 .page-body :deep(.el-table .el-table__cell) {
-  padding: 12px 0;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--gov-border);
+}
+.page-body :deep(.el-table .el-table__row:hover > td) {
+  background-color: #f7f8fa !important;
 }
 
 .page-footer {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--gov-border);
   display: flex;
   justify-content: flex-end;
 }

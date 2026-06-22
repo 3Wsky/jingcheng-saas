@@ -22,6 +22,24 @@ const skipApprovalSchema = z.object({
   enabled: z.boolean()
 });
 
+const planCreateSchema = z.object({
+  tierCode: z.string().trim().min(1).max(16),
+  title: z.string().trim().min(1).max(64),
+  price: z.coerce.number().min(0).max(999999),
+  vipDays: z.coerce.number().int().min(0).max(36500),
+  giftIntegral: z.coerce.number().int().min(0).max(99999999),
+  memberShipId: z.coerce.number().int().min(0).max(99999999).optional().default(0),
+  tierRank: z.coerce.number().int().min(0).max(255).optional().default(0),
+  sort: z.coerce.number().int().min(-9999).max(9999).optional().default(0),
+  isActive: z.boolean().optional().default(true)
+});
+
+const planUpdateSchema = planCreateSchema.partial();
+
+const planIdParamsSchema = z.object({
+  id: z.coerce.number().int().positive()
+});
+
 function registerMembershipRoutes(app) {
   const service = new MembershipService();
 
@@ -140,6 +158,51 @@ function registerMembershipRoutes(app) {
     try {
       const result = await service.adminGrant(parsed.data);
       return ok(result, result.duplicate ? '已开通' : '开通成功');
+    } catch (error) {
+      return failMembership(reply, error);
+    }
+  });
+
+  // ── 会员卡方案管理（甲-1：CRMEB 收款，fzlsaas 管方案）──
+  app.get('/api/admin/membership/plans', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      return ok(await service.listPlansAdmin());
+    } catch (error) {
+      return failMembership(reply, error);
+    }
+  });
+
+  app.post('/api/admin/membership/plans', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = planCreateSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      return ok(await service.createPlan(parsed.data), '方案已创建');
+    } catch (error) {
+      return failMembership(reply, error);
+    }
+  });
+
+  app.put('/api/admin/membership/plans/:id', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsedParams = planIdParamsSchema.safeParse(request.params || {});
+    if (!parsedParams.success) return fail(reply, 400, '参数错误', parsedParams.error.flatten());
+    const parsed = planUpdateSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      return ok(await service.updatePlan(parsedParams.data.id, parsed.data), '方案已更新');
+    } catch (error) {
+      return failMembership(reply, error);
+    }
+  });
+
+  app.delete('/api/admin/membership/plans/:id', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsedParams = planIdParamsSchema.safeParse(request.params || {});
+    if (!parsedParams.success) return fail(reply, 400, '参数错误', parsedParams.error.flatten());
+    try {
+      return ok(await service.deletePlan(parsedParams.data.id), '方案已删除');
     } catch (error) {
       return failMembership(reply, error);
     }

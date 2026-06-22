@@ -32,13 +32,7 @@ const staffRoleSchema = z.object({
 });
 
 const spreadUpdateSchema = z.object({
-  spreadUid: z.coerce.number().int().min(0)
-});
-
-const storeManagerSchema = z.object({
-  action: z.enum(['grant', 'revoke']),
-  divisionId: z.coerce.number().int().optional(),
-  storeName: z.string().trim().min(1).max(80).optional()
+  spreadUid: z.coerce.number().int().positive()
 });
 
 const batchSpreadSchema = z.object({
@@ -182,46 +176,6 @@ function registerAdminMembersRoutes(app) {
         ip: getClientIp(request)
       });
       return fail(reply, error.statusCode || 500, error.message || '批量归属更新失败');
-    }
-  });
-
-  app.put('/api/admin/members/:uid/store-manager', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
-    const uid = Number(request.params.uid);
-    if (!uid) return fail(reply, 400, 'uid 无效');
-
-    const parsed = storeManagerSchema.safeParse(request.body || {});
-    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
-
-    const session = getAdminSession(request);
-    try {
-      const result = await membersService.updateStoreManagerRole(
-        uid,
-        parsed.data.action,
-        parsed.data.divisionId,
-        parsed.data.storeName
-      );
-      await auditService.write({
-        adminUsername: session?.username || '',
-        action: parsed.data.action === 'grant' ? 'store_manager_grant' : 'store_manager_revoke',
-        targetType: 'user',
-        targetId: uid,
-        payload: parsed.data,
-        ip: getClientIp(request)
-      });
-      return ok(result, parsed.data.action === 'grant' ? '店长已设置' : '店长已撤销');
-    } catch (error) {
-      await auditService.write({
-        adminUsername: session?.username || '',
-        action: 'store_manager_update',
-        targetType: 'user',
-        targetId: uid,
-        payload: parsed.data,
-        resultStatus: 'failed',
-        resultMessage: error.message,
-        ip: getClientIp(request)
-      });
-      return fail(reply, error.statusCode || 500, error.message || '店长设置失败');
     }
   });
 

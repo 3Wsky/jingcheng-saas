@@ -12,7 +12,7 @@ function renderAdminPage(activeSection = 'lottery') {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>顺为运营后台</title>
+  <title>锦程运营后台</title>
   <style>
     :root {
       color-scheme: light;
@@ -1115,10 +1115,10 @@ function renderAdminPage(activeSection = 'lottery') {
   <div class="app ${pageClass}">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">顺</div>
+        <div class="brand-mark">锦</div>
         <div class="brand-copy">
-          <div class="brand-name">顺为运营后台</div>
-          <div class="brand-sub">Shunwei Admin</div>
+          <div class="brand-name">锦程运营后台</div>
+          <div class="brand-sub">Jingcheng Admin</div>
         </div>
       </div>
       <nav class="nav">

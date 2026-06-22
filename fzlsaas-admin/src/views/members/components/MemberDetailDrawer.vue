@@ -36,6 +36,15 @@
           <el-button size="small" @click="openMerchantRole">商家角色</el-button>
         </el-space>
 
+        <el-divider content-position="left">
+          <span style="color: #F56C6C">回收操作（仅超管）</span>
+        </el-divider>
+        <el-space wrap>
+          <el-button type="danger" size="small" plain @click="recallVoucher">回收现金券</el-button>
+          <el-button type="danger" size="small" plain @click="recallMembership">回收会员</el-button>
+          <el-button type="danger" size="small" plain @click="showRecallIntegral = true">回收积分</el-button>
+        </el-space>
+
         <el-tabs v-model="activeTab" class="mt-16">
           <el-tab-pane label="积分批次" name="batches">
             <el-table :data="integralBatches" size="small" max-height="240">
@@ -48,6 +57,40 @@
             <el-table :data="cashVoucherBatches" size="small" max-height="240">
               <el-table-column prop="remainAmount" label="余额" width="80" />
               <el-table-column prop="sourceType" label="来源" />
+              <el-table-column label="操作" width="72" align="center">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="Number(row.remainAmount) > 0"
+                    link
+                    type="danger"
+                    size="small"
+                    @click="reclaimVoucher(row)"
+                  >回收</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+          <el-tab-pane label="会员记录" name="membership">
+            <el-table :data="membershipRecords" size="small" max-height="240">
+              <el-table-column prop="tierCode" label="档位" width="72" />
+              <el-table-column prop="sourceChannel" label="来源" width="100" />
+              <el-table-column prop="grantedIntegral" label="赠积分" width="80" />
+              <el-table-column label="状态" width="64">
+                <template #default="{ row }">
+                  {{ row.status === 1 ? '有效' : '已失效' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="72" align="center">
+                <template #default="{ row }">
+                  <el-button
+                    v-if="row.status === 1"
+                    link
+                    type="danger"
+                    size="small"
+                    @click="reclaimMembership(row)"
+                  >回收</el-button>
+                </template>
+              </el-table-column>
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="审批历史" name="approval">
@@ -130,6 +173,22 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="showRecallIntegral" title="回收积分" width="400px" append-to-body>
+      <el-alert type="warning" :closable="false" style="margin-bottom: 12px">
+        此操作将从该用户账户中扣减积分，请确认回收数量。
+      </el-alert>
+      <el-form :model="recallIntegralForm" label-width="80px">
+        <el-form-item label="回收数量">
+          <el-input-number v-model="recallIntegralForm.amount" :min="1" :max="integralSummary?.totalIntegral || 999999" />
+        </el-form-item>
+        <el-form-item label="原因"><el-input v-model="recallIntegralForm.reason" placeholder="超管回收积分" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showRecallIntegral = false">取消</el-button>
+        <el-button type="danger" @click="confirmRecallIntegral">确认回收</el-button>
+      </template>
+    </el-dialog>
+
     <el-dialog v-model="showMerchantRole" title="商家角色" width="460px" append-to-body>
       <p class="hint">用户需先在小程序登录（有 UID/头像/昵称）。开通后可在「我的 → 商家核销与提现」入口使用。</p>
       <el-form label-width="88px">
@@ -176,6 +235,7 @@ const profile = ref<any>(null)
 const integralSummary = ref<any>(null)
 const integralBatches = ref<any[]>([])
 const cashVoucherBatches = ref<any[]>([])
+const membershipRecords = ref<any[]>([])
 const approvalHistory = ref<any[]>([])
 const activeTab = ref('batches')
 const showGrantIntegral = ref(false)
@@ -192,6 +252,8 @@ const merchantRoles = ref<any[]>([])
 const merchantOptions = ref<Array<{ id: number; merchantName: string }>>([])
 const showMerchantRole = ref(false)
 const merchantForm = ref({ merchantId: undefined as number | undefined, role: 'staff' as 'staff' | 'manager' })
+const showRecallIntegral = ref(false)
+const recallIntegralForm = ref({ amount: 1000, reason: '超管回收积分' })
 
 watch(() => [props.uid, visible.value], ([uid, open]) => {
   if (open && uid) loadDetail(uid as number)
@@ -210,6 +272,7 @@ async function loadDetail(uid: number) {
     integralSummary.value = data.integralSummary
     integralBatches.value = data.integralBatches || []
     cashVoucherBatches.value = data.cashVoucherBatches || []
+    membershipRecords.value = data.membershipRecords || []
     approvalHistory.value = data.approvalHistory || []
     merchantRoles.value = data.merchantRoles || []
   } catch {
@@ -319,7 +382,7 @@ async function toggleStoreManager() {
     } catch { /* cancel */ }
     return
   }
-  managerStoreName.value = ''
+  staffStoreName.value = ''
   showGrantManager.value = true
 }
 
@@ -381,6 +444,133 @@ async function confirmGrantStaff() {
     showGrantStaff.value = false
     loadDetail(props.uid)
   } catch { /* handled by request interceptor */ }
+}
+
+async function recallVoucher() {
+  if (!props.uid) return
+  const balance = cashVoucherBatches.value.reduce((sum: number, b: any) => sum + Number(b.remainAmount || 0), 0)
+  if (balance <= 0) {
+    ElMessage.warning('该用户当前无可回收的现金券')
+    return
+  }
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `该用户现金券余额 ¥${balance}，将全部回收。请输入回收原因：`,
+      '回收现金券',
+      {
+        confirmButtonText: '确认回收',
+        confirmButtonClass: 'el-button--danger',
+        inputValue: '超管回收现金券',
+        inputPlaceholder: '回收原因'
+      }
+    )
+    await request.post(`/api/admin/members/${props.uid}/recall-voucher`, {
+      reason: value || '超管回收现金券'
+    })
+    ElMessage.success('现金券回收成功')
+    activeTab.value = 'voucher'
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function reclaimVoucher(row: any) {
+  if (!props.uid) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `确认回收该批次现金券 ¥${row.remainAmount}？`,
+      '回收现金券',
+      {
+        confirmButtonText: '确认回收',
+        confirmButtonClass: 'el-button--danger',
+        inputValue: '超管回收现金券',
+        inputPlaceholder: '回收原因'
+      }
+    )
+    await request.post(`/api/admin/members/${props.uid}/recall-voucher`, {
+      batchId: row.batchId,
+      reason: value || '超管回收现金券'
+    })
+    ElMessage.success('现金券已回收')
+    activeTab.value = 'voucher'
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function recallMembership() {
+  if (!props.uid || !profile.value) return
+  if (!profile.value.tierCode) {
+    ElMessage.warning('该用户当前无有效会员')
+    return
+  }
+  const tierLabel = profile.value.tierCode === 'SW299' ? '299会员' : '199会员'
+  try {
+    await ElMessageBox.confirm(
+      `确认回收 UID ${props.uid} 的 ${tierLabel} 权益？\n同时回收关联的赠送积分。`,
+      '回收会员权益',
+      {
+        type: 'warning',
+        confirmButtonText: '确认回收',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    await request.post(`/api/admin/members/${props.uid}/recall-membership`, {
+      reclaimIntegral: true,
+      reason: '超管回收会员权益'
+    })
+    ElMessage.success('会员权益已回收')
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function reclaimMembership(row: any) {
+  if (!props.uid) return
+  try {
+    await ElMessageBox.confirm(
+      `确认回收 ${row.tierCode} 会员权益？将同时扣回关联赠送积分。`,
+      '回收会员',
+      {
+        type: 'warning',
+        confirmButtonText: '确认回收',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    await request.post(`/api/admin/members/${props.uid}/recall-membership`, {
+      membershipId: row.id,
+      reclaimIntegral: true,
+      reason: '超管回收会员权益'
+    })
+    ElMessage.success('会员已回收')
+    activeTab.value = 'membership'
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function confirmRecallIntegral() {
+  if (!props.uid) return
+  const amount = recallIntegralForm.value.amount
+  if (!amount || amount <= 0) {
+    ElMessage.warning('请输入有效的回收数量')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认从 UID ${props.uid} 回收 ${amount} 积分？`,
+      '回收积分',
+      {
+        type: 'warning',
+        confirmButtonText: '确认回收',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    await request.post(`/api/admin/members/${props.uid}/recall-integral`, {
+      amount,
+      reason: recallIntegralForm.value.reason || '超管回收积分'
+    })
+    ElMessage.success('积分回收成功')
+    showRecallIntegral.value = false
+    activeTab.value = 'batches'
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
 }
 
 async function loadMerchantOptions() {

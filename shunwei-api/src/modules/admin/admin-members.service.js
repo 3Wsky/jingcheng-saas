@@ -226,7 +226,6 @@ class AdminMembersService {
         tierCode: tierRow?.tier_code || '',
         membershipExpireAt: Number(tierRow?.expire_at || 0),
         isStaff: Number(user.is_staff || 0) === 1,
-        isManager: Boolean(isManager),
         divisionId: Number(user.division_id || 0),
         spreadUid: Number(user.spread_uid || 0),
         spreadNickname
@@ -234,7 +233,15 @@ class AdminMembersService {
       integralSummary,
       integralBatches: batches,
       cashVoucherBatches,
-      membershipRecords: memberships,
+      membershipRecords: memberships.map((m) => ({
+        id: m.id,
+        tierCode: m.tier_code,
+        sourceChannel: m.source_channel,
+        grantedIntegral: Number(m.granted_integral || 0),
+        startAt: Number(m.start_at || 0),
+        expireAt: Number(m.expire_at || 0),
+        status: Number(m.status)
+      })),
       approvalHistory,
       isMerchant: Boolean(merchantRow) || merchantRoles.list.length > 0,
       merchantId: merchantRow?.id || merchantRoles.list[0]?.merchantId || null,
@@ -294,29 +301,8 @@ class AdminMembersService {
     };
   }
 
-  async clearSpread(uid) {
-    const pool = getPool();
-    const [[user]] = await pool.query(
-      `SELECT uid, spread_uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
-      [uid]
-    );
-    if (!user) {
-      const error = new Error('用户不存在');
-      error.statusCode = 404;
-      throw error;
-    }
-    await pool.query(
-      `UPDATE ${legacyTable('user')} SET spread_uid = 0 WHERE uid = ?`,
-      [uid]
-    );
-    return { uid, spreadUid: 0, previousSpreadUid: Number(user.spread_uid || 0) };
-  }
-
   async updateSpread(uid, spreadUid) {
     const pool = getPool();
-    if (Number(spreadUid) === 0) {
-      return this.clearSpread(uid);
-    }
     const [[user]] = await pool.query(
       `SELECT uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
       [uid]
@@ -407,82 +393,6 @@ class AdminMembersService {
       [uid]
     );
     return { uid, isStaff: false, divisionId: 0 };
-  }
-
-  async updateStoreManagerRole(uid, action, divisionId, storeName) {
-    const pool = getPool();
-    const storesService = new AdminStoresService();
-    const [[user]] = await pool.query(
-      `SELECT uid, is_staff, division_id FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
-      [uid]
-    );
-    if (!user) {
-      const error = new Error('用户不存在');
-      error.statusCode = 404;
-      throw error;
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-
-    if (action === 'revoke') {
-      await pool.query(
-        `UPDATE ${swTable('store_manager')} SET is_active = 0, updated_at = ? WHERE manager_uid = ?`,
-        [now, uid]
-      );
-      return { uid, isManager: false };
-    }
-
-    let resolvedDivisionId = Number(divisionId || user.division_id || 0);
-    let resolvedStoreName = '';
-
-    if (storeName) {
-      const store = await storesService.resolveOrCreateByName(storeName);
-      resolvedDivisionId = store.id;
-      resolvedStoreName = store.name;
-    } else if (resolvedDivisionId > 0) {
-      const storeTable = legacyTable('system_store');
-      const [[storeRow]] = await pool.query(
-        `SELECT name FROM ${storeTable} WHERE id = ? LIMIT 1`,
-        [resolvedDivisionId]
-      );
-      resolvedStoreName = storeRow?.name ? String(storeRow.name).trim() : `门店#${resolvedDivisionId}`;
-    }
-
-    if (!resolvedDivisionId || resolvedDivisionId <= 0) {
-      const error = new Error('设店长需指定门店（或用户已有 division_id）');
-      error.statusCode = 400;
-      throw error;
-    }
-
-    await pool.query(
-      `UPDATE ${legacyTable('user')} SET is_staff = 1, division_id = ? WHERE uid = ?`,
-      [resolvedDivisionId, uid]
-    );
-
-    const [[existing]] = await pool.query(
-      `SELECT id FROM ${swTable('store_manager')} WHERE division_id = ? AND manager_uid = ? LIMIT 1`,
-      [resolvedDivisionId, uid]
-    );
-    if (existing) {
-      await pool.query(
-        `UPDATE ${swTable('store_manager')} SET is_active = 1, updated_at = ? WHERE id = ?`,
-        [now, existing.id]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO ${swTable('store_manager')}
-         (division_id, manager_uid, is_active, appointed_by, created_at, updated_at)
-         VALUES (?, ?, 1, 0, ?, ?)`,
-        [resolvedDivisionId, uid, now, now]
-      );
-    }
-
-    return {
-      uid,
-      isManager: true,
-      divisionId: resolvedDivisionId,
-      storeName: resolvedStoreName || undefined
-    };
   }
 }
 
