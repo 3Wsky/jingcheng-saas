@@ -10,7 +10,7 @@ import { computed } from 'vue'
 const props = defineProps<{ status: string }>()
 
 const labelMap: Record<string, string> = {
-  pending_store: '待店长',
+  pending_store: '待客户主管',
   pending_admin: '待超管',
   approved: '已通过',
   rejected: '已驳回',

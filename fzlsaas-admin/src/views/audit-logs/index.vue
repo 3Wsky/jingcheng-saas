@@ -9,7 +9,7 @@
             <el-option label="现金券发放" value="cash_voucher_grant" />
             <el-option label="审批终审" value="approval_review" />
             <el-option label="归属变更" value="member_spread_update" />
-            <el-option label="店员名片" value="staff_card_update" />
+            <el-option label="客户经理名片" value="staff_card_update" />
           </el-select>
         </el-form-item>
         <el-form-item label="日期">

@@ -1,5 +1,5 @@
 <template>
-  <PageShell title="店员管理">
+  <PageShell title="客户经理">
     <template #filter>
       <el-form :inline="true" @submit.prevent="search">
         <el-form-item label="搜索">
@@ -8,7 +8,7 @@
         <el-form-item label="门店">
           <StoreNameSelect v-model="storeName" placeholder="按门店名称筛选" style="width: 220px" />
         </el-form-item>
-        <el-form-item label="店长">
+        <el-form-item label="客户主管">
           <el-select v-model="managerFilter" clearable placeholder="全部" style="width:100px">
             <el-option label="是" value="yes" />
             <el-option label="否" value="no" />
@@ -39,15 +39,15 @@
       :row-class-name="tableRowClass"
     >
       <template #empty>
-        <el-empty description="暂无店员">
-          <el-button type="primary" @click="$router.push('/members')">前往会员管理开通店员</el-button>
+        <el-empty description="暂无客户经理">
+          <el-button type="primary" @click="$router.push('/members')">前往会员管理开通客户经理</el-button>
         </el-empty>
       </template>
       <el-table-column prop="uid" label="UID" width="80" />
       <el-table-column prop="nickname" label="姓名">
         <template #default="{ row }">
           <span :class="{ 'manager-name': row.isManager }">{{ row.nickname }}</span>
-          <el-tag v-if="row.isManager" type="warning" size="small" class="manager-inline-tag">店长</el-tag>
+          <el-tag v-if="row.isManager" type="warning" size="small" class="manager-inline-tag">客户主管</el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="divisionName" label="门店">
@@ -89,8 +89,8 @@
 
   <StaffDetailDrawer v-model="drawerOpen" :uid="selectedUid" :initial-tab="drawerTab" @updated="loadList" />
 
-  <el-dialog v-model="batchDialogOpen" title="从归属关系批量开通店员" width="560px">
-    <p class="batch-tip">将把「至少 1 名会员归属其 UID」且尚未开通店员的用户，批量加入店员管理。</p>
+  <el-dialog v-model="batchDialogOpen" title="从归属关系批量开通客户经理" width="560px">
+    <p class="batch-tip">将把「至少 1 名会员归属其 UID」且尚未开通客户经理的用户，批量加入客户经理管理。</p>
     <el-form label-width="88px">
       <el-form-item label="默认门店">
         <StoreNameSelect v-model="batchStoreName" placeholder="默认：米古里" />
@@ -98,7 +98,7 @@
     </el-form>
     <el-alert v-if="batchPreview" type="info" :closable="false" show-icon class="batch-alert">
       <template #title>
-        待开通 {{ batchPreview.pendingCount }} 人 · 已是店员 {{ batchPreview.existingCount }} 人 · 归属店员共 {{ batchPreview.totalCandidates }} 人
+        待开通 {{ batchPreview.pendingCount }} 人 · 已是客户经理 {{ batchPreview.existingCount }} 人 · 归属客户经理共 {{ batchPreview.totalCandidates }} 人
       </template>
     </el-alert>
     <el-table v-if="batchPreview?.pending?.length" :data="batchPreview.pending.slice(0, 8)" size="small" max-height="220" class="batch-table">
@@ -278,7 +278,7 @@ async function confirmBatchGrant() {
   const store = String(batchStoreName.value || '米古里').trim() || '米古里'
   try {
     await ElMessageBox.confirm(
-      `确认为 ${batchPreview.value?.pendingCount || 0} 人开通店员，并设置门店为「${store}」？`,
+      `确认为 ${batchPreview.value?.pendingCount || 0} 人开通客户经理，并设置门店为「${store}」？`,
       '批量开通确认',
       { type: 'warning' }
     )

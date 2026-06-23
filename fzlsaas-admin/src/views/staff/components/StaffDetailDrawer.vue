@@ -1,5 +1,5 @@
 <template>
-  <el-drawer v-model="visible" :title="`店员详情 · UID ${profile?.uid || ''}`" size="640px" destroy-on-close>
+  <el-drawer v-model="visible" :title="`客户经理详情 · UID ${profile?.uid || ''}`" size="640px" destroy-on-close>
     <div v-loading="loading">
       <template v-if="profile">
         <div class="profile-header">

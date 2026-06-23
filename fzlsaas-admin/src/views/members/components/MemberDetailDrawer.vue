@@ -10,13 +10,13 @@
             <MemberTag v-else tag="normal" />
             <MemberTag v-for="t in (profile.tags || []).filter((x: string) => !['tier199','tier299','normal'].includes(x))" :key="t" :tag="t" style="margin-left: 4px" />
           </el-descriptions-item>
-          <el-descriptions-item label="归属店员">
+          <el-descriptions-item label="归属客户经理">
             {{ profile.spreadNickname ? `${profile.spreadNickname} (${profile.spreadUid})` : '—' }}
           </el-descriptions-item>
           <el-descriptions-item label="商家角色">
             <template v-if="merchantRoles.length">
               <el-tag v-for="item in merchantRoles" :key="item.merchantId" size="small" style="margin-right: 4px">
-                {{ item.merchantName }} · {{ item.role === 'manager' ? '店长' : '店员' }}
+                {{ item.merchantName }} · {{ item.role === 'manager' ? '商家负责人' : '核销员' }}
               </el-tag>
             </template>
             <span v-else>—</span>
@@ -31,8 +31,8 @@
           <el-button size="small" @click="showGrantMembership = true">手动开通会员</el-button>
           <el-button size="small" @click="changeSpread">变更归属</el-button>
           <el-button size="small" @click="clearSpread">清除归属</el-button>
-          <el-button size="small" @click="toggleStaff">{{ profile.isStaff ? '撤销店员' : '开通店员' }}</el-button>
-          <el-button size="small" @click="toggleStoreManager">{{ profile.isManager ? '撤销店长' : '设为店长' }}</el-button>
+          <el-button size="small" @click="toggleStaff">{{ profile.isStaff ? '撤销客户经理' : '开通客户经理' }}</el-button>
+          <el-button size="small" @click="toggleStoreManager">{{ profile.isManager ? '撤销客户主管' : '设为客户主管' }}</el-button>
           <el-button size="small" @click="openMerchantRole">商家角色</el-button>
         </el-space>
 
@@ -132,7 +132,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showGrantStaff" title="开通店员" width="420px" append-to-body>
+    <el-dialog v-model="showGrantStaff" title="开通客户经理" width="420px" append-to-body>
       <el-form label-width="88px">
         <el-form-item label="所属门店" required>
           <StoreNameSelect v-model="staffStoreName" placeholder="选择已有门店，或直接输入新门店名称" />
@@ -145,16 +145,16 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="showGrantManager" title="设为店长" width="420px" append-to-body>
+    <el-dialog v-model="showGrantManager" title="设为客户主管" width="420px" append-to-body>
       <el-form label-width="88px">
         <el-form-item label="所属门店">
           <StoreNameSelect v-model="managerStoreName" placeholder="留空则使用用户当前门店 division_id" />
         </el-form-item>
-        <p class="hint">设店长会自动开通店员权限；同一门店可配置 1–2 名店长。</p>
+        <p class="hint">设为客户主管会自动开通客户经理权限；同一门店可配置 1–2 名客户主管。</p>
       </el-form>
       <template #footer>
         <el-button @click="showGrantManager = false">取消</el-button>
-        <el-button type="primary" @click="confirmGrantManager">确认设店长</el-button>
+        <el-button type="primary" @click="confirmGrantManager">确认设为客户主管</el-button>
       </template>
     </el-dialog>
 
@@ -199,15 +199,15 @@
         </el-form-item>
         <el-form-item label="角色" required>
           <el-radio-group v-model="merchantForm.role">
-            <el-radio value="staff">商家店员（可核销）</el-radio>
-            <el-radio value="manager">商家店长（核销+提现）</el-radio>
+            <el-radio value="staff">核销员（可核销）</el-radio>
+            <el-radio value="manager">商家负责人（核销+管理）</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>
       <div v-if="merchantRoles.length" class="current-roles">
         <div class="current-title">当前角色</div>
         <div v-for="item in merchantRoles" :key="item.merchantId" class="role-row">
-          <span>{{ item.merchantName }} · {{ item.role === 'manager' ? '店长' : '店员' }}</span>
+          <span>{{ item.merchantName }} · {{ item.role === 'manager' ? '商家负责人' : '核销员' }}</span>
           <el-button link type="danger" @click="revokeMerchantRole(item.merchantId)">撤销</el-button>
         </div>
       </div>
@@ -347,7 +347,7 @@ async function confirmGrantMembership() {
 async function changeSpread() {
   if (!props.uid) return
   try {
-    const { value } = await ElMessageBox.prompt('请输入新归属店员的 UID', '变更归属', {
+    const { value } = await ElMessageBox.prompt('请输入新归属客户经理的 UID', '变更归属', {
       inputPattern: /^\d+$/,
       inputErrorMessage: '请输入有效的数字 UID',
       confirmButtonText: '确认变更'
@@ -355,7 +355,7 @@ async function changeSpread() {
     await request.put(`/api/admin/members/${props.uid}/spread`, {
       spreadUid: Number(value)
     })
-    ElMessage.success('归属店员已更新')
+    ElMessage.success('归属客户经理已更新')
     loadDetail(props.uid)
   } catch { /* cancel or error */ }
 }
@@ -363,7 +363,7 @@ async function changeSpread() {
 async function clearSpread() {
   if (!props.uid) return
   try {
-    await ElMessageBox.confirm('确认清除该会员的归属店员？', '清除归属', { type: 'warning' })
+    await ElMessageBox.confirm('确认清除该会员的归属客户经理？', '清除归属', { type: 'warning' })
     await request.put(`/api/admin/members/${props.uid}/spread`, { spreadUid: 0 })
     ElMessage.success('归属已清除')
     loadDetail(props.uid)
@@ -375,9 +375,9 @@ async function toggleStoreManager() {
   const isManager = profile.value.isManager
   if (isManager) {
     try {
-      await ElMessageBox.confirm('确认撤销该用户的店长身份？', '撤销店长', { type: 'warning' })
+      await ElMessageBox.confirm('确认撤销该用户的客户主管身份？', '撤销客户主管', { type: 'warning' })
       await request.put(`/api/admin/members/${props.uid}/store-manager`, { action: 'revoke' })
-      ElMessage.success('店长已撤销')
+      ElMessage.success('客户主管已撤销')
       loadDetail(props.uid)
     } catch { /* cancel */ }
     return
@@ -395,7 +395,7 @@ async function confirmGrantManager() {
       ...(storeName ? { storeName } : {})
     })
     if (storeName) rememberStoreName(storeName)
-    ElMessage.success('店长已设置')
+    ElMessage.success('客户主管已设置')
     showGrantManager.value = false
     loadDetail(props.uid)
   } catch { /* handled */ }
@@ -411,8 +411,8 @@ async function toggleStaff() {
   }
   try {
     const { value } = await ElMessageBox.prompt(
-      '撤销店员为危险操作，请输入「确认撤销」以继续',
-      '撤销店员',
+      '撤销客户经理为危险操作，请输入「确认撤销」以继续',
+      '撤销客户经理',
       {
         confirmButtonText: '确认撤销',
         confirmButtonClass: 'el-button--danger',
@@ -422,7 +422,7 @@ async function toggleStaff() {
     )
     if (value !== '确认撤销') return
     await request.put(`/api/admin/members/${props.uid}/staff-role`, { action: 'revoke' })
-    ElMessage.success('店员权限已撤销')
+    ElMessage.success('客户经理权限已撤销')
   } catch { /* cancel or error */ }
   loadDetail(props.uid)
 }
@@ -440,7 +440,7 @@ async function confirmGrantStaff() {
       storeName
     })
     rememberStoreName(storeName)
-    ElMessage.success('店员权限已开通')
+    ElMessage.success('客户经理权限已开通')
     showGrantStaff.value = false
     loadDetail(props.uid)
   } catch { /* handled by request interceptor */ }

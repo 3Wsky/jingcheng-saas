@@ -33,14 +33,14 @@
       <el-form :inline="true" @submit.prevent="loadAll">
         <el-form-item label="状态">
           <el-select v-model="filters.status" clearable style="width: 140px">
-            <el-option label="待店长" value="pending_store" />
+            <el-option label="待客户主管" value="pending_store" />
             <el-option label="待超管" value="pending_admin" />
             <el-option label="已通过" value="approved" />
             <el-option label="已驳回" value="rejected" />
             <el-option label="已撤销" value="revoked" />
           </el-select>
         </el-form-item>
-        <el-form-item label="店员UID">
+        <el-form-item label="客户经理UID">
           <el-input-number v-model="filters.staffUid" :min="0" controls-position="right" style="width: 130px" />
         </el-form-item>
         <el-form-item label="档位">

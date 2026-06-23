@@ -114,10 +114,10 @@ const detail = ref<any>(null)
 const comment = ref('')
 
 const roleLabel: Record<string, string> = {
-  clerk: '店员',
-  staff: '店员',
-  manager: '店长',
-  store: '店长',
+  clerk: '客户经理',
+  staff: '客户经理',
+  manager: '客户主管',
+  store: '客户主管',
   admin: '超管',
 }
 
@@ -147,7 +147,7 @@ const timelineItems = computed(() => {
   if (detail.value.status === 'pending_admin') {
     items.push({ text: '待超管终审', type: 'warning', hollow: true })
   } else if (detail.value.status === 'pending_store') {
-    items.push({ text: '待店长初审', type: 'warning', hollow: true })
+    items.push({ text: '待客户主管初审', type: 'warning', hollow: true })
   }
   return items
 })

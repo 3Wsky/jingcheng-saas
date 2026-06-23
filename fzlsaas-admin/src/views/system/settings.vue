@@ -7,7 +7,7 @@
           <el-form label-width="120px" label-position="top" v-loading="loading">
             <el-form-item label="消费审批免审">
               <el-switch v-model="form.consumption" />
-              <p class="hint">开启后店员提交将自动通过并发放权益，仍保留记录</p>
+              <p class="hint">开启后客户经理提交将自动通过并发放权益，仍保留记录</p>
             </el-form-item>
             <el-form-item label="积分商城免审">
               <el-switch v-model="form.integralMall" />

@@ -111,7 +111,7 @@
           <el-button type="primary" @click="saveMerchant">保存</el-button>
         </el-form>
       </el-tab-pane>
-      <el-tab-pane label="店员核销" name="staff-stats">
+      <el-tab-pane label="核销员统计" name="staff-stats">
         <div class="stats-toolbar">
           <el-radio-group v-model="statsPeriod" size="small" @change="loadStaffStats">
             <el-radio-button value="day">按日</el-radio-button>
@@ -132,7 +132,7 @@
           <template #empty>
             <el-empty description="暂无核销数据" />
           </template>
-          <el-table-column prop="operatorName" label="店员" min-width="100">
+          <el-table-column prop="operatorName" label="核销员" min-width="100">
             <template #default="{ row }">
               <span class="staff-name">{{ row.operatorName }}</span>
               <span class="staff-uid">（{{ row.operatorUid }}）</span>

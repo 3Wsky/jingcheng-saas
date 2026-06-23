@@ -26,8 +26,8 @@
             <el-option label="普通用户" value="normal" />
             <el-option label="199会员" value="tier199" />
             <el-option label="299会员" value="tier299" />
-            <el-option label="店员" value="staff" />
-            <el-option label="店长" value="manager" />
+            <el-option label="客户经理" value="staff" />
+            <el-option label="客户主管" value="manager" />
             <el-option label="商家" value="merchant" />
           </el-select>
         </el-form-item>
@@ -38,7 +38,7 @@
               <el-option label="否" value="no" />
             </el-select>
           </el-form-item>
-          <el-form-item label="归属店员UID">
+          <el-form-item label="归属客户经理UID">
             <el-input-number v-model="filters.spreadUid" :min="0" controls-position="right" style="width: 140px" />
           </el-form-item>
           <el-form-item label="无归属">
@@ -61,7 +61,7 @@
         <el-tab-pane label="全部" name="all" />
         <el-tab-pane label="199会员" name="tier199" />
         <el-tab-pane label="299会员" name="tier299" />
-        <el-tab-pane label="店员" name="staff" />
+        <el-tab-pane label="客户经理" name="staff" />
         <el-tab-pane label="普通用户" name="normal" />
       </el-tabs>
     </template>
@@ -143,7 +143,7 @@
       <el-table-column label="手机号" width="120">
         <template #default="{ row }">{{ maskPhone(row.phone) }}</template>
       </el-table-column>
-      <el-table-column label="归属店员" min-width="108">
+      <el-table-column label="归属客户经理" min-width="108">
         <template #default="{ row }">
           {{ row.spreadNickname || (row.spreadUid ? `#${row.spreadUid}` : '—') }}
         </template>
@@ -211,10 +211,10 @@
     </template>
   </el-dialog>
 
-  <el-dialog v-model="spreadOpen" title="批量指定归属店员" width="480px" destroy-on-close>
-    <p class="batch-tip">将已勾选的会员归属到指定店员；默认跳过已有归属的会员。</p>
+  <el-dialog v-model="spreadOpen" title="批量指定归属客户经理" width="480px" destroy-on-close>
+    <p class="batch-tip">将已勾选的会员归属到指定客户经理；默认跳过已有归属的会员。</p>
     <el-form label-width="120px">
-      <el-form-item label="归属店员 UID" required>
+      <el-form-item label="归属客户经理 UID" required>
         <el-input-number v-model="spreadTargetUid" :min="1" controls-position="right" style="width: 100%" />
       </el-form-item>
       <el-form-item label="仅无归属">
@@ -384,7 +384,7 @@ function openSpreadBatch() {
 
 async function runSpreadBatch() {
   if (!selectedRows.value.length || !spreadTargetUid.value) {
-    ElMessage.warning('请填写归属店员 UID')
+    ElMessage.warning('请填写归属客户经理 UID')
     return
   }
   spreadRunning.value = true
@@ -509,7 +509,7 @@ async function exportData() {
   }
   downloadCsv(
     'members-list.csv',
-    ['UID', '昵称', '手机号', '付费会员', '等级', '分组', '归属店员', '积分', '现金券'],
+    ['UID', '昵称', '手机号', '付费会员', '等级', '分组', '归属客户经理', '积分', '现金券'],
     rows.map((r) => [
       r.uid,
       r.nickname || '',
