@@ -182,9 +182,18 @@ function registerMerchantRoutes(app) {
       const now = Math.floor(Date.now() / 1000);
 
       if (parsed.data.action === 'suspend') {
+        const [[merchantRow]] = await getPool().query(
+          `SELECT business_hours FROM ${swTable('merchant')} WHERE id = ? LIMIT 1`,
+          [access.merchant.id]
+        );
+        let openHour = parsed.data.resumeHour;
+        const bh = String(merchantRow?.business_hours || '').trim();
+        const bhMatch = bh.match(/^(\d{1,2})/);
+        if (bhMatch) openHour = Math.min(23, Math.max(0, Number(bhMatch[1])));
+
         const tomorrow = new Date();
         tomorrow.setDate(tomorrow.getDate() + 1);
-        tomorrow.setHours(parsed.data.resumeHour, 0, 0, 0);
+        tomorrow.setHours(openHour, 0, 0, 0);
         const suspendedUntil = Math.floor(tomorrow.getTime() / 1000);
         await getPool().query(
           `UPDATE ${swTable('merchant_staff')}
@@ -192,7 +201,8 @@ function registerMerchantRoutes(app) {
            WHERE merchant_id = ? AND staff_uid = ? AND is_active = 1`,
           [suspendedUntil, now, access.merchant.id, targetUid]
         );
-        return ok({ uid: targetUid, isSuspended: true, suspendedUntil }, '已暂停核销权限，次日自动恢复');
+        const resumeText = String(openHour).padStart(2, '0') + ':00';
+        return ok({ uid: targetUid, isSuspended: true, suspendedUntil, resumeText }, `已暂停核销权限，次日 ${resumeText} 自动恢复`);
       } else {
         await getPool().query(
           `UPDATE ${swTable('merchant_staff')}
