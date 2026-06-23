@@ -141,16 +141,53 @@ function registerMerchantRoutes(app) {
            COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS week_amount,
            COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS month_amount,
            COALESCE(SUM(amount), 0) AS total_amount,
-           COUNT(*) AS verify_count
+           COUNT(*) AS verify_count,
+           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS today_count,
+           COUNT(DISTINCT uid) AS customer_count
          FROM ${swTable('cash_voucher_ledger')}
          WHERE merchant_id = ? AND direction = 0`,
-        [dayStart, weekStart, monthStart, merchant.id]
+        [dayStart, weekStart, monthStart, dayStart, merchant.id]
       );
       const [[withdrawing]] = await getPool().query(
         `SELECT COALESCE(SUM(amount), 0) AS amount FROM ${swTable('merchant_settlement')}
          WHERE merchant_id = ? AND status = 'pending'`,
         [merchant.id]
       );
+
+      const [recentRecords] = await getPool().query(
+        `SELECT l.id, l.uid, l.amount, l.operator_uid, l.remark, l.created_at,
+                u.nickname AS customer_nickname, op.nickname AS operator_nickname
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = l.uid
+         LEFT JOIN ${legacyTable('user')} op ON op.uid = l.operator_uid
+         WHERE l.merchant_id = ? AND l.direction = 0
+         ORDER BY l.created_at DESC LIMIT 10`,
+        [merchant.id]
+      );
+
+      let staffStats = [];
+      if (access.isManager) {
+        const [staffRows] = await getPool().query(
+          `SELECT l.operator_uid, u.nickname,
+                  COUNT(*) AS verify_count,
+                  COALESCE(SUM(l.amount), 0) AS verify_amount,
+                  COALESCE(SUM(CASE WHEN l.created_at >= ? THEN l.amount ELSE 0 END), 0) AS today_amount
+           FROM ${swTable('cash_voucher_ledger')} l
+           LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
+           WHERE l.merchant_id = ? AND l.direction = 0
+           GROUP BY l.operator_uid
+           ORDER BY verify_amount DESC`,
+          [dayStart, merchant.id]
+        );
+        staffStats = staffRows.map(r => ({
+          uid: Number(r.operator_uid),
+          nickname: r.nickname || `UID${r.operator_uid}`,
+          verifyCount: Number(r.verify_count),
+          verifyAmount: Number(r.verify_amount),
+          todayAmount: Number(r.today_amount)
+        }));
+      }
+
       return ok({
         ...mapAccess(access),
         todayAmount: Number(stats.today_amount || 0),
@@ -158,9 +195,21 @@ function registerMerchantRoutes(app) {
         monthAmount: Number(stats.month_amount || 0),
         totalAmount: Number(stats.total_amount || 0),
         verifyCount: Number(stats.verify_count || 0),
+        todayCount: Number(stats.today_count || 0),
+        customerCount: Number(stats.customer_count || 0),
         availableAmount: Number(merchant.pending_settlement || 0),
         withdrawingAmount: Number(withdrawing.amount || 0),
-        settledTotal: Number(merchant.settled_total || 0)
+        settledTotal: Number(merchant.settled_total || 0),
+        recentRecords: recentRecords.map(r => ({
+          id: r.id,
+          customerUid: Number(r.uid),
+          customerNickname: r.customer_nickname || '',
+          amount: Number(r.amount),
+          operatorNickname: r.operator_nickname || '',
+          remark: r.remark || '',
+          createdAt: Number(r.created_at)
+        })),
+        staffStats
       });
     } catch (error) {
       return failMerchant(reply, error);
