@@ -13,7 +13,8 @@ const meta: Record<string, { label: string; type: string }> = {
   normal: { label: '普通', type: 'normal' },
   staff: { label: '客户经理', type: 'staff' },
   manager: { label: '客户主管', type: 'manager' },
-  merchant: { label: '商家', type: 'merchant' },
+  merchant: { label: '商家负责人', type: 'merchant' },
+  merchant_staff: { label: '核销员', type: 'merchant_staff' },
   SW199: { label: '199会员', type: 'tier199' },
   SW299: { label: '299会员', type: 'tier299' },
 }
@@ -37,4 +38,5 @@ const type = computed(() => meta[props.tag]?.type || 'normal')
 .tag-staff { background: var(--gov-success-light, #edfaf5); color: var(--gov-success, #00a870); }
 .tag-manager { background: var(--gov-warning-light, #fef3eb); color: var(--gov-warning, #ed7b2f); }
 .tag-merchant { background: #eff6ff; color: #2563eb; }
+.tag-merchant_staff { background: #fdeef0; color: #d4366b; border: 1px solid rgba(212, 54, 107, 0.18); }
 </style>

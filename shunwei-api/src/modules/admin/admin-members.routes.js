@@ -11,6 +11,8 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
   keyword: z.string().trim().max(64).optional().default(''),
   tag: z.string().trim().max(128).optional().default(''),
+  dualRole: z.enum(['staff_verifier', 'manager_verifier', 'any']).optional(),
+  multiRole: z.coerce.boolean().optional(),
   searchType: z.enum(['all', 'uid', 'phone', 'nickname']).optional().default('all'),
   sortBy: z.string().optional().default('register_desc'),
   spreadUid: z.coerce.number().int().positive().optional(),
