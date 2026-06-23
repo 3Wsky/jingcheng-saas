@@ -32,8 +32,12 @@
             <el-option label="核销员" value="merchant_staff" />
           </el-select>
         </el-form-item>
-        <el-form-item label="多重身份">
-          <el-switch v-model="filters.multiRole" @change="search" />
+        <el-form-item label="双重身份">
+          <el-select v-model="filters.dualRole" placeholder="全部" clearable style="width: 190px" @change="search">
+            <el-option label="客户经理 + 核销员" value="staff_verifier" />
+            <el-option label="客户主管 + 核销员" value="manager_verifier" />
+            <el-option label="任意管理角色 + 核销员" value="any" />
+          </el-select>
         </el-form-item>
         <template v-if="filterExpanded">
           <el-form-item label="付费会员">
@@ -139,11 +143,12 @@
           <MemberTag v-else tag="normal" />
         </template>
       </el-table-column>
-      <el-table-column label="身份" min-width="140" align="center">
+      <el-table-column label="身份" min-width="150" align="center">
         <template #default="{ row }">
           <div class="role-tags-cell">
             <MemberTag v-for="t in roleTags(row)" :key="t" :tag="t" style="margin: 2px" />
-            <span v-if="roleTags(row).length >= 2" class="multi-role-badge">多重身份</span>
+            <span v-if="isDualRole(row)" class="dual-role-badge">双重身份</span>
+            <span v-else-if="roleTags(row).length >= 2" class="multi-role-badge">多重身份</span>
             <span v-if="!roleTags(row).length" class="text-muted">—</span>
           </div>
         </template>
@@ -285,7 +290,6 @@ const filters = ref({
   searchType: 'all',
   keyword: '',
   tag: '',
-  multiRole: false,
   dualRole: '' as '' | 'staff_verifier' | 'manager_verifier' | 'any',
   paidOnly: '' as '' | 'yes' | 'no',
   spreadUid: undefined as number | undefined,
@@ -336,11 +340,19 @@ function roleTags(row: any) {
   return (row.tags || []).filter((x: string) => ROLE_TAG_SET.has(x))
 }
 
+// 管理角色（客户经理/客户主管）同时又是核销员 → 重点关注的双重身份
+function isDualRole(row: any) {
+  const tags = row.tags || []
+  const isMgmt = tags.includes('staff') || tags.includes('manager')
+  return isMgmt && tags.includes('merchant_staff')
+}
+
 function isMultiRole(row: any) {
   return roleTags(row).length >= 2
 }
 
 function rowClassName({ row }: { row: any }) {
+  if (isDualRole(row)) return 'dual-role-row'
   if (isMultiRole(row)) return 'multi-role-row'
   return ''
 }
@@ -459,7 +471,7 @@ function search() {
 }
 
 function reset() {
-  filters.value = { searchType: 'all', keyword: '', tag: '', multiRole: false, dualRole: '', paidOnly: '', spreadUid: undefined, unownedOnly: false }
+  filters.value = { searchType: 'all', keyword: '', tag: '', dualRole: '', paidOnly: '', spreadUid: undefined, unownedOnly: false }
   activeTab.value = 'all'
   search()
 }
@@ -513,7 +525,8 @@ async function exportData() {
         page: p,
         pageSize: size,
         keyword: filters.value.keyword || undefined,
-        tag: filters.value.tag || undefined
+        tag: filters.value.tag || undefined,
+        dualRole: filters.value.dualRole || undefined
       }
       const data = await request.get('/api/admin/members/list', { params })
       let batch = data?.list || []
@@ -531,7 +544,7 @@ async function exportData() {
   }
   downloadCsv(
     'members-list.csv',
-    ['UID', '昵称', '手机号', '付费会员', '等级', '身份', '多重身份', '归属客户经理', '积分', '现金券'],
+    ['UID', '昵称', '手机号', '付费会员', '等级', '身份', '双重身份', '归属客户经理', '积分', '现金券'],
     rows.map((r) => {
       const roles = roleTags(r)
       return [
@@ -541,7 +554,7 @@ async function exportData() {
         r.tierCode ? '是' : '否',
         tierLabel(r.tierCode),
         roles.map((t: string) => ({ staff: '客户经理', manager: '客户主管', merchant: '商家', merchant_staff: '核销员' }[t] || t)).join('/') || '',
-        roles.length >= 2 ? '是' : '否',
+        isDualRole(r) ? '是' : '否',
         r.spreadNickname || (r.spreadUid ? `#${r.spreadUid}` : ''),
         r.integralBalance ?? 0,
         r.cashVoucherBalance ?? 0
@@ -622,6 +635,17 @@ async function exportData() {
   line-height: 1.5;
   margin-left: 2px;
 }
+.dual-role-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #f5576c 0%, #f093fb 100%);
+  border-radius: 8px;
+  line-height: 1.5;
+  margin-left: 2px;
+}
 </style>
 
 <style>
@@ -630,5 +654,11 @@ async function exportData() {
 }
 .el-table .multi-role-row:hover > td {
   background-color: #ede5ff !important;
+}
+.el-table .dual-role-row {
+  background-color: #fff0f4 !important;
+}
+.el-table .dual-role-row:hover > td {
+  background-color: #ffe0ea !important;
 }
 </style>
