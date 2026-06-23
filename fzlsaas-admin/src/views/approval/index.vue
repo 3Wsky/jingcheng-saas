@@ -101,7 +101,7 @@
       <el-table-column label="操作" width="260" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          <template v-if="activeTab === 'pending'">
+          <template v-if="canApprove(row)">
             <el-button link type="success" @click="handleApprove(row)">通过</el-button>
             <el-button link type="danger" @click="handleReject(row)">驳回</el-button>
           </template>
@@ -113,6 +113,7 @@
           >
             撤销终批
           </el-button>
+          <el-tag v-else-if="row.status === 'pending_store'" type="info" size="small" effect="plain">待客户主管初审</el-tag>
         </template>
       </el-table-column>
     </el-table>
@@ -132,7 +133,6 @@
   <ApprovalDetailDialog
     v-model="detailOpen"
     :request-id="detailRequestId"
-    :show-actions="activeTab === 'pending'"
     @approve="onDetailApprove"
     @reject="onDetailReject"
     @revoke="onDetailRevoke"
@@ -250,6 +250,17 @@ function formatTier(code?: string) {
   return code || '—'
 }
 
+// 超管可一键终审的记录：待超管(pending_admin)。与所在 tab 无关，
+// 因此「全部记录」里待超管的记录也能直接通过/驳回。
+function canApprove(row: any) {
+  return row.status === 'pending_admin'
+}
+
+function reloadCurrent() {
+  if (activeTab.value === 'pending') loadPending()
+  else loadAll()
+}
+
 function mapTodoRow(row: any) {
   return {
     requestId: row.requestId,
@@ -279,7 +290,7 @@ async function handleApprove(row: any) {
       reason: value?.trim() || undefined
     })
     ElMessage.success('已通过')
-    loadPending()
+    reloadCurrent()
   } catch { /* cancel or error */ }
 }
 
@@ -296,7 +307,7 @@ async function onDetailApprove(detail: any, comment: string) {
     })
     ElMessage.success('已通过')
     detailOpen.value = false
-    loadPending()
+    reloadCurrent()
   } catch { /* handled */ }
 }
 

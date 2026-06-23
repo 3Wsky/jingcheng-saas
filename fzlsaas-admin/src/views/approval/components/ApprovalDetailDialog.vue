@@ -77,7 +77,7 @@
           <p v-else class="text-muted">暂无审批记录</p>
         </section>
 
-        <section v-if="showActions" class="detail-section">
+        <section v-if="canAct" class="detail-section">
           <h4>终审操作</h4>
           <el-input v-model="comment" placeholder="审批意见（选填）" />
         </section>
@@ -90,7 +90,7 @@
       </template>
     </div>
 
-    <template v-if="showActions" #footer>
+    <template v-if="canAct" #footer>
       <el-button @click="visible = false">取消</el-button>
       <el-button type="danger" plain @click="emitReject">驳回</el-button>
       <el-button type="primary" @click="emitApprove">通过并发放权益</el-button>
@@ -112,6 +112,9 @@ const router = useRouter()
 const loading = ref(false)
 const detail = ref<any>(null)
 const comment = ref('')
+
+// 是否展示终审操作：显式传入 showActions 优先；否则按详情状态判定（待超管 pending_admin 可终审）
+const canAct = computed(() => props.showActions ?? detail.value?.status === 'pending_admin')
 
 const roleLabel: Record<string, string> = {
   clerk: '客户经理',
