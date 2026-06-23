@@ -73,7 +73,13 @@
         <el-input-number v-model="createForm.longitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" placeholder="经度" />
         <p class="field-hint">可选。用于小程序门店定位导航</p>
       </el-form-item>
-      <el-form-item label="营业时间"><el-input v-model="createForm.businessHours" placeholder="如：09:00-21:00" /></el-form-item>
+      <el-form-item label="营业时间">
+        <div class="time-range-picker">
+          <el-time-select v-model="createTimeStart" start="00:00" end="23:30" step="00:30" placeholder="开始" style="width: 130px" @change="syncCreateBusinessHours" />
+          <span class="time-sep">至</span>
+          <el-time-select v-model="createTimeEnd" :start="createTimeStart || '00:00'" end="23:30" step="00:30" placeholder="结束" style="width: 130px" @change="syncCreateBusinessHours" />
+        </div>
+      </el-form-item>
     </el-form>
   </PageShell>
 
@@ -101,7 +107,13 @@
           <el-form-item label="门头图">
             <ImageListInput v-model="storeImages" :max="6" />
           </el-form-item>
-          <el-form-item label="营业时间"><el-input v-model="editForm.businessHours" placeholder="09:00-21:00" /></el-form-item>
+          <el-form-item label="营业时间">
+            <div class="time-range-picker">
+              <el-time-select v-model="editTimeStart" start="00:00" end="23:30" step="00:30" placeholder="开始" style="width: 130px" @change="syncEditBusinessHours" />
+              <span class="time-sep">至</span>
+              <el-time-select v-model="editTimeEnd" :start="editTimeStart || '00:00'" end="23:30" step="00:30" placeholder="结束" style="width: 130px" @change="syncEditBusinessHours" />
+            </div>
+          </el-form-item>
 
           <el-divider content-position="left">权限与结算</el-divider>
           <el-form-item label="核销权限"><el-switch v-model="editForm.canVerify" /></el-form-item>
@@ -254,6 +266,26 @@ const statsLoading = ref(false)
 const statsPeriod = ref<'day' | 'week' | 'month'>('day')
 const statsDateRange = ref<[string, string] | null>(null)
 
+const createTimeStart = ref('')
+const createTimeEnd = ref('')
+const editTimeStart = ref('')
+const editTimeEnd = ref('')
+
+function parseBusinessHours(val: string) {
+  const m = String(val || '').match(/^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$/)
+  return m ? [m[1], m[2]] : ['', '']
+}
+
+function syncCreateBusinessHours() {
+  createForm.value.businessHours = (createTimeStart.value && createTimeEnd.value)
+    ? `${createTimeStart.value}-${createTimeEnd.value}` : ''
+}
+
+function syncEditBusinessHours() {
+  editForm.value.businessHours = (editTimeStart.value && editTimeEnd.value)
+    ? `${editTimeStart.value}-${editTimeEnd.value}` : ''
+}
+
 onMounted(() => loadList())
 
 async function loadList() {
@@ -279,6 +311,8 @@ async function handleCreate() {
       storeAddress: '', province: '', city: '', district: '', latitude: 0, longitude: 0, businessHours: ''
     }
     createStoreImages.value = ['']
+    createTimeStart.value = ''
+    createTimeEnd.value = ''
     activeTab.value = 'list'
     loadList()
   } catch { /* handled */ }
@@ -294,6 +328,9 @@ async function openEdit(row: any) {
     editForm.value = { ...row }
   }
   storeImages.value = editForm.value.storeImages?.length ? [...editForm.value.storeImages] : ['']
+  const [es, ee] = parseBusinessHours(editForm.value.businessHours)
+  editTimeStart.value = es
+  editTimeEnd.value = ee
   canVerifyOriginal.value = Boolean(editForm.value.canVerify)
   logPage.value = 1
   logDateRange.value = null
@@ -431,4 +468,6 @@ function fmtTs(val?: number) {
 .period-chip { font-size: 11px; }
 .log-filter { margin-bottom: 12px; }
 .log-pagination { margin-top: 12px; justify-content: flex-end; }
+.time-range-picker { display: flex; align-items: center; gap: 4px; }
+.time-sep { color: #606266; font-size: 13px; padding: 0 4px; }
 </style>
