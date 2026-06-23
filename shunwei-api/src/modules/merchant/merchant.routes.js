@@ -12,6 +12,11 @@ const verifySchema = z.object({
   remark: z.string().trim().max(200).optional().default('')
 });
 
+const suspendSchema = z.object({
+  action: z.enum(['suspend', 'resume']),
+  resumeHour: z.coerce.number().int().min(0).max(23).optional().default(8)
+});
+
 const withdrawSchema = z.object({
   amount: z.coerce.number().positive().optional(),
   withdrawAll: z.boolean().optional().default(false),
@@ -111,6 +116,16 @@ function registerMerchantRoutes(app) {
       const merchant = access.merchant;
       if (!merchant.can_verify) return fail(reply, 403, '商家核销权限未开通');
 
+      await ensureSuspendedColumn();
+      const [[staffStatus]] = await getPool().query(
+        `SELECT suspended_until FROM ${swTable('merchant_staff')}
+         WHERE merchant_id = ? AND staff_uid = ? AND is_active = 1 LIMIT 1`,
+        [merchant.id, request.auth.uid]
+      );
+      if (staffStatus && Number(staffStatus.suspended_until || 0) > Math.floor(Date.now() / 1000)) {
+        return fail(reply, 403, '你的核销权限已被暂停，请联系商家负责人');
+      }
+
       const result = await cvService.verify(
         tokenResult.uid,
         parsed.data.amount,
@@ -119,6 +134,74 @@ function registerMerchantRoutes(app) {
         parsed.data.remark || `${merchant.merchant_name}核销`
       );
       return ok(result, '核销成功');
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
+  app.get('/api/merchant/staff', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      const access = await resolveMerchantAccess(request.auth.uid);
+      if (!access.isManager) return fail(reply, 403, '仅商家负责人可查看员工列表');
+      await ensureSuspendedColumn();
+      const [rows] = await getPool().query(
+        `SELECT ms.staff_uid, ms.role, ms.suspended_until, u.nickname, u.avatar
+         FROM ${swTable('merchant_staff')} ms
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = ms.staff_uid
+         WHERE ms.merchant_id = ? AND ms.is_active = 1
+         ORDER BY CASE ms.role WHEN 'manager' THEN 0 ELSE 1 END, ms.id ASC`,
+        [access.merchant.id]
+      );
+      const now = Math.floor(Date.now() / 1000);
+      return ok(rows.map(r => ({
+        uid: Number(r.staff_uid),
+        nickname: r.nickname || '',
+        avatar: r.avatar || '',
+        role: r.role,
+        isSuspended: Number(r.suspended_until || 0) > now,
+        suspendedUntil: Number(r.suspended_until || 0)
+      })));
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
+  app.put('/api/merchant/staff/:uid/suspend', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const targetUid = Number(request.params.uid);
+    if (!targetUid) return fail(reply, 400, 'uid 无效');
+    const parsed = suspendSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    try {
+      const access = await resolveMerchantAccess(request.auth.uid);
+      if (!access.isManager) return fail(reply, 403, '仅商家负责人可操作');
+      if (targetUid === request.auth.uid) return fail(reply, 400, '不能暂停自己的权限');
+      await ensureSuspendedColumn();
+      const now = Math.floor(Date.now() / 1000);
+
+      if (parsed.data.action === 'suspend') {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(parsed.data.resumeHour, 0, 0, 0);
+        const suspendedUntil = Math.floor(tomorrow.getTime() / 1000);
+        await getPool().query(
+          `UPDATE ${swTable('merchant_staff')}
+           SET suspended_until = ?, updated_at = ?
+           WHERE merchant_id = ? AND staff_uid = ? AND is_active = 1`,
+          [suspendedUntil, now, access.merchant.id, targetUid]
+        );
+        return ok({ uid: targetUid, isSuspended: true, suspendedUntil }, '已暂停核销权限，次日自动恢复');
+      } else {
+        await getPool().query(
+          `UPDATE ${swTable('merchant_staff')}
+           SET suspended_until = 0, updated_at = ?
+           WHERE merchant_id = ? AND staff_uid = ? AND is_active = 1`,
+          [now, access.merchant.id, targetUid]
+        );
+        return ok({ uid: targetUid, isSuspended: false }, '已恢复核销权限');
+      }
     } catch (error) {
       return failMerchant(reply, error);
     }
@@ -316,6 +399,19 @@ function registerMerchantRoutes(app) {
       return failMerchant(reply, error);
     }
   });
+}
+
+let _columnEnsured = false;
+async function ensureSuspendedColumn() {
+  if (_columnEnsured) return;
+  try {
+    await getPool().query(
+      `ALTER TABLE ${swTable('merchant_staff')} ADD COLUMN suspended_until int(10) unsigned NOT NULL DEFAULT '0'`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+  _columnEnsured = true;
 }
 
 function pickMerchantFields(row) {
