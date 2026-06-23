@@ -29,7 +29,11 @@
             <el-option label="客户经理" value="staff" />
             <el-option label="客户主管" value="manager" />
             <el-option label="商家" value="merchant" />
+            <el-option label="核销员" value="merchant_staff" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="多重身份">
+          <el-switch v-model="filters.multiRole" @change="search" />
         </el-form-item>
         <template v-if="filterExpanded">
           <el-form-item label="付费会员">
@@ -102,6 +106,7 @@
       :data="list"
       v-loading="loading && list.length > 0"
       row-key="uid"
+      :row-class-name="rowClassName"
       @selection-change="onSelect"
     >
       <template #empty>
@@ -134,10 +139,13 @@
           <MemberTag v-else tag="normal" />
         </template>
       </el-table-column>
-      <el-table-column label="分组" width="96" align="center">
+      <el-table-column label="身份" min-width="140" align="center">
         <template #default="{ row }">
-          <MemberTag v-for="t in roleTags(row)" :key="t" :tag="t" style="margin: 2px" />
-          <span v-if="!roleTags(row).length" class="text-muted">—</span>
+          <div class="role-tags-cell">
+            <MemberTag v-for="t in roleTags(row)" :key="t" :tag="t" style="margin: 2px" />
+            <span v-if="roleTags(row).length >= 2" class="multi-role-badge">多重身份</span>
+            <span v-if="!roleTags(row).length" class="text-muted">—</span>
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="手机号" width="120">
@@ -277,6 +285,8 @@ const filters = ref({
   searchType: 'all',
   keyword: '',
   tag: '',
+  multiRole: false,
+  dualRole: '' as '' | 'staff_verifier' | 'manager_verifier' | 'any',
   paidOnly: '' as '' | 'yes' | 'no',
   spreadUid: undefined as number | undefined,
   unownedOnly: false
@@ -320,8 +330,19 @@ function formatNum(v: any) {
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
 }
 
+const ROLE_TAG_SET = new Set(['staff', 'manager', 'merchant', 'merchant_staff'])
+
 function roleTags(row: any) {
-  return (row.tags || []).filter((x: string) => !['tier199', 'tier299', 'normal'].includes(x))
+  return (row.tags || []).filter((x: string) => ROLE_TAG_SET.has(x))
+}
+
+function isMultiRole(row: any) {
+  return roleTags(row).length >= 2
+}
+
+function rowClassName({ row }: { row: any }) {
+  if (isMultiRole(row)) return 'multi-role-row'
+  return ''
 }
 
 function onSelect(rows: any[]) {
@@ -411,6 +432,7 @@ async function loadList() {
       keyword: filters.value.keyword || undefined,
       searchType: filters.value.searchType !== 'all' ? filters.value.searchType : undefined,
       tag: filters.value.tag || undefined,
+      dualRole: filters.value.dualRole || undefined,
       spreadUid: filters.value.spreadUid || undefined,
       unownedOnly: filters.value.unownedOnly || undefined
     }
@@ -437,7 +459,7 @@ function search() {
 }
 
 function reset() {
-  filters.value = { searchType: 'all', keyword: '', tag: '', paidOnly: '', spreadUid: undefined, unownedOnly: false }
+  filters.value = { searchType: 'all', keyword: '', tag: '', multiRole: false, dualRole: '', paidOnly: '', spreadUid: undefined, unownedOnly: false }
   activeTab.value = 'all'
   search()
 }
@@ -509,18 +531,22 @@ async function exportData() {
   }
   downloadCsv(
     'members-list.csv',
-    ['UID', '昵称', '手机号', '付费会员', '等级', '分组', '归属客户经理', '积分', '现金券'],
-    rows.map((r) => [
-      r.uid,
-      r.nickname || '',
-      r.phone || '',
-      r.tierCode ? '是' : '否',
-      tierLabel(r.tierCode),
-      roleTags(r).join('/') || '',
-      r.spreadNickname || (r.spreadUid ? `#${r.spreadUid}` : ''),
-      r.integralBalance ?? 0,
-      r.cashVoucherBalance ?? 0
-    ])
+    ['UID', '昵称', '手机号', '付费会员', '等级', '身份', '多重身份', '归属客户经理', '积分', '现金券'],
+    rows.map((r) => {
+      const roles = roleTags(r)
+      return [
+        r.uid,
+        r.nickname || '',
+        r.phone || '',
+        r.tierCode ? '是' : '否',
+        tierLabel(r.tierCode),
+        roles.map((t: string) => ({ staff: '客户经理', manager: '客户主管', merchant: '商家', merchant_staff: '核销员' }[t] || t)).join('/') || '',
+        roles.length >= 2 ? '是' : '否',
+        r.spreadNickname || (r.spreadUid ? `#${r.spreadUid}` : ''),
+        r.integralBalance ?? 0,
+        r.cashVoucherBalance ?? 0
+      ]
+    })
   )
   ElMessage.success(`已导出 ${rows.length} 条`)
 }
@@ -578,4 +604,31 @@ async function exportData() {
   border-radius: 2px;
 }
 .batch-results .fail { color: #ff4d4f; }
+.role-tags-cell {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+}
+.multi-role-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 8px;
+  line-height: 1.5;
+  margin-left: 2px;
+}
+</style>
+
+<style>
+.el-table .multi-role-row {
+  background-color: #f5f0ff !important;
+}
+.el-table .multi-role-row:hover > td {
+  background-color: #ede5ff !important;
+}
 </style>

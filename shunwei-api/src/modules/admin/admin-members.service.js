@@ -18,6 +18,7 @@ function buildTags(row) {
   if (Number(row.is_staff) === 1) tags.push('staff');
   if (Number(row.is_manager) === 1) tags.push('manager');
   if (Number(row.is_merchant) === 1) tags.push('merchant');
+  if (Number(row.is_merchant_staff) === 1) tags.push('merchant_staff');
   return tags;
 }
 
@@ -27,6 +28,33 @@ function tagMatches(row, tagFilter) {
   return tagFilter.every((t) => tags.includes(t));
 }
 
+function countRoles(row) {
+  let n = 0;
+  if (Number(row.is_staff) === 1) n++;
+  if (Number(row.is_manager) === 1) n++;
+  if (Number(row.is_merchant) === 1) n++;
+  if (Number(row.is_merchant_staff) === 1) n++;
+  return n;
+}
+
+function multiRoleMatches(row, multiRole, dualRole) {
+  if (multiRole) return countRoles(row) >= 2;
+  if (!dualRole) return true;
+  const isStaff = Number(row.is_staff) === 1;
+  const isManager = Number(row.is_manager) === 1;
+  const isMerchantStaff = Number(row.is_merchant_staff) === 1;
+  switch (dualRole) {
+    case 'staff_verifier':
+      return isStaff && isMerchantStaff;
+    case 'manager_verifier':
+      return isManager && isMerchantStaff;
+    case 'any':
+      return (isStaff || isManager) && isMerchantStaff;
+    default:
+      return true;
+  }
+}
+
 class AdminMembersService {
   async list(params) {
     const page = Math.max(1, Number(params.page || 1));
@@ -34,6 +62,8 @@ class AdminMembersService {
     const keyword = String(params.keyword || '').trim();
     const searchType = String(params.searchType || 'all');
     const tagFilter = String(params.tag || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const dualRole = String(params.dualRole || '').trim();
+    const multiRole = Boolean(params.multiRole);
     const pool = getPool();
 
     const conditions = ['COALESCE(u.is_del, 0) = 0'];
@@ -74,6 +104,7 @@ class AdminMembersService {
              sp.nickname AS spread_nickname,
              EXISTS(SELECT 1 FROM ${swTable('store_manager')} sm WHERE sm.manager_uid = u.uid AND sm.is_active = 1) AS is_manager,
              EXISTS(SELECT 1 FROM ${swTable('merchant')} mer WHERE mer.login_uid = u.uid AND mer.is_active = 1) AS is_merchant,
+             EXISTS(SELECT 1 FROM ${swTable('merchant_staff')} mst JOIN ${swTable('merchant')} mst_m ON mst_m.id = mst.merchant_id AND mst_m.is_active = 1 WHERE mst.staff_uid = u.uid AND mst.is_active = 1) AS is_merchant_staff,
              (SELECT MAX(r.created_at) FROM ${swTable('approval_request')} r WHERE r.customer_uid = u.uid) AS last_approval_at
       FROM ${legacyTable('user')} u
       LEFT JOIN (
@@ -97,7 +128,10 @@ class AdminMembersService {
     `;
 
     const [allRows] = await pool.query(baseSql, values);
-    const filtered = tagFilter.length ? allRows.filter((row) => tagMatches(row, tagFilter)) : allRows;
+    let filtered = tagFilter.length ? allRows.filter((row) => tagMatches(row, tagFilter)) : allRows;
+    if (multiRole || dualRole) {
+      filtered = filtered.filter((row) => multiRoleMatches(row, multiRole, dualRole));
+    }
     const total = filtered.length;
     const offset = (page - 1) * pageSize;
     const slice = filtered.slice(offset, offset + pageSize);
@@ -203,11 +237,19 @@ class AdminMembersService {
       merchantRoles = await new AdminMerchantStaffService().getUserMerchantRoles(uid);
     } catch { /* ignore */ }
 
+    const [[isMerchantStaff]] = await pool.query(
+      `SELECT 1 AS v FROM ${swTable('merchant_staff')} ms
+       JOIN ${swTable('merchant')} m ON m.id = ms.merchant_id AND m.is_active = 1
+       WHERE ms.staff_uid = ? AND ms.is_active = 1 LIMIT 1`,
+      [uid]
+    );
+
     const tags = buildTags({
       tier_code: tierRow?.tier_code,
       is_staff: user.is_staff,
       is_manager: 0,
-      is_merchant: merchantRow ? 1 : 0
+      is_merchant: merchantRow ? 1 : 0,
+      is_merchant_staff: isMerchantStaff ? 1 : 0
     });
 
     const [[isManager]] = await pool.query(
