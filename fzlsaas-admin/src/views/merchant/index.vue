@@ -3,6 +3,7 @@
     <template #tabs>
       <el-tabs v-model="activeTab">
         <el-tab-pane label="商家列表" name="list" />
+        <el-tab-pane label="核销员排行" name="leaderboard" />
         <el-tab-pane label="开通商家" name="create" />
       </el-tabs>
     </template>
@@ -11,33 +12,166 @@
       <el-button type="primary" @click="handleCreate" :loading="creating">创建商家</el-button>
     </template>
 
+    <!-- ============ 商家列表 ============ -->
     <template v-if="activeTab === 'list'">
-      <TableSkeleton v-if="loading && !list.length" :cols="6" />
+      <el-row :gutter="12" class="overview-row" v-loading="overviewLoading">
+        <el-col :xs="12" :sm="8" :md="6" v-for="card in overviewCards" :key="card.key">
+          <StatCard :type="card.type" :icon="card.icon" :title="card.title" :value="card.value" />
+        </el-col>
+      </el-row>
+
+      <div class="list-toolbar">
+        <div class="toolbar-left">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="搜索名称/联系人/电话"
+            clearable
+            style="width: 220px"
+            @keyup.enter="reloadList(1)"
+            @clear="reloadList(1)"
+          />
+          <el-select v-model="filterCategory" placeholder="全部类目" clearable style="width: 130px" @change="reloadList(1)">
+            <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
+          </el-select>
+          <el-select v-model="sortBy" style="width: 150px" @change="reloadList(1)">
+            <el-option label="默认排序" value="id" />
+            <el-option label="今日核销额" value="todayAmount" />
+            <el-option label="本月核销额" value="monthAmount" />
+            <el-option label="活跃核销员" value="staffActive" />
+            <el-option label="绑定核销员" value="staffBound" />
+            <el-option label="待结算金额" value="pending" />
+            <el-option label="最近核销" value="lastVerify" />
+          </el-select>
+          <el-button :icon="sortOrder === 'desc' ? 'SortDown' : 'SortUp'" @click="toggleSortOrder">
+            {{ sortOrder === 'desc' ? '降序' : '升序' }}
+          </el-button>
+          <el-button type="primary" @click="reloadList(1)">查询</el-button>
+        </div>
+        <div class="toolbar-right">
+          <el-button @click="activeTab = 'create'">开通商家</el-button>
+        </div>
+      </div>
+
+      <TableSkeleton v-if="loading && !list.length" :cols="8" />
       <el-table v-else :data="list" v-loading="loading && list.length > 0">
         <template #empty>
           <el-empty description="暂无商家">
             <el-button type="primary" @click="activeTab = 'create'">开通商家</el-button>
           </el-empty>
         </template>
-        <el-table-column prop="id" label="ID" width="70" />
-        <el-table-column prop="merchantName" label="名称" />
-        <el-table-column prop="category" label="类目" width="100" />
-        <el-table-column prop="contactPhone" label="电话" width="120" />
-        <el-table-column label="待结算" width="100">
+        <el-table-column prop="id" label="ID" width="64" />
+        <el-table-column prop="merchantName" label="名称" min-width="140" show-overflow-tooltip />
+        <el-table-column prop="category" label="类目" width="90">
+          <template #default="{ row }">{{ row.category || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="核销员" width="110" align="center">
+          <template #default="{ row }">
+            <el-tooltip content="绑定核销员 / 本月活跃核销员" placement="top">
+              <span class="staff-badge">
+                <strong>{{ row.staffBound ?? 0 }}</strong>
+                <span class="staff-sep">/</span>
+                <span class="staff-active-num">{{ row.staffActive ?? 0 }}</span>
+              </span>
+            </el-tooltip>
+          </template>
+        </el-table-column>
+        <el-table-column label="今日核销" width="130" align="right">
+          <template #default="{ row }">
+            <span v-if="row.todayCount" class="amount-cell">
+              ¥{{ fmtAmount(row.todayAmount) }}
+              <span class="count-sub">{{ row.todayCount }}笔</span>
+            </span>
+            <span v-else class="muted">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="本月核销额" width="120" align="right">
+          <template #default="{ row }">
+            <span :class="row.monthAmount ? 'amount-cell' : 'muted'">
+              {{ row.monthAmount ? '¥' + fmtAmount(row.monthAmount) : '—' }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column label="待结算" width="100" align="right">
           <template #default="{ row }">
             <el-link type="primary" :underline="false" @click="goSettlement(row)">
-              ¥{{ row.pendingSettlement }}
+              ¥{{ fmtAmount(row.pendingSettlement) }}
             </el-link>
           </template>
         </el-table-column>
         <el-table-column label="最近核销" width="160">
           <template #default="{ row }">{{ fmtTs(row.lastVerifyAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button link type="primary" @click="openEdit(row)">详情</el-button>
             <el-button link type="danger" @click="deactivate(row)">停用</el-button>
           </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-if="listTotal > 0"
+        v-model:current-page="listPage"
+        :page-size="listPageSize"
+        :total="listTotal"
+        layout="total, prev, pager, next"
+        class="list-pagination"
+        @current-change="reloadList"
+      />
+    </template>
+
+    <!-- ============ 核销员排行 ============ -->
+    <template v-if="activeTab === 'leaderboard'">
+      <div class="list-toolbar">
+        <div class="toolbar-left">
+          <el-radio-group v-model="lbPeriod" @change="loadLeaderboard">
+            <el-radio-button value="day">今日</el-radio-button>
+            <el-radio-button value="week">本周</el-radio-button>
+            <el-radio-button value="month">本月</el-radio-button>
+          </el-radio-group>
+          <el-select
+            v-model="lbMerchantId"
+            placeholder="全部商家"
+            clearable
+            filterable
+            style="width: 200px"
+            @change="loadLeaderboard"
+          >
+            <el-option v-for="m in merchantOptions" :key="m.id" :label="m.merchantName" :value="m.id" />
+          </el-select>
+        </div>
+        <div class="toolbar-right">
+          <span class="lb-summary" v-if="leaderboard.length">
+            合计 <strong>{{ lbTotalCount }}</strong> 笔 ·
+            <strong class="amount-cell">¥{{ fmtAmount(lbTotalAmount) }}</strong>
+          </span>
+        </div>
+      </div>
+      <el-table :data="leaderboard" v-loading="lbLoading">
+        <template #empty>
+          <el-empty description="该周期暂无核销数据" />
+        </template>
+        <el-table-column label="排名" width="70" align="center">
+          <template #default="{ row }">
+            <span class="rank-badge" :class="'rank-' + (row.rank <= 3 ? row.rank : 'n')">{{ row.rank }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="核销员" min-width="140">
+          <template #default="{ row }">
+            <span class="staff-name">{{ row.operatorName }}</span>
+            <span class="staff-uid">（{{ row.operatorUid }}）</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="merchantName" label="所属商家" min-width="140" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.merchantName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="核销笔数" width="100" align="right">
+          <template #default="{ row }">{{ row.verifyCount }}</template>
+        </el-table-column>
+        <el-table-column label="核销总额" width="130" align="right">
+          <template #default="{ row }"><span class="amount-cell">¥{{ fmtAmount(row.totalAmount) }}</span></template>
+        </el-table-column>
+        <el-table-column label="最近核销" width="160">
+          <template #default="{ row }">{{ fmtTs(row.lastVerifyAt) }}</template>
         </el-table-column>
       </el-table>
     </template>
@@ -228,12 +362,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
+import StatCard from '@/components/StatCard.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
 import UidLink from '@/components/UidLink.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
@@ -244,6 +379,33 @@ const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const activeTab = ref('list')
 const loading = ref(false)
 const list = ref<any[]>([])
+const listPage = ref(1)
+const listPageSize = 20
+const listTotal = ref(0)
+const searchKeyword = ref('')
+const filterCategory = ref('')
+const sortBy = ref('id')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+const categories = ref<string[]>([])
+
+const overviewLoading = ref(false)
+const overview = ref<Record<string, number>>({})
+const overviewCards = computed(() => [
+  { key: 'merchant', type: 'member', icon: 'Shop', title: '商家总数', value: overview.value.merchantCount ?? 0 },
+  { key: 'staff', type: 'approval', icon: 'Avatar', title: '核销员总数', value: overview.value.staffCount ?? 0 },
+  { key: 'todayCount', type: 'verify', icon: 'Checked', title: '今日核销笔数', value: overview.value.todayCount ?? 0 },
+  { key: 'todayAmount', type: 'grant', icon: 'Money', title: '今日核销金额', value: '¥' + fmtAmount(overview.value.todayAmount) },
+  { key: 'monthAmount', type: 'newuser', icon: 'TrendCharts', title: '本月核销金额', value: '¥' + fmtAmount(overview.value.monthAmount) },
+  { key: 'pending', type: 'consume', icon: 'Wallet', title: '待结算总额', value: '¥' + fmtAmount(overview.value.pendingTotal) },
+])
+
+const lbPeriod = ref<'day' | 'week' | 'month'>('day')
+const lbMerchantId = ref<number | undefined>(undefined)
+const leaderboard = ref<any[]>([])
+const lbLoading = ref(false)
+const lbTotalCount = ref(0)
+const lbTotalAmount = ref(0)
+const merchantOptions = ref<{ id: number; merchantName: string }[]>([])
 const creating = ref(false)
 const createForm = ref({
   merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true,
@@ -286,16 +448,86 @@ function syncEditBusinessHours() {
     ? `${editTimeStart.value}-${editTimeEnd.value}` : ''
 }
 
-onMounted(() => loadList())
+onMounted(() => {
+  loadList()
+  loadOverview()
+})
+
+async function loadOverview() {
+  overviewLoading.value = true
+  try {
+    const data = await request.get('/api/admin/merchant/overview')
+    overview.value = data || {}
+    categories.value = data?.categories || []
+  } catch {
+    overview.value = {}
+  } finally {
+    overviewLoading.value = false
+  }
+}
 
 async function loadList() {
   loading.value = true
   try {
-    const data = await request.get('/api/admin/merchant/list')
+    const params: Record<string, unknown> = {
+      page: listPage.value,
+      pageSize: listPageSize,
+      sortBy: sortBy.value,
+      sortOrder: sortOrder.value
+    }
+    if (searchKeyword.value.trim()) params.keyword = searchKeyword.value.trim()
+    if (filterCategory.value) params.category = filterCategory.value
+    const data = await request.get('/api/admin/merchant/list', { params })
     list.value = data?.list || []
-  } catch { list.value = [] }
+    listTotal.value = data?.total || 0
+  } catch { list.value = []; listTotal.value = 0 }
   finally { loading.value = false }
 }
+
+function reloadList(page = 1) {
+  listPage.value = page
+  loadList()
+}
+
+function toggleSortOrder() {
+  sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
+  reloadList(1)
+}
+
+async function loadMerchantOptions() {
+  if (merchantOptions.value.length) return
+  try {
+    const data = await request.get('/api/admin/merchant/list', { params: { page: 1, pageSize: 100, sortBy: 'monthAmount' } })
+    merchantOptions.value = (data?.list || []).map((m: any) => ({ id: m.id, merchantName: m.merchantName }))
+  } catch {
+    merchantOptions.value = []
+  }
+}
+
+async function loadLeaderboard() {
+  lbLoading.value = true
+  try {
+    const params: Record<string, unknown> = { period: lbPeriod.value, limit: 100 }
+    if (lbMerchantId.value) params.merchantId = lbMerchantId.value
+    const data = await request.get('/api/admin/merchant/staff-leaderboard', { params })
+    leaderboard.value = data?.list || []
+    lbTotalCount.value = data?.totalCount || 0
+    lbTotalAmount.value = data?.totalAmount || 0
+  } catch {
+    leaderboard.value = []
+    lbTotalCount.value = 0
+    lbTotalAmount.value = 0
+  } finally {
+    lbLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'leaderboard') {
+    loadMerchantOptions()
+    if (!leaderboard.value.length) loadLeaderboard()
+  }
+})
 
 async function handleCreate() {
   creating.value = true
@@ -455,6 +687,11 @@ async function deactivate(row: any) {
 function fmtTs(val?: number) {
   return val ? new Date(val * 1000).toLocaleString('zh-CN') : '—'
 }
+
+function fmtAmount(val?: number) {
+  const n = Number(val || 0)
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 </script>
 
 <style scoped>
@@ -470,4 +707,48 @@ function fmtTs(val?: number) {
 .log-pagination { margin-top: 12px; justify-content: flex-end; }
 .time-range-picker { display: flex; align-items: center; gap: 4px; }
 .time-sep { color: #606266; font-size: 13px; padding: 0 4px; }
+
+.overview-row { margin-bottom: 8px; }
+.list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.list-toolbar .toolbar-left,
+.list-toolbar .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.list-pagination { margin-top: 12px; justify-content: flex-end; }
+
+.staff-badge { font-size: 13px; }
+.staff-badge strong { color: var(--gov-primary, #0052D9); }
+.staff-sep { margin: 0 3px; color: #c0c4cc; }
+.staff-active-num { color: var(--gov-success, #00a870); font-weight: 600; }
+
+.amount-cell { color: var(--gov-warning, #ed7b2f); font-weight: 600; font-variant-numeric: tabular-nums; }
+.count-sub { color: #909399; font-size: 11px; font-weight: 400; margin-left: 4px; }
+.muted { color: #c0c4cc; }
+
+.lb-summary { font-size: 13px; color: var(--gov-text-secondary); }
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  background: #f0f2f5;
+  color: #909399;
+}
+.rank-badge.rank-1 { background: #fff3e0; color: #f59e0b; }
+.rank-badge.rank-2 { background: #f0f4f8; color: #94a3b8; }
+.rank-badge.rank-3 { background: #fdf0e6; color: #cd7f32; }
 </style>

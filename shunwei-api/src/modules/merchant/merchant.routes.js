@@ -222,12 +222,20 @@ function registerMerchantRoutes(app) {
     try {
       const access = await resolveMerchantAccess(request.auth.uid);
       const merchant = access.merchant;
+      const scope = String(request.query?.scope || '').trim().toLowerCase();
+      const personalScope = ['mine', 'self', 'personal'].includes(scope);
       const now = new Date();
       const dayStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() / 1000);
       const weekStartDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
       weekStartDate.setDate(weekStartDate.getDate() - ((weekStartDate.getDay() + 6) % 7));
       const weekStart = Math.floor(weekStartDate.getTime() / 1000);
       const monthStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000);
+      const ledgerWhere = [`merchant_id = ?`, `direction = 0`];
+      const ledgerValues = [merchant.id];
+      if (personalScope) {
+        ledgerWhere.push(`operator_uid = ?`);
+        ledgerValues.push(request.auth.uid);
+      }
       const [[stats]] = await getPool().query(
         `SELECT
            COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS today_amount,
@@ -236,10 +244,12 @@ function registerMerchantRoutes(app) {
            COALESCE(SUM(amount), 0) AS total_amount,
            COUNT(*) AS verify_count,
            COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS today_count,
+           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week_count,
+           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month_count,
            COUNT(DISTINCT uid) AS customer_count
          FROM ${swTable('cash_voucher_ledger')}
-         WHERE merchant_id = ? AND direction = 0`,
-        [dayStart, weekStart, monthStart, dayStart, merchant.id]
+         WHERE ${ledgerWhere.join(' AND ')}`,
+        [dayStart, weekStart, monthStart, dayStart, weekStart, monthStart, ...ledgerValues]
       );
       const [[withdrawing]] = await getPool().query(
         `SELECT COALESCE(SUM(amount), 0) AS amount FROM ${swTable('merchant_settlement')}
@@ -253,9 +263,9 @@ function registerMerchantRoutes(app) {
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${legacyTable('user')} u ON u.uid = l.uid
          LEFT JOIN ${legacyTable('user')} op ON op.uid = l.operator_uid
-         WHERE l.merchant_id = ? AND l.direction = 0
+         WHERE l.${ledgerWhere.join(' AND l.')}
          ORDER BY l.created_at DESC LIMIT 10`,
-        [merchant.id]
+        ledgerValues
       );
 
       let staffStats = [];
@@ -289,6 +299,8 @@ function registerMerchantRoutes(app) {
         totalAmount: Number(stats.total_amount || 0),
         verifyCount: Number(stats.verify_count || 0),
         todayCount: Number(stats.today_count || 0),
+        weekCount: Number(stats.week_count || 0),
+        monthCount: Number(stats.month_count || 0),
         customerCount: Number(stats.customer_count || 0),
         availableAmount: Number(merchant.pending_settlement || 0),
         withdrawingAmount: Number(withdrawing.amount || 0),
@@ -298,6 +310,7 @@ function registerMerchantRoutes(app) {
           customerUid: Number(r.uid),
           customerNickname: r.customer_nickname || '',
           amount: Number(r.amount),
+          operatorUid: Number(r.operator_uid || 0),
           operatorNickname: r.operator_nickname || '',
           remark: r.remark || '',
           createdAt: Number(r.created_at)
