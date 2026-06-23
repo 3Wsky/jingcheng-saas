@@ -106,11 +106,12 @@ async function buildServer() {
 async function main() {
   const app = await buildServer();
   await app.listen({ port: config.port, host: config.host });
+  console.log(`[shunwei-api] listening on ${config.host}:${config.port}`);
 }
 
 if (require.main === module) {
   main().catch((error) => {
-    console.error(error);
+    console.error('[shunwei-api] Fatal startup error:', error);
     process.exit(1);
   });
 }
