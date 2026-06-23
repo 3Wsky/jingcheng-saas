@@ -50,6 +50,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审批管理', icon: 'Stamp', module: 'workspace' },
       },
       {
+        path: 'approval/pending',
+        name: 'ApprovalPending',
+        component: () => import('@/views/approval/index.vue'),
+        meta: { title: '待审批', icon: 'BellFilled', module: 'workspace' },
+      },
+      {
         path: 'products',
         name: 'Products',
         component: () => import('@/views/products/index.vue'),

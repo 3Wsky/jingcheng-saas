@@ -436,6 +436,92 @@ class AdminMembersService {
     );
     return { uid, isStaff: false, divisionId: 0 };
   }
+
+  /**
+   * 设置/撤销客户主管（store_manager）。
+   * grant：解析门店 → 校验同店主管不超过 2 人 → 同时确保该用户具备客户经理(is_staff)权限 → upsert store_manager。
+   * revoke：将该用户名下所有 store_manager 记录置为失效。
+   */
+  async updateStoreManager(uid, action, { divisionId, storeName, appointedBy = 0 } = {}) {
+    const pool = getPool();
+    const storesService = new AdminStoresService();
+    const now = Math.floor(Date.now() / 1000);
+
+    const [[user]] = await pool.query(
+      `SELECT uid, division_id, is_staff FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+      [uid]
+    );
+    if (!user) {
+      const error = new Error('用户不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (action === 'revoke') {
+      await pool.query(
+        `UPDATE ${swTable('store_manager')} SET is_active = 0, updated_at = ? WHERE manager_uid = ? AND is_active = 1`,
+        [now, uid]
+      );
+      return { uid, isManager: false };
+    }
+
+    // grant：解析门店（优先 storeName，其次入参 divisionId，最后用户当前 division_id）
+    let resolvedDivisionId = Number(divisionId || 0);
+    let resolvedStoreName = '';
+    if (storeName) {
+      const store = await storesService.resolveOrCreateByName(storeName);
+      resolvedDivisionId = store.id;
+      resolvedStoreName = store.name;
+    } else if (resolvedDivisionId <= 0) {
+      resolvedDivisionId = Number(user.division_id || 0);
+    }
+    if (resolvedDivisionId > 0 && !resolvedStoreName) {
+      const [[storeRow]] = await pool.query(
+        `SELECT name FROM ${legacyTable('system_store')} WHERE id = ? LIMIT 1`,
+        [resolvedDivisionId]
+      );
+      resolvedStoreName = storeRow?.name ? String(storeRow.name).trim() : `门店#${resolvedDivisionId}`;
+    }
+    if (!resolvedDivisionId || resolvedDivisionId <= 0) {
+      const error = new Error('设为客户主管需指定门店名称');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // 同一门店客户主管最多 2 名（不含当前用户已有的有效记录）
+    const [[countRow]] = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM ${swTable('store_manager')}
+       WHERE division_id = ? AND is_active = 1 AND manager_uid <> ?`,
+      [resolvedDivisionId, uid]
+    );
+    if (Number(countRow?.cnt || 0) >= 2) {
+      const error = new Error(`「${resolvedStoreName}」客户主管已满（每店最多 2 名）`);
+      error.statusCode = 400;
+      throw error;
+    }
+
+    // 设为客户主管会自动开通客户经理权限，并对齐门店
+    await pool.query(
+      `UPDATE ${legacyTable('user')} SET is_staff = 1, division_id = ? WHERE uid = ?`,
+      [resolvedDivisionId, uid]
+    );
+
+    // upsert store_manager（唯一键 division_id+manager_uid）
+    await pool.query(
+      `INSERT INTO ${swTable('store_manager')} (division_id, manager_uid, is_active, appointed_by, created_at, updated_at)
+       VALUES (?, ?, 1, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE is_active = 1, appointed_by = VALUES(appointed_by), updated_at = VALUES(updated_at)`,
+      [resolvedDivisionId, uid, Number(appointedBy || 0), now, now]
+    );
+
+    return {
+      uid,
+      isManager: true,
+      isStaff: true,
+      divisionId: resolvedDivisionId,
+      storeName: resolvedStoreName || undefined
+    };
+  }
 }
 
 module.exports = { AdminMembersService, maskPhone };

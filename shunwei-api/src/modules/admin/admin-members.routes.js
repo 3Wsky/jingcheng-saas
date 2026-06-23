@@ -64,6 +64,12 @@ const merchantRoleSchema = z.object({
   }
 });
 
+const storeManagerSchema = z.object({
+  action: z.enum(['grant', 'revoke']),
+  divisionId: z.coerce.number().int().optional(),
+  storeName: z.string().trim().min(1).max(80).optional()
+});
+
 function registerAdminMembersRoutes(app) {
   const membersService = new AdminMembersService();
   const merchantStaffService = new AdminMerchantStaffService();
@@ -246,6 +252,45 @@ function registerAdminMembersRoutes(app) {
       return ok(result, parsed.data.action === 'grant' ? '商家角色已开通' : '商家角色已撤销');
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '商家角色更新失败');
+    }
+  });
+
+  app.put('/api/admin/members/:uid/store-manager', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'uid 无效');
+
+    const parsed = storeManagerSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    const session = getAdminSession(request);
+    try {
+      const result = await membersService.updateStoreManager(
+        uid,
+        parsed.data.action,
+        { divisionId: parsed.data.divisionId, storeName: parsed.data.storeName, appointedBy: session?.uid || 0 }
+      );
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: parsed.data.action === 'grant' ? 'store_manager_grant' : 'store_manager_revoke',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(result, parsed.data.action === 'grant' ? '客户主管已设置' : '客户主管已撤销');
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'store_manager_update',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '客户主管更新失败');
     }
   });
 

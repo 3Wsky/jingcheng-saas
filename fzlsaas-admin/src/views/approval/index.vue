@@ -157,7 +157,9 @@ import { useMemberDrawer } from '@/composables/useMemberDrawer'
 const route = useRoute()
 const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const pendingCount = ref(0)
-const activeTab = ref(route.query.tab === 'pending' ? 'pending' : 'all')
+// 「待审批」二级菜单(/approval/pending) 或 ?tab=pending 进入时默认待终审 Tab
+const isPendingEntry = route.path.endsWith('/approval/pending') || route.query.tab === 'pending'
+const activeTab = ref(isPendingEntry ? 'pending' : 'all')
 const loading = ref(false)
 const tableData = ref<any[]>([])
 const page = ref(1)
@@ -177,8 +179,7 @@ const autoPassStatus = ref({ consumption: false, integralMall: false })
 
 onMounted(async () => {
   await loadAutoPassConfig()
-  if (route.query.tab === 'pending') activeTab.value = 'pending'
-  else activeTab.value = 'all'
+  activeTab.value = isPendingEntry ? 'pending' : 'all'
   if (activeTab.value === 'pending') loadPending()
   else loadAll()
 })
