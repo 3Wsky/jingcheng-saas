@@ -59,6 +59,39 @@ function serializeImages(list) {
   return arr.length ? JSON.stringify(arr) : '';
 }
 
+// CRMEB eb_store_integral 标准含 description 列；若某些精简库缺列，自动剔除该列回退，
+// 保证积分商品详情能写入 CRMEB 表供小程序读取。
+async function insertIntegralRow(pool, cols, vals) {
+  try {
+    return await pool.query(
+      `INSERT INTO ${legacyTable('store_integral')} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      vals
+    );
+  } catch (error) {
+    if (error.code === 'ER_BAD_FIELD_ERROR' && cols.includes('description')) {
+      const idx = cols.indexOf('description');
+      const c2 = cols.filter((_, i) => i !== idx);
+      const v2 = vals.filter((_, i) => i !== idx);
+      return pool.query(
+        `INSERT INTO ${legacyTable('store_integral')} (${c2.join(', ')}) VALUES (${c2.map(() => '?').join(', ')})`,
+        v2
+      );
+    }
+    throw error;
+  }
+}
+
+async function updateIntegralDescription(pool, id, description) {
+  try {
+    await pool.query(
+      `UPDATE ${legacyTable('store_integral')} SET description = ? WHERE id = ? AND is_del = 0`,
+      [description || '', id]
+    );
+  } catch (error) {
+    if (error.code !== 'ER_BAD_FIELD_ERROR') throw error;
+  }
+}
+
 async function loadExt(productId) {
   const ext = await extRepo.get(productId);
   return ext || {};
@@ -159,17 +192,14 @@ async function insertIntegralProduct(pool, payload, overrides = {}) {
 
   const images = d.images?.length ? d.images : (d.image ? [d.image] : []);
   const now = Math.floor(Date.now() / 1000);
-  const cols = ['title', 'image', 'images', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_del', 'add_time'];
-  const vals = [d.title, d.image || images[0] || '', helperSerializeImages(images), d.price, d.stock, d.isShow ? 1 : 0, d.sort, d.unitName, 0, now];
+  const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_del', 'add_time'];
+  const vals = [d.title, d.image || images[0] || '', helperSerializeImages(images), d.description || '', d.price, d.stock, d.isShow ? 1 : 0, d.sort, d.unitName, 0, now];
   if (d.productId) {
     cols.unshift('product_id');
     vals.unshift(d.productId);
   }
 
-  const [result] = await poolRef.query(
-    `INSERT INTO ${legacyTable('store_integral')} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-    vals
-  );
+  const [result] = await insertIntegralRow(poolRef, cols, vals);
   await saveExt(result.insertId, d);
   const [[row]] = await poolRef.query(`SELECT * FROM ${legacyTable('store_integral')} WHERE id = ?`, [result.insertId]);
   return { ok: true, product: await mapProduct(row) };
@@ -272,9 +302,9 @@ function registerAdminIntegralMallRoutes(app) {
     }
     const images = d.images?.length ? d.images : (d.image ? [d.image] : []);
     const now = Math.floor(Date.now() / 1000);
-    const cols = ['title', 'image', 'images', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
+    const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
     const vals = [
-      d.title, d.image || images[0] || '', serializeImages(images), d.price, d.stock,
+      d.title, d.image || images[0] || '', serializeImages(images), d.description || '', d.price, d.stock,
       d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, now
     ];
     if (d.productId) {
@@ -282,10 +312,7 @@ function registerAdminIntegralMallRoutes(app) {
       vals.unshift(d.productId);
     }
 
-    const [result] = await getPool().query(
-      `INSERT INTO ${legacyTable('store_integral')} (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-      vals
-    );
+    const [result] = await insertIntegralRow(getPool(), cols, vals);
 
     await saveExt(result.insertId, showcaseId ? { ...d, showcaseId } : d);
 
@@ -345,6 +372,8 @@ function registerAdminIntegralMallRoutes(app) {
       );
     }
     if (hasExt) await saveExt(id, d);
+    // 详情同步写回 CRMEB eb_store_integral.description，保证小程序端能读取到最新详情
+    if (d.description !== undefined) await updateIntegralDescription(getPool(), id, d.description);
 
     const [[row]] = await getPool().query(
       `SELECT * FROM ${legacyTable('store_integral')} WHERE id = ?`,

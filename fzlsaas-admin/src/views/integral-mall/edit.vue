@@ -147,14 +147,21 @@
 
       <!-- Step 2: 商品详情 -->
       <div v-show="current === 2" class="step-body detail-step">
-        <el-form label-width="80px">
-          <el-form-item label="内容">
-            <LazyRichTextEditor v-model="form.description" placeholder="编辑商品详情，支持图文排版" />
-          </el-form-item>
-          <el-form-item label="预览">
+        <div class="detail-layout">
+          <div class="detail-editor">
+            <div class="detail-label">商品详情内容</div>
+            <LazyRichTextEditor
+              v-model="form.description"
+              placeholder="编辑商品详情，支持图文排版（可直接粘贴图片）"
+              :height="520"
+              max-width="100%"
+            />
+          </div>
+          <div class="detail-preview-col">
+            <div class="detail-label">手机预览</div>
             <div class="detail-preview" v-html="form.description || '<p style=color:#999>暂无内容</p>'" />
-          </el-form-item>
-        </el-form>
+          </div>
+        </div>
       </div>
 
       <div class="step-footer">
@@ -428,9 +435,20 @@ async function save() {
 .pick-placeholder { text-align: center; color: #999; font-size: 12px; }
 .field-hint { margin-left: 12px; font-size: 12px; color: rgba(0,0,0,0.45); }
 .block-hint { display: block; margin: 8px 0 0; margin-left: 0 !important; max-width: 520px; line-height: 1.6; }
+.detail-step { min-height: 560px; }
+.detail-layout { display: flex; gap: 24px; align-items: flex-start; }
+.detail-editor { flex: 1 1 auto; min-width: 0; }
+.detail-preview-col { flex: 0 0 320px; }
+.detail-label { font-size: 13px; font-weight: 600; color: rgba(0,0,0,0.75); margin-bottom: 10px; }
 .detail-preview {
-  width: 280px; min-height: 400px; border: 1px solid #f0f0f0; border-radius: 8px;
-  padding: 12px; background: #fafafa; overflow: auto; font-size: 13px;
+  width: 320px; height: 560px; border: 1px solid #f0f0f0; border-radius: 8px;
+  padding: 14px; background: #fafafa; overflow-y: auto; font-size: 13px; box-sizing: border-box;
+}
+.detail-preview :deep(img) { max-width: 100%; height: auto; display: block; }
+@media (max-width: 1100px) {
+  .detail-layout { flex-direction: column; }
+  .detail-preview-col { flex: none; width: 100%; }
+  .detail-preview { width: 100%; height: 360px; }
 }
 .step-footer { display: flex; justify-content: center; gap: 12px; padding-top: 24px; border-top: 1px solid #f0f0f0; margin-top: 16px; }
 .hint { font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 8px; }
