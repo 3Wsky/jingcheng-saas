@@ -380,8 +380,16 @@ function registerAdminManagementRoutes(app) {
     category: z.string().trim().max(64).optional().default(''),
     contactName: z.string().trim().max(64).optional().default(''),
     contactPhone: z.string().trim().max(20).optional().default(''),
-    loginUid: z.coerce.number().int().positive(),
-    canVerify: z.boolean().optional().default(true)
+    loginUid: z.coerce.number().int().nonneg().optional().default(0),
+    canVerify: z.boolean().optional().default(true),
+    storeAddress: z.string().trim().max(255).optional().default(''),
+    province: z.string().trim().max(32).optional().default(''),
+    city: z.string().trim().max(32).optional().default(''),
+    district: z.string().trim().max(32).optional().default(''),
+    latitude: z.coerce.number().optional().default(0),
+    longitude: z.coerce.number().optional().default(0),
+    storeImages: z.array(z.string()).optional().default([]),
+    businessHours: z.string().trim().max(128).optional().default('')
   });
 
   const verifyModeSchema = z.object({
@@ -418,15 +426,21 @@ function registerAdminManagementRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     const now = Math.floor(Date.now() / 1000);
+    const d = parsed.data;
     const [result] = await getPool().query(
       `INSERT INTO ${swTable('merchant')}
-       (merchant_name, category, contact_name, contact_phone, login_uid, can_verify, is_active, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-      [parsed.data.merchantName, parsed.data.category, parsed.data.contactName,
-       parsed.data.contactPhone, parsed.data.loginUid, parsed.data.canVerify ? 1 : 0, now, now]
+       (merchant_name, category, contact_name, contact_phone, login_uid, can_verify, is_active,
+        store_address, province, city, district, latitude, longitude, store_images, business_hours,
+        created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [d.merchantName, d.category, d.contactName, d.contactPhone, d.loginUid,
+       d.canVerify ? 1 : 0,
+       d.storeAddress, d.province, d.city, d.district, d.latitude, d.longitude,
+       JSON.stringify(d.storeImages.filter(Boolean)), d.businessHours,
+       now, now]
     );
 
-    return ok({ merchantId: result.insertId, merchantName: parsed.data.merchantName }, '商家创建成功');
+    return ok({ merchantId: result.insertId, merchantName: d.merchantName }, '商家创建成功');
   });
 
   app.put('/api/admin/cash-voucher/verify-mode', async (request, reply) => {

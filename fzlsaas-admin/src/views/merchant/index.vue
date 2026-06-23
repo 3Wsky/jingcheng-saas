@@ -42,12 +42,14 @@
       </el-table>
     </template>
 
-    <el-form v-else :model="createForm" label-width="120px" style="max-width:500px">
+    <el-form v-else :model="createForm" label-width="120px" style="max-width:600px">
       <el-alert type="info" :closable="false" show-icon class="create-tip">
         商家资料用于小程序「现金券 → 可核销商家」展示。人员权限请在<strong>会员管理 → 商家角色</strong>开通（用户需先登录小程序）。
       </el-alert>
+
+      <el-divider content-position="left">基础信息</el-divider>
       <el-form-item label="商家名称"><el-input v-model="createForm.merchantName" /></el-form-item>
-      <el-form-item label="类目"><el-input v-model="createForm.category" /></el-form-item>
+      <el-form-item label="类目"><el-input v-model="createForm.category" placeholder="如：数码、餐饮" /></el-form-item>
       <el-form-item label="联系人"><el-input v-model="createForm.contactName" /></el-form-item>
       <el-form-item label="联系电话"><el-input v-model="createForm.contactPhone" /></el-form-item>
       <el-form-item label="绑定UID">
@@ -55,6 +57,23 @@
         <p class="field-hint">可选。也可稍后在会员详情开通「商家店长」自动绑定。</p>
       </el-form-item>
       <el-form-item label="核销权限"><el-switch v-model="createForm.canVerify" /></el-form-item>
+
+      <el-divider content-position="left">门店资料</el-divider>
+      <el-form-item label="门头照">
+        <ImageListInput v-model="createStoreImages" :max="6" />
+        <p class="field-hint">上传门店门头照片，最多 6 张</p>
+      </el-form-item>
+      <el-form-item label="省"><el-input v-model="createForm.province" placeholder="如：新疆维吾尔自治区" /></el-form-item>
+      <el-form-item label="市"><el-input v-model="createForm.city" placeholder="如：乌鲁木齐市" /></el-form-item>
+      <el-form-item label="区"><el-input v-model="createForm.district" placeholder="如：天山区" /></el-form-item>
+      <el-form-item label="详细地址"><el-input v-model="createForm.storeAddress" type="textarea" :rows="2" placeholder="街道门牌号等详细地址" /></el-form-item>
+      <el-form-item label="经纬度">
+        <el-input-number v-model="createForm.latitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" placeholder="纬度" />
+        <span class="coord-sep">,</span>
+        <el-input-number v-model="createForm.longitude" :precision="6" :step="0.0001" controls-position="right" style="width: 140px" placeholder="经度" />
+        <p class="field-hint">可选。用于小程序门店定位导航</p>
+      </el-form-item>
+      <el-form-item label="营业时间"><el-input v-model="createForm.businessHours" placeholder="如：09:00-21:00" /></el-form-item>
     </el-form>
   </PageShell>
 
@@ -166,7 +185,11 @@ const activeTab = ref('list')
 const loading = ref(false)
 const list = ref<any[]>([])
 const creating = ref(false)
-const createForm = ref({ merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true })
+const createForm = ref({
+  merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true,
+  storeAddress: '', province: '', city: '', district: '', latitude: 0, longitude: 0, businessHours: ''
+})
+const createStoreImages = ref<string[]>([''])
 const editOpen = ref(false)
 const editTab = ref('base')
 const editForm = ref<any>({})
@@ -193,8 +216,17 @@ async function loadList() {
 async function handleCreate() {
   creating.value = true
   try {
-    await request.post('/api/admin/merchant/create', createForm.value)
+    const payload = {
+      ...createForm.value,
+      storeImages: createStoreImages.value.filter(Boolean)
+    }
+    await request.post('/api/admin/merchant/create', payload)
     ElMessage.success('创建成功')
+    createForm.value = {
+      merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true,
+      storeAddress: '', province: '', city: '', district: '', latitude: 0, longitude: 0, businessHours: ''
+    }
+    createStoreImages.value = ['']
     activeTab.value = 'list'
     loadList()
   } catch { /* handled */ }
@@ -311,6 +343,7 @@ function fmtTs(val?: number) {
 <style scoped>
 .create-tip { margin-bottom: 16px; }
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
+.field-hint { margin: 4px 0 0; font-size: 12px; color: #9CA3AF; line-height: 1.4; }
 .log-filter { margin-bottom: 12px; }
 .log-pagination { margin-top: 12px; justify-content: flex-end; }
 </style>

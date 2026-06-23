@@ -42,7 +42,7 @@ class ApprovalService {
 
   async createRequest(params) {
     const { clerkUid, customerUid, receiptNo, rule } = params;
-    const consumeAmount = Number(rule.min_amount || params.consumeAmount || 0);
+    const consumeAmount = Number(params.consumeAmount || rule.min_amount || 0);
     const now = Math.floor(Date.now() / 1000);
 
     const connection = await getPool().getConnection();
@@ -302,7 +302,7 @@ class ApprovalService {
     const [rows] = await getPool().query(
       `SELECT t.*, r.customer_uid, r.consumption_amount, r.matched_tier_code,
               r.matched_voucher_amount, r.matched_integral, r.status AS req_status,
-              r.created_at AS req_created_at, r.staff_uid AS clerk_uid
+              r.created_at AS req_created_at, r.staff_uid AS clerk_uid, r.receipt_no
        FROM ${swTable('approval_todo')} t
        JOIN ${swTable('approval_request')} r ON r.id = t.request_id
        WHERE t.assignee_uid = ? AND t.todo_type = ? AND t.is_done = 0

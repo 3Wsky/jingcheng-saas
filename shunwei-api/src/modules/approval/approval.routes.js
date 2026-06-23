@@ -100,6 +100,7 @@ function registerApprovalRoutes(app) {
         matchedTierCode: t.matched_tier_code,
         matchedVoucher: Number(t.matched_voucher_amount || 0),
         matchedIntegral: Number(t.matched_integral || 0),
+        receiptNo: t.receipt_no || '',
         reqStatus: t.req_status,
         clerkUid: t.staff_uid ?? t.clerk_uid,
         createdAt: Number(t.req_created_at)
