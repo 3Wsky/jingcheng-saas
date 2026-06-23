@@ -53,7 +53,7 @@ const routes: RouteRecordRaw[] = [
         path: 'products',
         name: 'Products',
         component: () => import('@/views/products/index.vue'),
-        meta: { title: '商品管理', icon: 'Goods', module: 'settings' },
+        meta: { title: '商品管理', icon: 'Goods', module: 'integral' },
       },
       {
         path: 'integral-mall',

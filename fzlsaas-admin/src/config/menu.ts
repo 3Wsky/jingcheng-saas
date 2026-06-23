@@ -12,14 +12,14 @@ export const MENU_MODULES: MenuModuleConfig[] = [
   { key: 'member', label: '会员', routes: ['members', 'membership-plans', 'staff'] },
   {
     key: 'integral',
-    label: '积分',
-    routes: ['integral-mall', 'integral-mall/orders', 'finance-integral', 'finance-recharge'],
+    label: '商品',
+    routes: ['products', 'integral-mall', 'integral-mall/orders', 'finance-integral', 'finance-recharge'],
   },
   { key: 'merchant', label: '商家', routes: ['merchant', 'finance-settlement'] },
   {
     key: 'settings',
     label: '设置',
-    routes: ['products', 'finance-cash', 'lottery', 'finance-settings', 'audit-logs', 'system-settings'],
+    routes: ['finance-cash', 'lottery', 'finance-settings', 'audit-logs', 'system-settings'],
   },
 ]
 
