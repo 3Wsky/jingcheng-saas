@@ -111,6 +111,54 @@
           <el-button type="primary" @click="saveMerchant">保存</el-button>
         </el-form>
       </el-tab-pane>
+      <el-tab-pane label="店员核销" name="staff-stats">
+        <div class="stats-toolbar">
+          <el-radio-group v-model="statsPeriod" size="small" @change="loadStaffStats">
+            <el-radio-button value="day">按日</el-radio-button>
+            <el-radio-button value="week">按周</el-radio-button>
+            <el-radio-button value="month">按月</el-radio-button>
+          </el-radio-group>
+          <el-date-picker
+            v-model="statsDateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            start-placeholder="开始"
+            end-placeholder="结束"
+            style="width: 240px; margin-left: 12px"
+            @change="loadStaffStats"
+          />
+        </div>
+        <el-table :data="staffStats" size="small" v-loading="statsLoading" show-summary :summary-method="statsSummary">
+          <template #empty>
+            <el-empty description="暂无核销数据" />
+          </template>
+          <el-table-column prop="operatorName" label="店员" min-width="100">
+            <template #default="{ row }">
+              <span class="staff-name">{{ row.operatorName }}</span>
+              <span class="staff-uid">（{{ row.operatorUid }}）</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="totalCount" label="核销笔数" width="100" align="right" />
+          <el-table-column prop="totalAmount" label="核销总额" width="120" align="right">
+            <template #default="{ row }">¥{{ row.totalAmount.toFixed(2) }}</template>
+          </el-table-column>
+          <el-table-column label="各期明细" min-width="200">
+            <template #default="{ row }">
+              <div class="period-chips">
+                <el-tag
+                  v-for="d in row.details"
+                  :key="d.period"
+                  size="small"
+                  type="info"
+                  class="period-chip"
+                >
+                  {{ d.period }}：{{ d.count }}笔 ¥{{ d.amount.toFixed(2) }}
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-tab-pane>
       <el-tab-pane label="核销明细" name="logs">
         <el-form :inline="true" class="log-filter" @submit.prevent="loadVerifyLogs(1)">
           <el-form-item label="日期">
@@ -201,6 +249,10 @@ const logPageSize = 20
 const logTotal = ref(0)
 const logDateRange = ref<[string, string] | null>(null)
 const canVerifyOriginal = ref(true)
+const staffStats = ref<any[]>([])
+const statsLoading = ref(false)
+const statsPeriod = ref<'day' | 'week' | 'month'>('day')
+const statsDateRange = ref<[string, string] | null>(null)
 
 onMounted(() => loadList())
 
@@ -245,7 +297,34 @@ async function openEdit(row: any) {
   canVerifyOriginal.value = Boolean(editForm.value.canVerify)
   logPage.value = 1
   logDateRange.value = null
-  await loadVerifyLogs(1)
+  statsDateRange.value = null
+  statsPeriod.value = 'day'
+  await Promise.all([loadVerifyLogs(1), loadStaffStats()])
+}
+
+async function loadStaffStats() {
+  if (!editForm.value?.id) return
+  statsLoading.value = true
+  try {
+    const params: Record<string, unknown> = { period: statsPeriod.value }
+    if (statsDateRange.value?.[0]) params.dateFrom = statsDateRange.value[0]
+    if (statsDateRange.value?.[1]) params.dateTo = statsDateRange.value[1]
+    const data = await request.get(`/api/admin/merchant/${editForm.value.id}/staff-verify-stats`, { params })
+    staffStats.value = data?.staff || []
+  } catch {
+    staffStats.value = []
+  } finally {
+    statsLoading.value = false
+  }
+}
+
+function statsSummary({ columns, data }: { columns: any[]; data: any[] }) {
+  return columns.map((_: any, idx: number) => {
+    if (idx === 0) return '合计'
+    if (idx === 1) return data.reduce((sum, r) => sum + (r.totalCount || 0), 0)
+    if (idx === 2) return '¥' + data.reduce((sum, r) => sum + (r.totalAmount || 0), 0).toFixed(2)
+    return ''
+  })
 }
 
 async function loadVerifyLogs(page = logPage.value) {
@@ -274,6 +353,7 @@ function resetLogFilter() {
 
 watch(editTab, (tab) => {
   if (tab === 'logs' && editForm.value?.id) loadVerifyLogs(1)
+  if (tab === 'staff-stats' && editForm.value?.id) loadStaffStats()
 })
 
 async function saveMerchant() {
@@ -344,6 +424,11 @@ function fmtTs(val?: number) {
 .create-tip { margin-bottom: 16px; }
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
 .field-hint { margin: 4px 0 0; font-size: 12px; color: #9CA3AF; line-height: 1.4; }
+.stats-toolbar { display: flex; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.staff-name { font-weight: 600; }
+.staff-uid { color: #909399; font-size: 12px; }
+.period-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.period-chip { font-size: 11px; }
 .log-filter { margin-bottom: 12px; }
 .log-pagination { margin-top: 12px; justify-content: flex-end; }
 </style>

@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { getPool } = require('../../shared/mysql');
+const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
@@ -270,6 +270,70 @@ function registerAdminMerchantRoutes(app) {
         createdAt: Number(r.createdAt),
         settlementStatus: 'pending'
       }))
+    });
+  });
+
+  app.get('/api/admin/merchant/:id/staff-verify-stats', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id);
+    const period = String(request.query.period || 'day');
+    const dateFrom = request.query.dateFrom
+      ? Math.floor(new Date(`${String(request.query.dateFrom)}T00:00:00`).getTime() / 1000)
+      : Math.floor(Date.now() / 1000) - 30 * 86400;
+    const dateTo = request.query.dateTo
+      ? Math.floor(new Date(`${String(request.query.dateTo)}T23:59:59`).getTime() / 1000)
+      : Math.floor(Date.now() / 1000);
+
+    let dateFmt;
+    if (period === 'month') dateFmt = '%Y-%m';
+    else if (period === 'week') dateFmt = '%x-W%v';
+    else dateFmt = '%Y-%m-%d';
+
+    const [rows] = await getPool().query(
+      `SELECT l.operator_uid,
+              u.nickname AS operator_name,
+              DATE_FORMAT(FROM_UNIXTIME(l.created_at), ?) AS period_label,
+              COUNT(*) AS verify_count,
+              COALESCE(SUM(l.amount), 0) AS total_amount
+       FROM ${swTable('cash_voucher_ledger')} l
+       LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
+       WHERE l.merchant_id = ? AND l.direction = 0
+         AND l.created_at >= ? AND l.created_at <= ?
+       GROUP BY l.operator_uid, period_label
+       ORDER BY period_label DESC, total_amount DESC`,
+      [dateFmt, id, dateFrom, dateTo]
+    );
+
+    const staffMap = new Map();
+    const periods = new Set();
+    for (const r of rows) {
+      periods.add(r.period_label);
+      const uid = Number(r.operator_uid || 0);
+      if (!staffMap.has(uid)) {
+        staffMap.set(uid, {
+          operatorUid: uid,
+          operatorName: r.operator_name || `UID:${uid}`,
+          totalCount: 0,
+          totalAmount: 0,
+          details: []
+        });
+      }
+      const s = staffMap.get(uid);
+      s.totalCount += Number(r.verify_count);
+      s.totalAmount += Number(r.total_amount);
+      s.details.push({
+        period: r.period_label,
+        count: Number(r.verify_count),
+        amount: Number(r.total_amount)
+      });
+    }
+
+    return ok({
+      period,
+      dateFrom: new Date(dateFrom * 1000).toISOString().slice(0, 10),
+      dateTo: new Date(dateTo * 1000).toISOString().slice(0, 10),
+      periods: [...periods].sort().reverse(),
+      staff: [...staffMap.values()].sort((a, b) => b.totalAmount - a.totalAmount)
     });
   });
 
