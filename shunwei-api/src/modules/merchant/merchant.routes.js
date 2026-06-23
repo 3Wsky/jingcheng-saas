@@ -4,9 +4,10 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
+const { getVerifyTokenService } = require('../cash-voucher/verify-token.service');
 
 const verifySchema = z.object({
-  customerUid: z.coerce.number().int().positive(),
+  verifyToken: z.string().trim().min(1),
   amount: z.coerce.number().positive(),
   remark: z.string().trim().max(200).optional().default('')
 });
@@ -70,18 +71,48 @@ function registerMerchantRoutes(app) {
     }
   });
 
+  app.post('/api/merchant/preview-verify', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const token = String(request.body?.verifyToken || '').trim();
+    if (!token) return fail(reply, 400, '请提供核销码');
+
+    try {
+      await resolveMerchantAccess(request.auth.uid);
+      const tokenResult = getVerifyTokenService().peek(token);
+      if (!tokenResult.valid) return fail(reply, 403, tokenResult.reason);
+
+      const [[user]] = await getPool().query(
+        `SELECT uid, nickname FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [tokenResult.uid]
+      );
+      if (!user) return fail(reply, 404, '用户不存在');
+
+      const wallet = await cvService.getWallet(tokenResult.uid);
+      return ok({
+        uid: tokenResult.uid,
+        nickname: user.nickname || '',
+        balance: wallet.balance
+      });
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
   app.post('/api/merchant/verify-voucher', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const parsed = verifySchema.safeParse(request.body || {});
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     try {
+      const tokenResult = getVerifyTokenService().validate(parsed.data.verifyToken);
+      if (!tokenResult.valid) return fail(reply, 403, tokenResult.reason);
+
       const access = await resolveMerchantAccess(request.auth.uid);
       const merchant = access.merchant;
       if (!merchant.can_verify) return fail(reply, 403, '商家核销权限未开通');
 
       const result = await cvService.verify(
-        parsed.data.customerUid,
+        tokenResult.uid,
         parsed.data.amount,
         request.auth.uid,
         merchant.id,

@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { CashVoucherService } = require('./cash-voucher.service');
+const { getVerifyTokenService } = require('./verify-token.service');
 
 const verifySchema = z.object({
   uid: z.coerce.number().int().positive(),
@@ -12,6 +13,21 @@ const verifySchema = z.object({
 
 function registerCashVoucherRoutes(app) {
   const service = new CashVoucherService();
+  const tokenService = getVerifyTokenService();
+
+  app.post('/api/member/verify-token', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      const wallet = await service.getWallet(request.auth.uid);
+      if (wallet.balance <= 0) {
+        return fail(reply, 400, '当前无可用现金券余额');
+      }
+      const token = tokenService.generate(request.auth.uid);
+      return ok({ token, expiresIn: 60, balance: wallet.balance });
+    } catch (error) {
+      return failCV(reply, error);
+    }
+  });
 
   app.get('/api/member/assets', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
