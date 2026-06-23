@@ -593,7 +593,7 @@ class ProductsService {
   // 调用 fzlsaas 官网采集器（digital-price-tag-generator/fzlsaas-scraper.mjs），返回采集到的商品数组
   async runOfficialScraper(models) {
     const scraperDir = process.env.OFFICIAL_SCRAPER_DIR
-      || path.resolve(config.rootDir, '..', '..', 'digital-price-tag-generator');
+      || path.resolve(config.priceTag.dataDir, '..', '..');
     const scraperFile = path.join(scraperDir, 'fzlsaas-scraper.mjs');
     try {
       await fs.access(scraperFile);

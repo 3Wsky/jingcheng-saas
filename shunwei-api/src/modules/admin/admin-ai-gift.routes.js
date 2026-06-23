@@ -1,12 +1,10 @@
 const { z } = require('zod');
+const { nanoid } = require('nanoid');
 const { ok, fail } = require('../../shared/http');
 const { requireAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { AiImageService } = require('../ai-image/ai-image.service');
 
-// 门店礼品 AI 采集：上传实拍 → gpt-image-2 生成干净电商主图 + 竖版详情图。
-// 提示词统一强调「保持照片中真实商品的造型/颜色/型号/品牌标识不变」，仅净化背景与优化打光，
-// 避免模型凭空改造商品；并禁止任何文字/水印（gpt-image 中文字易乱码）。
 const MAIN_PROMPT = (name) =>
   `这是一张门店实拍的商品照片${name ? `（商品名称：${name}）` : ''}。`
   + '请严格基于照片中的真实商品，生成一张专业电商主图：纯白色背景，商品居中、完整、约占画面 80%，'
@@ -45,84 +43,213 @@ function computeSuggestedIntegral(storePrice, multiplier) {
   return Math.max(1000, Math.round(price * m));
 }
 
+// status: pending → generating_main → generating_detail → done / failed
+const tasks = new Map();
+const TASK_TTL_MS = 30 * 60 * 1000;
+const MAX_TASKS = 200;
+
+function pruneExpiredTasks() {
+  const now = Date.now();
+  for (const [id, t] of tasks) {
+    if (now - t.createdAt > TASK_TTL_MS) tasks.delete(id);
+  }
+  if (tasks.size > MAX_TASKS) {
+    const sorted = [...tasks.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+    for (let i = 0; i < sorted.length - MAX_TASKS; i++) tasks.delete(sorted[i][0]);
+  }
+}
+
+const aiConfigSchema = z.object({
+  baseUrl: z.string().trim().max(500).optional().default(''),
+  apiKey: z.string().trim().max(500).optional().default(''),
+  model: z.string().trim().max(100).optional().default('gpt-image-2'),
+  quality: z.enum(['low', 'medium', 'high', 'auto']).optional().default('medium')
+});
+
 function registerAdminAiGiftRoutes(app) {
   const audit = new AdminAuditService();
   const aiImage = new AiImageService();
+  aiImage.reloadFromFile().catch(() => {});
 
   app.get('/api/admin/integral-mall/ai-gift/status', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
+    await aiImage.reloadFromFile().catch(() => {});
     return ok({
       configured: aiImage.isConfigured(),
       model: aiImage.model
     });
   });
 
+  app.get('/api/admin/config/ai-image', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const saved = await AiImageService.readConfig();
+    return ok({
+      baseUrl: saved?.baseUrl || '',
+      apiKey: saved?.apiKey ? '****' + String(saved.apiKey).slice(-6) : '',
+      apiKeySet: Boolean(saved?.apiKey),
+      model: saved?.model || aiImage.model,
+      quality: saved?.quality || 'medium',
+      envConfigured: Boolean(aiImage.envChannel.baseUrl && aiImage.envChannel.apiKey),
+      effectiveConfigured: aiImage.isConfigured()
+    });
+  });
+
+  app.put('/api/admin/config/ai-image', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = aiConfigSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, 'AI 配置参数错误', parsed.error.flatten());
+
+    const existing = await AiImageService.readConfig();
+    const cfg = {
+      baseUrl: parsed.data.baseUrl || '',
+      apiKey: parsed.data.apiKey || existing?.apiKey || '',
+      model: parsed.data.model || 'gpt-image-2',
+      quality: parsed.data.quality || 'medium',
+      updatedAt: new Date().toISOString()
+    };
+    await AiImageService.writeConfig(cfg);
+    await aiImage.reloadFromFile();
+
+    const session = getAdminSession(request);
+    await audit.write({
+      adminUsername: session?.username || '',
+      action: 'ai_image_config_update',
+      targetType: 'config',
+      targetId: 0,
+      payload: { baseUrl: cfg.baseUrl, model: cfg.model, quality: cfg.quality },
+      ip: getClientIp(request)
+    }).catch(() => {});
+
+    return ok({
+      configured: aiImage.isConfigured(),
+      model: aiImage.model
+    }, 'AI 生图配置已保存');
+  });
+
+  // 提交异步生成任务，立即返回 taskId
   app.post('/api/admin/integral-mall/ai-gift/generate', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const parsed = generateSchema.safeParse(request.body || {});
     if (!parsed.success) return fail(reply, 400, 'AI 生成参数错误', parsed.error.flatten());
 
+    await aiImage.reloadFromFile().catch(() => {});
     if (!aiImage.isConfigured()) {
-      return fail(reply, 503, 'AI 生图服务未配置，请在后端 .env 设置 IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY 后重试');
+      return fail(reply, 503, 'AI 生图服务未配置，请在系统设置页配置 AI 生图 API');
     }
 
+    pruneExpiredTasks();
+
     const { photo, productName, storePrice, multiplier, detailCount, quality } = parsed.data;
+    const taskId = `aig-${nanoid(12)}`;
+    const task = {
+      taskId,
+      status: 'pending',
+      progress: '排队中',
+      step: 0,
+      totalSteps: 1 + detailCount,
+      createdAt: Date.now(),
+      result: null,
+      error: null
+    };
+    tasks.set(taskId, task);
 
-    try {
-      const reference = await aiImage.loadImageInput(photo);
+    const session = getAdminSession(request);
+    const clientIp = getClientIp(request);
 
-      // 1) 干净电商主图（图生图，1:1）
-      const mainResults = await aiImage.edit({
-        prompt: MAIN_PROMPT(productName),
-        image: reference,
-        aspectRatio: '1:1',
-        count: 1,
-        quality
-      });
-      const main = mainResults[0];
+    // 后台异步执行，不阻塞 HTTP 响应
+    (async () => {
+      try {
+        task.status = 'generating_main';
+        task.progress = '正在生成主图（1/' + task.totalSteps + '）…';
 
-      // 2) 详情长图（竖版 2:3）— 以刚生成的干净主图为参考，保证一致性
-      const detailRef = { buffer: main.buffer, mime: main.mime };
-      const detailImages = [];
-      for (let i = 0; i < detailCount; i += 1) {
-        const prompt = DETAIL_PROMPTS[i % DETAIL_PROMPTS.length];
-        const res = await aiImage.edit({
-          prompt,
-          image: detailRef,
-          aspectRatio: '2:3',
+        const reference = await aiImage.loadImageInput(photo);
+
+        const mainResults = await aiImage.edit({
+          prompt: MAIN_PROMPT(productName),
+          image: reference,
+          aspectRatio: '1:1',
           count: 1,
           quality
         });
-        detailImages.push(res[0].url);
+        const main = mainResults[0];
+        task.step = 1;
+
+        const detailRef = { buffer: main.buffer, mime: main.mime };
+        const detailImages = [];
+        for (let i = 0; i < detailCount; i += 1) {
+          task.status = 'generating_detail';
+          task.progress = `正在生成详情图（${i + 2}/${task.totalSteps}）…`;
+          const prompt = DETAIL_PROMPTS[i % DETAIL_PROMPTS.length];
+          const res = await aiImage.edit({
+            prompt,
+            image: detailRef,
+            aspectRatio: '2:3',
+            count: 1,
+            quality
+          });
+          detailImages.push(res[0].url);
+          task.step = i + 2;
+        }
+
+        const suggestedIntegral = computeSuggestedIntegral(storePrice, multiplier);
+        const description = buildDescriptionHtml(detailImages);
+
+        task.status = 'done';
+        task.progress = '生成完成';
+        task.result = {
+          mainImage: main.url,
+          sliderImages: [main.url, ...detailImages],
+          detailImages,
+          description,
+          storePrice,
+          multiplier,
+          marketPrice: storePrice,
+          suggestedIntegral,
+          model: aiImage.model
+        };
+
+        await audit.write({
+          adminUsername: session?.username || '',
+          action: 'integral_mall_ai_gift_generate',
+          targetType: 'product',
+          targetId: 0,
+          payload: { productName, storePrice, multiplier, detailCount, mainImage: main.url, detailImagesCount: detailImages.length },
+          ip: clientIp
+        }).catch(() => {});
+      } catch (error) {
+        task.status = 'failed';
+        task.progress = '生成失败';
+        task.error = error.message || 'AI 生成失败';
       }
+    })();
 
-      const suggestedIntegral = computeSuggestedIntegral(storePrice, multiplier);
-      const description = buildDescriptionHtml(detailImages);
+    return ok({ taskId, totalSteps: task.totalSteps }, '任务已提交，请轮询状态');
+  });
 
-      const session = getAdminSession(request);
-      await audit.write({
-        adminUsername: session?.username || '',
-        action: 'integral_mall_ai_gift_generate',
-        targetType: 'product',
-        targetId: 0,
-        payload: { productName, storePrice, multiplier, detailCount, mainImage: main.url, detailCount: detailImages.length },
-        ip: getClientIp(request)
-      }).catch(() => {});
+  // 轮询任务状态
+  app.get('/api/admin/integral-mall/ai-gift/task/:taskId', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const { taskId } = request.params;
+    const task = tasks.get(taskId);
+    if (!task) return fail(reply, 404, '任务不存在或已过期');
 
-      return ok({
-        mainImage: main.url,
-        sliderImages: [main.url, ...detailImages],
-        detailImages,
-        description,
-        storePrice,
-        multiplier,
-        marketPrice: storePrice,
-        suggestedIntegral,
-        model: aiImage.model
-      }, 'AI 生成完成');
-    } catch (error) {
-      return fail(reply, error.statusCode || 500, error.message || 'AI 生成失败');
+    const resp = {
+      taskId: task.taskId,
+      status: task.status,
+      progress: task.progress,
+      step: task.step,
+      totalSteps: task.totalSteps
+    };
+
+    if (task.status === 'done') {
+      resp.result = task.result;
+      tasks.delete(taskId);
+    } else if (task.status === 'failed') {
+      resp.error = task.error;
+      tasks.delete(taskId);
     }
+
+    return ok(resp);
   });
 }
 

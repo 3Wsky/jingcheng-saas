@@ -3,6 +3,7 @@ const path = require('node:path');
 const { nanoid } = require('nanoid');
 const { config } = require('../../shared/config');
 
+const AI_CONFIG_FILE = path.join(config.dataDir, 'ai-image-config.json');
 const VALID_QUALITIES = new Set(['low', 'medium', 'high', 'auto']);
 const EXT_BY_MIME = {
   'image/png': '.png',
@@ -29,7 +30,13 @@ function fail(status, message) {
 
 class AiImageService {
   constructor(channel = config.imageGen) {
-    this.channel = channel || {};
+    this.envChannel = channel || {};
+    this.fileChannel = null;
+  }
+
+  get channel() {
+    if (this.fileChannel) return this.fileChannel;
+    return this.envChannel;
   }
 
   isConfigured() {
@@ -38,6 +45,40 @@ class AiImageService {
 
   get model() {
     return this.channel.model || 'gpt-image-2';
+  }
+
+  async reloadFromFile() {
+    try {
+      const raw = await fs.readFile(AI_CONFIG_FILE, 'utf8');
+      const saved = JSON.parse(raw);
+      if (saved && saved.baseUrl && saved.apiKey) {
+        this.fileChannel = {
+          baseUrl: saved.baseUrl,
+          apiKey: saved.apiKey,
+          model: saved.model || this.envChannel.model || 'gpt-image-2',
+          quality: saved.quality || this.envChannel.quality || 'medium',
+          timeoutMs: saved.timeoutMs || this.envChannel.timeoutMs || 300000
+        };
+      } else {
+        this.fileChannel = null;
+      }
+    } catch {
+      this.fileChannel = null;
+    }
+  }
+
+  static async readConfig() {
+    try {
+      const raw = await fs.readFile(AI_CONFIG_FILE, 'utf8');
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  static async writeConfig(cfg) {
+    await fs.mkdir(path.dirname(AI_CONFIG_FILE), { recursive: true });
+    await fs.writeFile(AI_CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
   }
 
   resolveQuality(explicit) {
