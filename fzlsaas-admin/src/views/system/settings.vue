@@ -118,11 +118,117 @@
         </el-card>
       </el-col>
     </el-row>
+
+    <el-row :gutter="20" style="margin-top: 20px">
+      <el-col :span="24">
+        <el-card shadow="never">
+          <template #header>
+            <span>企业微信 · 自动欢迎语绑定</span>
+            <el-tag v-if="weworkForm.enabled" type="success" size="small" style="margin-left: 12px">已启用</el-tag>
+            <el-tag v-else type="info" size="small" style="margin-left: 12px">未启用</el-tag>
+          </template>
+          <el-alert type="info" :closable="false" show-icon style="margin-bottom: 16px">
+            <template #default>
+              <p class="hint">顾客在企微添加客户经理后，自动弹出小程序并绑定到该客户经理名下。需在企微管理后台配置自建应用与回调。</p>
+              <p class="hint">回调 URL：<code>{{ callbackUrl }}</code>（在企微「接收事件服务器」填写，Token / AESKey 与下方一致）</p>
+            </template>
+          </el-alert>
+          <el-form label-width="140px" label-position="top" v-loading="weworkLoading">
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="8">
+                <el-form-item label="启用">
+                  <el-switch v-model="weworkForm.enabled" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="企业 ID (corpId)">
+                  <el-input v-model="weworkForm.corpId" placeholder="ww 开头" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="8">
+                <el-form-item label="应用 AgentId">
+                  <el-input v-model="weworkForm.agentId" placeholder="自建应用 AgentId" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="客户联系 Secret">
+                  <el-input v-model="weworkForm.contactSecret" type="password" show-password :placeholder="weworkForm.hasContactSecret ? '已配置（留空保持不变）' : '客户联系功能的 Secret'" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="小程序 AppId">
+                  <el-input v-model="weworkForm.miniappAppId" placeholder="wx 开头，需在企微关联授权" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="12">
+                <el-form-item label="回调 Token">
+                  <el-input v-model="weworkForm.token" placeholder="与企微回调配置一致" />
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="12">
+                <el-form-item label="回调 EncodingAESKey">
+                  <el-input v-model="weworkForm.encodingAesKey" type="password" show-password :placeholder="weworkForm.hasEncodingAesKey ? '已配置（留空保持不变）' : '43 位 AESKey'" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            <el-row :gutter="16">
+              <el-col :xs="24" :md="8">
+                <el-form-item label="小程序落地页">
+                  <el-input v-model="weworkForm.miniappPagePath" placeholder="pages/index/index" />
+                  <p class="hint">系统会自动追加 ?spread=客户经理UID</p>
+                </el-form-item>
+              </el-col>
+              <el-col :xs="24" :md="16">
+                <el-form-item label="欢迎语文案">
+                  <el-input v-model="weworkForm.welcomeText" type="textarea" :rows="2" maxlength="200" show-word-limit />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-divider content-position="left">客户经理映射（企微成员 → 客户经理 UID）</el-divider>
+            <p class="hint" style="margin-bottom: 12px">填写每个客户经理的企微成员账号(UserID)与其在系统里的会员 UID；顾客添加谁，就绑定到对应 UID。</p>
+            <el-table :data="weworkForm.mappings" size="small" border style="margin-bottom: 12px">
+              <el-table-column label="企微成员 UserID" min-width="200">
+                <template #default="{ row }">
+                  <el-input v-model="row.userid" size="small" placeholder="如 zhangsan" />
+                </template>
+              </el-table-column>
+              <el-table-column label="客户经理 UID" width="160">
+                <template #default="{ row }">
+                  <el-input-number v-model="row.uid" :min="1" size="small" controls-position="right" style="width: 130px" />
+                </template>
+              </el-table-column>
+              <el-table-column label="备注" min-width="160">
+                <template #default="{ row }">
+                  <el-input v-model="row.name" size="small" placeholder="姓名（选填）" />
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="80" fixed="right">
+                <template #default="{ $index }">
+                  <el-button link type="danger" size="small" @click="removeMapping($index)">删除</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <el-empty :image-size="60" description="暂无映射，点下方「添加映射」" />
+              </template>
+            </el-table>
+            <el-form-item>
+              <el-button @click="addMapping">添加映射</el-button>
+              <el-button type="primary" :loading="weworkSaving" @click="saveWeworkConfig" style="margin-left: 8px">保存企微配置</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </el-col>
+    </el-row>
   </PageShell>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -144,11 +250,21 @@ const aiLoading = ref(false)
 const aiSaving = ref(false)
 const aiForm = ref<any>({ baseUrl: '', apiKey: '', apiKeySet: false, model: 'gpt-image-2', quality: 'medium', effectiveConfigured: false })
 
+const weworkLoading = ref(false)
+const weworkSaving = ref(false)
+const weworkForm = ref<any>({
+  enabled: false, corpId: '', contactSecret: '', agentId: '', token: '', encodingAesKey: '',
+  miniappAppId: '', miniappPagePath: 'pages/index/index', welcomeText: '', hasContactSecret: false, hasEncodingAesKey: false,
+  mappings: [] as Array<{ userid: string; uid: number; name: string }>
+})
+const callbackUrl = computed(() => `${(import.meta as any).env?.VITE_API_BASE || 'https://ok.xjshunwei.cn/sw-api'}/api/wework/callback`)
+
 onMounted(() => {
   loadConfig()
   loadEntryConfig()
   loadAccountInfo()
   loadAiConfig()
+  loadWeworkConfig()
 })
 
 async function loadConfig() {
@@ -251,6 +367,70 @@ async function saveAiConfig() {
     /* handled */
   } finally {
     aiSaving.value = false
+  }
+}
+
+async function loadWeworkConfig() {
+  weworkLoading.value = true
+  try {
+    const data = await request.get('/api/admin/wework/config')
+    weworkForm.value = {
+      enabled: !!data.enabled,
+      corpId: data.corpId || '',
+      contactSecret: '',
+      agentId: data.agentId || '',
+      token: data.token || '',
+      encodingAesKey: '',
+      miniappAppId: data.miniappAppId || '',
+      miniappPagePath: data.miniappPagePath || 'pages/index/index',
+      welcomeText: data.welcomeText || '',
+      hasContactSecret: !!data.hasContactSecret,
+      hasEncodingAesKey: !!data.hasEncodingAesKey,
+      mappings: Array.isArray(data.mappings) ? data.mappings.map((m: any) => ({ userid: m.userid || '', uid: Number(m.uid) || undefined, name: m.name || '' })) : []
+    }
+  } catch {
+    /* keep defaults */
+  } finally {
+    weworkLoading.value = false
+  }
+}
+
+function addMapping() {
+  weworkForm.value.mappings.push({ userid: '', uid: undefined, name: '' })
+}
+
+function removeMapping(index: number) {
+  weworkForm.value.mappings.splice(index, 1)
+}
+
+async function saveWeworkConfig() {
+  const mappings = (weworkForm.value.mappings || [])
+    .filter((m: any) => String(m.userid || '').trim() && Number(m.uid) > 0)
+    .map((m: any) => ({ userid: String(m.userid).trim(), uid: Number(m.uid), name: String(m.name || '').trim() }))
+  weworkSaving.value = true
+  try {
+    const payload: any = {
+      enabled: weworkForm.value.enabled,
+      corpId: weworkForm.value.corpId,
+      agentId: weworkForm.value.agentId,
+      token: weworkForm.value.token,
+      miniappAppId: weworkForm.value.miniappAppId,
+      miniappPagePath: weworkForm.value.miniappPagePath,
+      welcomeText: weworkForm.value.welcomeText,
+      mappings
+    }
+    if (weworkForm.value.contactSecret) payload.contactSecret = weworkForm.value.contactSecret
+    if (weworkForm.value.encodingAesKey) payload.encodingAesKey = weworkForm.value.encodingAesKey
+    const data = await request.put('/api/admin/wework/config', payload)
+    weworkForm.value.hasContactSecret = !!data.hasContactSecret
+    weworkForm.value.hasEncodingAesKey = !!data.hasEncodingAesKey
+    weworkForm.value.contactSecret = ''
+    weworkForm.value.encodingAesKey = ''
+    ElMessage.success('企微配置已保存')
+  } catch {
+    /* handled */
+  } finally {
+    weworkSaving.value = false
   }
 }
 
