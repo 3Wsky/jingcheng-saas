@@ -26,11 +26,10 @@ function resolveBase(request) {
  * - 空值原样返回（保持 ''）
  * - data: / blob: / http(s):// 开头的原样返回（兼容旧 CRMEB 绝对图 & base64）
  * - // 协议相对地址原样返回
- * - 其余按 "基址 + /相对路径" 拼接
+ * - 其余按 "基址 + /api/file?p=uploads/..." 拼接
  *
- * Nginx 对 .png/.jpg 等静态后缀有独立 location 规则，会绕过 /sw-api/ 的 proxy_pass，
- * 导致 /sw-api/uploads/xxx.jpg 返回 404。因此统一走 /api/uploads/，
- * 利用 Nginx 对 /sw-api/api/* 的代理到达 Fastify。
+ * Nginx 对 .png/.jpg 等扩展名有 `location ~*` 正则规则，截获所有带这些后缀的请求。
+ * /api/file?p=... 路由的 URL 路径不含文件后缀，Nginx 不会拦截。
  */
 function toPublicUrl(input, request) {
   const raw = String(input == null ? '' : input).trim();
@@ -40,17 +39,21 @@ function toPublicUrl(input, request) {
   const base = resolveBase(request);
 
   if (/^(https?:)?\/\//i.test(raw)) {
-    // 已是绝对 URL；修正先前可能写入 DB 的 /sw-api/uploads/ 旧格式
-    if (raw.includes('/uploads/') && !raw.includes('/api/uploads/')) {
-      return raw.replace('/uploads/', '/api/uploads/');
+    if (!base) return raw;
+    // 修正先前写入 DB 的 /uploads/ 或 /api/uploads/ 旧格式绝对 URL
+    const baseNoSlash = base.replace(/\/+$/, '');
+    const uploadsPattern = raw.match(new RegExp(`^${baseNoSlash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/(?:api\\/)?uploads\\/(.+)`));
+    if (uploadsPattern) {
+      return `${baseNoSlash}/api/file?p=uploads/${uploadsPattern[1]}`;
     }
     return raw;
   }
 
   if (!base) return raw;
   let urlPath = raw.startsWith('/') ? raw : `/${raw}`;
-  if (urlPath.startsWith('/uploads/')) {
-    urlPath = `/api${urlPath}`;
+  const relMatch = urlPath.match(/^\/(?:api\/)?uploads\/(.+)/);
+  if (relMatch) {
+    return `${base}/api/file?p=uploads/${relMatch[1]}`;
   }
   return `${base}${urlPath}`;
 }

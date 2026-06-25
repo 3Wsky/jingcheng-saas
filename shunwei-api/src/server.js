@@ -60,12 +60,36 @@ async function buildServer() {
     decorateReply: false
   });
 
-  // Nginx 可能对 .png/.jpg 等静态后缀有独立 location 规则，绕过了 /sw-api/ → Fastify 的 proxy_pass。
-  // 额外挂载 /api/uploads/ 保证图片请求走 Nginx 的 /sw-api/api/* 代理到达 Fastify。
-  await app.register(fastifyStatic, {
-    root: uploadsRoot,
-    prefix: '/api/uploads/',
-    decorateReply: false
+  // Nginx 对 .png/.jpg 等扩展名有 `location ~*` 正则规则，会截获所有带这些后缀的请求，
+  // 不论路径前缀——/sw-api/uploads/xxx.png 和 /sw-api/api/uploads/xxx.png 均被拦截。
+  // 因此提供 /api/file?p=uploads/... 路由：URL 路径不含文件后缀，Nginx 不会拦截。
+  const { createReadStream: fsCreateReadStream } = require('node:fs');
+
+  app.get('/api/file', async (request, reply) => {
+    const p = String(request.query.p || '').trim();
+    if (!p) return reply.code(400).send({ statusCode: 400, error: 'Missing p parameter' });
+
+    const normalized = p.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (!normalized.startsWith('uploads/') || normalized.includes('..')) {
+      return reply.code(400).send({ statusCode: 400, error: 'Invalid path' });
+    }
+
+    const filePath = path.join(config.dataDir, normalized);
+    try {
+      await fs.access(filePath);
+    } catch {
+      return reply.code(404).send({ statusCode: 404, error: 'File not found' });
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeTypes = {
+      '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.png': 'image/png', '.gif': 'image/gif',
+      '.webp': 'image/webp', '.bmp': 'image/bmp'
+    };
+    reply.type(mimeTypes[ext] || 'application/octet-stream');
+    reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+    return reply.send(fsCreateReadStream(filePath));
   });
 
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (request, body, done) => {
