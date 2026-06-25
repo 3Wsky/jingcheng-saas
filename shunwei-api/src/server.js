@@ -63,8 +63,8 @@ async function buildServer() {
   // Nginx 对 .png/.jpg 等扩展名有 `location ~*` 正则规则，会截获所有带这些后缀的请求，
   // 不论路径前缀——/sw-api/uploads/xxx.png 和 /sw-api/api/uploads/xxx.png 均被拦截。
   // 因此提供 /api/file?p=uploads/... 路由：URL 路径不含文件后缀，Nginx 不会拦截。
-  const { createReadStream: fsCreateReadStream } = require('node:fs');
-
+  // 用 readFile（buffer）而非 createReadStream 发送，以设置 Content-Length；
+  // 微信小程序 <image> 对 chunked 传输的图片可能不兼容。
   app.get('/api/file', async (request, reply) => {
     const p = String(request.query.p || '').trim();
     if (!p) return reply.code(400).send({ statusCode: 400, error: 'Missing p parameter' });
@@ -75,8 +75,9 @@ async function buildServer() {
     }
 
     const filePath = path.join(config.dataDir, normalized);
+    let buf;
     try {
-      await fs.access(filePath);
+      buf = await fs.readFile(filePath);
     } catch {
       return reply.code(404).send({ statusCode: 404, error: 'File not found' });
     }
@@ -88,8 +89,9 @@ async function buildServer() {
       '.webp': 'image/webp', '.bmp': 'image/bmp'
     };
     reply.type(mimeTypes[ext] || 'application/octet-stream');
+    reply.header('Content-Length', buf.length);
     reply.header('Cache-Control', 'public, max-age=31536000, immutable');
-    return reply.send(fsCreateReadStream(filePath));
+    return reply.send(buf);
   });
 
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (request, body, done) => {
