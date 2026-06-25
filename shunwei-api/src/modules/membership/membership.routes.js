@@ -259,7 +259,7 @@ async function getIntegralMallProduct(request) {
 
   const [[row]] = await getPool().query(
     `
-    SELECT id, image, slider_image, title, info, description, price, unit_name, stock, sales, is_show
+    SELECT id, image, images, title, description, price, unit_name, stock, sales, is_show
     FROM ${legacyTable('store_integral')}
     WHERE id = ? AND is_del = 0
     LIMIT 1
@@ -270,7 +270,7 @@ async function getIntegralMallProduct(request) {
 
   let sliders = [];
   try {
-    const parsed = JSON.parse(row.slider_image || '[]');
+    const parsed = JSON.parse(row.images || '[]');
     if (Array.isArray(parsed)) sliders = parsed;
   } catch (_) {
     sliders = [];
@@ -293,7 +293,7 @@ async function getIntegralMallProduct(request) {
     image: cover,
     images,
     title: row.title || '积分商品',
-    info: row.info || '',
+    info: '',
     description,
     price: Number(row.price || 0),
     unitName: row.unit_name || '',
