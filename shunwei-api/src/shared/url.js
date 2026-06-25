@@ -27,17 +27,32 @@ function resolveBase(request) {
  * - data: / blob: / http(s):// 开头的原样返回（兼容旧 CRMEB 绝对图 & base64）
  * - // 协议相对地址原样返回
  * - 其余按 "基址 + /相对路径" 拼接
+ *
+ * Nginx 对 .png/.jpg 等静态后缀有独立 location 规则，会绕过 /sw-api/ 的 proxy_pass，
+ * 导致 /sw-api/uploads/xxx.jpg 返回 404。因此统一走 /api/uploads/，
+ * 利用 Nginx 对 /sw-api/api/* 的代理到达 Fastify。
  */
 function toPublicUrl(input, request) {
   const raw = String(input == null ? '' : input).trim();
   if (!raw) return '';
-  if (/^(https?:)?\/\//i.test(raw)) return raw;
   if (/^(data|blob):/i.test(raw)) return raw;
 
   const base = resolveBase(request);
-  if (!base) return raw; // 没有可用基址时退回原值，避免拼出错误地址
-  const path = raw.startsWith('/') ? raw : `/${raw}`;
-  return `${base}${path}`;
+
+  if (/^(https?:)?\/\//i.test(raw)) {
+    // 已是绝对 URL；修正先前可能写入 DB 的 /sw-api/uploads/ 旧格式
+    if (raw.includes('/uploads/') && !raw.includes('/api/uploads/')) {
+      return raw.replace('/uploads/', '/api/uploads/');
+    }
+    return raw;
+  }
+
+  if (!base) return raw;
+  let urlPath = raw.startsWith('/') ? raw : `/${raw}`;
+  if (urlPath.startsWith('/uploads/')) {
+    urlPath = `/api${urlPath}`;
+  }
+  return `${base}${urlPath}`;
 }
 
 /** 数组版本：对每个元素调用 toPublicUrl，过滤空值。 */

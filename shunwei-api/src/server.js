@@ -52,9 +52,19 @@ async function buildServer() {
 
   await fs.mkdir(path.join(config.dataDir, 'uploads'), { recursive: true });
 
+  const uploadsRoot = path.join(config.dataDir, 'uploads');
+
   await app.register(fastifyStatic, {
-    root: path.join(config.dataDir, 'uploads'),
+    root: uploadsRoot,
     prefix: '/uploads/',
+    decorateReply: false
+  });
+
+  // Nginx 可能对 .png/.jpg 等静态后缀有独立 location 规则，绕过了 /sw-api/ → Fastify 的 proxy_pass。
+  // 额外挂载 /api/uploads/ 保证图片请求走 Nginx 的 /sw-api/api/* 代理到达 Fastify。
+  await app.register(fastifyStatic, {
+    root: uploadsRoot,
+    prefix: '/api/uploads/',
     decorateReply: false
   });
 
