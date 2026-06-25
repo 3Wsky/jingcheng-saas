@@ -259,7 +259,7 @@ async function getIntegralMallProduct(request) {
 
   const [[row]] = await getPool().query(
     `
-    SELECT id, image, images, title, description, price, unit_name, stock, sales, is_show
+    SELECT id, image, images, title, price, unit_name, stock, sales, is_show
     FROM ${legacyTable('store_integral')}
     WHERE id = ? AND is_del = 0
     LIMIT 1
