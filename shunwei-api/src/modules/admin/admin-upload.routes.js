@@ -5,6 +5,7 @@ const { pipeline } = require('node:stream/promises');
 const { nanoid } = require('nanoid');
 const { ok, fail } = require('../../shared/http');
 const { config } = require('../../shared/config');
+const { toPublicUrl } = require('../../shared/url');
 const { requireAdmin } = require('./admin.auth');
 
 const ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp']);
@@ -56,8 +57,9 @@ function registerAdminUploadRoutes(app) {
     const absPath = path.join(targetDir, filename);
     await pipeline(data.file, createWriteStream(absPath));
 
-    const url = `/uploads/${subDir}/${filename}`.replace(/\\/g, '/');
-    return ok({ url, path: url }, '上传成功');
+    const relativeUrl = `/uploads/${subDir}/${filename}`.replace(/\\/g, '/');
+    const url = toPublicUrl(relativeUrl, request);
+    return ok({ url, path: relativeUrl }, '上传成功');
   });
 }
 

@@ -548,10 +548,12 @@ class StaffService {
       `UPDATE ${legacyTable('user')} SET division_id = ? WHERE uid = ?`,
       [store.id, uid]
     );
+    const cardsSynced = await storesService.syncCardStoreName([uid], store.name);
     return {
       uid,
       divisionId: store.id,
-      storeName: store.name
+      storeName: store.name,
+      cardsSynced
     };
   }
 }

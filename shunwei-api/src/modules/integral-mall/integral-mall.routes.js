@@ -139,7 +139,7 @@ function registerIntegralMallRoutes(app) {
     try {
       const page = Math.max(1, Number(request.query.page || 1));
       const limit = Math.min(50, Math.max(1, Number(request.query.limit || 20)));
-      const data = await mallService.listUserOrders(request.auth.uid, page, limit);
+      const data = await mallService.listUserOrders(request.auth.uid, page, limit, request);
       return ok(data);
     } catch (error) {
       return failMall(reply, error);

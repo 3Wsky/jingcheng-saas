@@ -100,6 +100,23 @@ class AdminDashboardService {
       approvalApprovedToday = Number(approvedRow?.cnt || 0);
     } catch { /* ignore */ }
 
+    let cashVoucherGrantTotal = 0;
+    let cashVoucherGrantedInPeriod = 0;
+    try {
+      const [[cashTotalRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 1`
+      );
+      cashVoucherGrantTotal = Number(cashTotalRow?.total || 0);
+
+      const [[cashPeriodRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 1 AND created_at >= ?`,
+        [bounds.dayStart]
+      );
+      cashVoucherGrantedInPeriod = Number(cashPeriodRow?.total || 0);
+    } catch { /* ignore */ }
+
     const trend = await this.buildTrend(pool, bounds.dayStart, bounds.trendDays);
 
     return {
@@ -113,7 +130,9 @@ class AdminDashboardService {
         integralGrantedToday,
         integralConsumedToday,
         newUsersToday: Number(newUserRow?.cnt || 0),
-        approvalApprovedToday
+        approvalApprovedToday,
+        cashVoucherGrantTotal,
+        cashVoucherGrantedInPeriod
       },
       trend
     };

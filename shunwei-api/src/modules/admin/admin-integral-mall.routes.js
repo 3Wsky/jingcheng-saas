@@ -1,6 +1,7 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { getPool, legacyTable } = require('../../shared/mysql');
+const { toPublicUrl, toPublicUrlList } = require('../../shared/url');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { IntegralProductExtRepository } = require('./integral-product-ext.repository');
@@ -97,15 +98,18 @@ async function loadExt(productId) {
   return ext || {};
 }
 
-async function mapProduct(row) {
+async function mapProduct(row, request) {
   const ext = await loadExt(row.id);
   const images = parseImages(row.images);
+  const attrs = (ext.attrs || []).map((attr) =>
+    attr && attr.image ? { ...attr, image: toPublicUrl(attr.image, request) } : attr
+  );
   return {
     id: row.id,
     productId: Number(row.product_id || 0),
     title: row.title,
-    image: row.image || images[0] || '',
-    images,
+    image: toPublicUrl(row.image || images[0] || '', request),
+    images: toPublicUrlList(images, request),
     price: Number(row.price || 0),
     stock: Number(row.stock || 0),
     sales: Number(row.sales || 0),
@@ -118,7 +122,7 @@ async function mapProduct(row) {
     num: Number(row.num || 1),
     description: ext.description || '',
     specType: Number(ext.specType || 0),
-    attrs: ext.attrs || [],
+    attrs,
     showcaseId: ext.showcaseId || '',
     productType: 'integral_verify',
     deliveryType: 'local_verify'
@@ -173,7 +177,7 @@ async function requireShownShowcase(showcaseId, reply) {
   return showcase;
 }
 
-async function insertIntegralProduct(pool, payload, overrides = {}) {
+async function insertIntegralProduct(pool, payload, overrides = {}, request) {
   const base = showcaseToIntegralPayload(payload, overrides);
   const parsed = productSchema.safeParse(base);
   if (!parsed.success) {
@@ -202,7 +206,7 @@ async function insertIntegralProduct(pool, payload, overrides = {}) {
   const [result] = await insertIntegralRow(poolRef, cols, vals);
   await saveExt(result.insertId, d);
   const [[row]] = await poolRef.query(`SELECT * FROM ${legacyTable('store_integral')} WHERE id = ?`, [result.insertId]);
-  return { ok: true, product: await mapProduct(row) };
+  return { ok: true, product: await mapProduct(row, request) };
 }
 
 function summarizeBatch(results) {
@@ -251,7 +255,7 @@ function registerAdminIntegralMallRoutes(app) {
     );
 
     const list = [];
-    for (const row of rows) list.push(await mapProduct(row));
+    for (const row of rows) list.push(await mapProduct(row, request));
 
     const [[shownRow]] = await getPool().query(
       `SELECT COUNT(*) AS c FROM ${legacyTable('store_integral')} WHERE is_del = 0 AND is_show = 1`
@@ -277,7 +281,7 @@ function registerAdminIntegralMallRoutes(app) {
       [id]
     );
     if (!row) return fail(reply, 404, '商品不存在');
-    return ok(await mapProduct(row));
+    return ok(await mapProduct(row, request));
   });
 
   app.post('/api/admin/integral-mall/products', async (request, reply) => {
@@ -330,7 +334,7 @@ function registerAdminIntegralMallRoutes(app) {
       `SELECT * FROM ${legacyTable('store_integral')} WHERE id = ?`,
       [result.insertId]
     );
-    return ok(await mapProduct(row), '创建成功');
+    return ok(await mapProduct(row, request), '创建成功');
   });
 
   app.put('/api/admin/integral-mall/products/:id', async (request, reply) => {
@@ -380,7 +384,7 @@ function registerAdminIntegralMallRoutes(app) {
       [id]
     );
     if (!row) return fail(reply, 404, '商品不存在');
-    return ok(await mapProduct(row), '已更新');
+    return ok(await mapProduct(row, request), '已更新');
   });
 
   app.patch('/api/admin/integral-mall/products/:id/stock', async (request, reply) => {
@@ -398,7 +402,7 @@ function registerAdminIntegralMallRoutes(app) {
       [id]
     );
     if (!row) return fail(reply, 404, '商品不存在');
-    return ok(await mapProduct(row), '库存已更新');
+    return ok(await mapProduct(row, request), '库存已更新');
   });
 
   app.patch('/api/admin/integral-mall/products/batch-show', async (request, reply) => {
@@ -458,7 +462,7 @@ function registerAdminIntegralMallRoutes(app) {
     const source = await requireShownShowcase(showcaseId, reply);
     if (!source) return;
 
-    const result = await insertIntegralProduct(getPool(), source, { isShow: false });
+    const result = await insertIntegralProduct(getPool(), source, { isShow: false }, request);
     if (!result.ok) {
       if (result.skipped) return fail(reply, 409, `该商品已导入积分商城：${result.title}`);
       return fail(reply, 400, result.error || '采集转换失败', result.detail);
@@ -489,7 +493,7 @@ function registerAdminIntegralMallRoutes(app) {
     const pool = getPool();
     const results = [];
     for (const source of sources) {
-      const r = await insertIntegralProduct(pool, source, { isShow: false });
+      const r = await insertIntegralProduct(pool, source, { isShow: false }, request);
       results.push({ ...r, title: source.storeName });
     }
     const summary = summarizeBatch(results);
@@ -572,7 +576,7 @@ function registerAdminIntegralMallRoutes(app) {
         userNickname: r.user_nickname || '',
         productId: Number(r.product_id || 0),
         productName: r.store_name || '',
-        image: r.image || '',
+        image: toPublicUrl(r.image || '', request),
         integralCost: Number(r.total_price || 0),
         verifyCode: r.verify_code || '',
         status: Number(r.status || 0),

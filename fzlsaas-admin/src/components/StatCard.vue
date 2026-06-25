@@ -92,6 +92,11 @@ const displayValue = computed(() => {
   color: #13c2c2;
 }
 
+.stat-voucher .stat-icon-wrap {
+  background: #fff7e6;
+  color: #fa8c16;
+}
+
 .stat-icon-wrap {
   width: 42px;
   height: 42px;

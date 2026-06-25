@@ -36,6 +36,26 @@ const updateStoreSchema = z.object({
   storeName: z.string().trim().min(1).max(80)
 });
 
+const storeListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  keyword: z.string().trim().max(80).optional().default('')
+});
+
+const storeUpsertSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  phone: z.string().trim().max(20).optional().default(''),
+  address: z.string().trim().max(255).optional().default(''),
+  detailedAddress: z.string().trim().max(255).optional().default(''),
+  dayTime: z.string().trim().max(128).optional().default(''),
+  isShow: z.boolean().optional().default(true)
+});
+
+const storeTransferSchema = z.object({
+  targetStoreName: z.string().trim().min(1).max(80),
+  uids: z.array(z.coerce.number().int().positive()).optional()
+});
+
 function registerAdminStaffRoutes(app) {
   const service = new StaffService();
   const storesService = new AdminStoresService();
@@ -48,6 +68,116 @@ function registerAdminStaffRoutes(app) {
       return ok({ list });
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '门店列表加载失败');
+    }
+  });
+
+  app.get('/api/admin/stores', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = storeListQuerySchema.safeParse(request.query || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      return ok(await storesService.list(parsed.data));
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店列表加载失败');
+    }
+  });
+
+  app.post('/api/admin/stores', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = storeUpsertSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const session = getAdminSession(request);
+    try {
+      const data = await storesService.create(parsed.data);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'store_create',
+        targetType: 'store',
+        targetId: data.id,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(data, '门店已创建');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店创建失败');
+    }
+  });
+
+  app.put('/api/admin/stores/:id', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id);
+    if (!id) return fail(reply, 400, '门店 ID 无效');
+    const parsed = storeUpsertSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const session = getAdminSession(request);
+    try {
+      const data = await storesService.update(id, parsed.data);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'store_update',
+        targetType: 'store',
+        targetId: id,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(data, '门店已更新');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店更新失败');
+    }
+  });
+
+  app.delete('/api/admin/stores/:id', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id);
+    if (!id) return fail(reply, 400, '门店 ID 无效');
+    const session = getAdminSession(request);
+    try {
+      const data = await storesService.remove(id);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'store_delete',
+        targetType: 'store',
+        targetId: id,
+        payload: { name: data.name },
+        ip: getClientIp(request)
+      });
+      return ok(data, '门店已删除');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店删除失败');
+    }
+  });
+
+  app.get('/api/admin/stores/:id/staff', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id);
+    if (!id) return fail(reply, 400, '门店 ID 无效');
+    try {
+      return ok(await storesService.listStaff(id));
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '门店客户经理加载失败');
+    }
+  });
+
+  app.post('/api/admin/stores/:id/transfer', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const id = Number(request.params.id);
+    if (!id) return fail(reply, 400, '门店 ID 无效');
+    const parsed = storeTransferSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const session = getAdminSession(request);
+    try {
+      const data = await storesService.transferStaff(id, parsed.data.targetStoreName, parsed.data.uids);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'store_staff_transfer',
+        targetType: 'store',
+        targetId: id,
+        payload: { ...parsed.data, moved: data.moved, toDivisionId: data.toDivisionId },
+        ip: getClientIp(request)
+      });
+      return ok(data, `已转移 ${data.moved} 名客户经理`);
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '转移失败');
     }
   });
 

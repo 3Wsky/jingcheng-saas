@@ -210,7 +210,7 @@ function registerMembershipRoutes(app) {
 
   app.get('/api/integral-mall/products', async (request, reply) => {
     try {
-      const products = await listIntegralMallProducts();
+      const products = await listIntegralMallProducts(request);
       return ok(products);
     } catch (error) {
       return failMembership(reply, error);
@@ -218,8 +218,9 @@ function registerMembershipRoutes(app) {
   });
 }
 
-async function listIntegralMallProducts() {
+async function listIntegralMallProducts(request) {
   const { getPool, legacyTable } = require('../../shared/mysql');
+  const { toPublicUrl } = require('../../shared/url');
   const [rows] = await getPool().query(
     `
     SELECT id, image, title, price, unit_name, stock, is_show
@@ -231,7 +232,7 @@ async function listIntegralMallProducts() {
 
   return rows.map((row) => ({
     id: row.id,
-    image: row.image,
+    image: toPublicUrl(row.image, request),
     title: row.title,
     price: Number(row.price || 0),
     unitName: row.unit_name || '',

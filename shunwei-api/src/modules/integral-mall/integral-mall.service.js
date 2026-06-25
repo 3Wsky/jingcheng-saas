@@ -1,5 +1,6 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
+const { toPublicUrl } = require('../../shared/url');
 
 /**
  * 积分商城核销服务（MVP1：免审开启时店员直接核销）
@@ -220,7 +221,7 @@ class IntegralMallService {
     }
   }
 
-  async listUserOrders(uid, page = 1, limit = 20) {
+  async listUserOrders(uid, page = 1, limit = 20, request) {
     const offset = (page - 1) * limit;
     const [[countRow]] = await getPool().query(
       `SELECT COUNT(*) AS total FROM ${legacyTable('store_integral_order')}
@@ -241,7 +242,7 @@ class IntegralMallService {
         orderId: r.order_id,
         productId: r.product_id,
         productName: r.store_name || '',
-        image: r.image || '',
+        image: toPublicUrl(r.image || '', request),
         integralCost: Number(r.total_price || 0),
         verifyCode: r.verify_code || '',
         status: Number(r.status || 0),

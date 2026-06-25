@@ -38,6 +38,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '客户经理', icon: 'Avatar', module: 'member' },
       },
       {
+        path: 'stores',
+        name: 'Stores',
+        component: () => import('@/views/stores/index.vue'),
+        meta: { title: '门店管理', icon: 'OfficeBuilding', module: 'member' },
+      },
+      {
         path: 'merchant',
         name: 'Merchant',
         component: () => import('@/views/merchant/index.vue'),

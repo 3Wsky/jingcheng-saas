@@ -13,6 +13,11 @@ const config = {
   host: process.env.HOST || '0.0.0.0',
   logLevel: process.env.LOG_LEVEL || 'info',
   dataDir: path.resolve(rootDir, process.env.DATA_DIR || 'data'),
+  // 公网基址：用于把 /uploads/... 等相对路径拼成绝对 URL（后台 <img> 与小程序 <image> 均需绝对地址）。
+  // 默认即生产地址；末尾斜杠会被去除。仅当显式设为空字符串时，才退回请求头 X-Forwarded-* 兜底推导。
+  publicBaseUrl: String(
+    process.env.PUBLIC_BASE_URL === undefined ? 'https://ok.xjshunwei.cn/sw-api' : process.env.PUBLIC_BASE_URL
+  ).replace(/\/+$/, ''),
   priceTag: {
     dataDir: path.resolve(rootDir, process.env.PRICE_TAG_DATA_DIR || '../digital-price-tag-generator/public/data')
   },

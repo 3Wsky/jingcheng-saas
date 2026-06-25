@@ -18,6 +18,7 @@
           :icon="card.icon"
           :title="card.title"
           :value="card.value"
+          :prefix="card.prefix"
           :clickable="!!card.onClick"
           @click="card.onClick?.()"
         />
@@ -75,11 +76,35 @@ const trend = ref({ labels: [] as string[], integralGranted: [] as number[], int
 
 let timer: ReturnType<typeof setInterval> | null = null
 
+const periodGrantTitle = computed(() => ({
+  today: '今日现金券发放',
+  '7d': '近7日现金券发放',
+  '30d': '近30日现金券发放',
+}[range.value]))
+
 const statCards = computed(() => [
   { key: 'member', type: 'member', icon: 'User', title: '全网会员总数', value: cards.value.memberTotal },
   { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: '今日新注册会员', value: cards.value.newUsersToday, onClick: () => router.push('/members') },
   { key: 'grant', type: 'grant', icon: 'TrendCharts', title: '今日积分发放总量', value: cards.value.integralGrantedToday },
   { key: 'consume', type: 'consume', icon: 'Minus', title: '今日积分消耗总量', value: cards.value.integralConsumedToday },
+  {
+    key: 'cash-grant-total',
+    type: 'voucher',
+    icon: 'Money',
+    title: '已发放现金券金额汇总',
+    value: cards.value.cashVoucherGrantTotal,
+    prefix: '¥',
+    onClick: () => router.push('/finance-cash'),
+  },
+  {
+    key: 'cash-grant-period',
+    type: 'grant',
+    icon: 'Wallet',
+    title: periodGrantTitle.value,
+    value: cards.value.cashVoucherGrantedInPeriod,
+    prefix: '¥',
+    onClick: () => router.push('/finance-cash'),
+  },
   { key: 'verify', type: 'verify', icon: 'Checked', title: '今日核销订单数', value: cards.value.verifyToday },
   {
     key: 'approval',
@@ -125,6 +150,8 @@ function exportReport() {
       ['今日核销', c.verifyToday ?? 0],
       ['待审批', c.pendingApproval ?? 0],
       ['今日审批通过', c.approvalApprovedToday ?? 0],
+      ['已发放现金券汇总(元)', c.cashVoucherGrantTotal ?? 0],
+      [`${label}现金券发放(元)`, c.cashVoucherGrantedInPeriod ?? 0],
       ['待结算(元)', c.pendingSettlement ?? 0],
     ]
     downloadCsv(

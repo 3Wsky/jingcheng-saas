@@ -9,7 +9,7 @@ export interface MenuModuleConfig {
 /** 5 Tab 业务域分组（方案 A，2026-06-21 PM 确认） */
 export const MENU_MODULES: MenuModuleConfig[] = [
   { key: 'workspace', label: '工作台', routes: ['dashboard', 'approval/pending', 'approval'] },
-  { key: 'member', label: '会员', routes: ['members', 'membership-plans', 'staff'] },
+  { key: 'member', label: '会员', routes: ['members', 'membership-plans', 'staff', 'stores'] },
   {
     key: 'integral',
     label: '商品',

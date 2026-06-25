@@ -117,7 +117,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
@@ -128,10 +128,11 @@ import { rememberStoreName } from '@/utils/recentStores'
 import StaffDetailDrawer from './components/StaffDetailDrawer.vue'
 
 const router = useRouter()
+const route = useRoute()
 const loading = ref(false)
 const list = ref<any[]>([])
 const keyword = ref('')
-const storeName = ref('')
+const storeName = ref(typeof route.query.storeName === 'string' ? route.query.storeName : '')
 const managerFilter = ref<'yes' | 'no' | ''>('')
 const page = ref(1)
 const pageSize = ref(20)
