@@ -216,6 +216,16 @@ function registerMembershipRoutes(app) {
       return failMembership(reply, error);
     }
   });
+
+  app.get('/api/integral-mall/product/:id', async (request, reply) => {
+    try {
+      const product = await getIntegralMallProduct(request);
+      if (!product) return fail(reply, 404, '商品不存在或已下架');
+      return ok(product);
+    } catch (error) {
+      return failMembership(reply, error);
+    }
+  });
 }
 
 async function listIntegralMallProducts(request) {
@@ -239,6 +249,59 @@ async function listIntegralMallProducts(request) {
     canExchange: Number(row.stock || 0) > 0,
     stockHint: Number(row.stock || 0) > 0 ? '' : '暂时无法兑换，过两天试试'
   }));
+}
+
+async function getIntegralMallProduct(request) {
+  const { getPool, legacyTable } = require('../../shared/mysql');
+  const { toPublicUrl, toPublicUrlList } = require('../../shared/url');
+  const id = Number(request.params.id || 0);
+  if (!id) return null;
+
+  const [[row]] = await getPool().query(
+    `
+    SELECT id, image, slider_image, title, info, description, price, unit_name, stock, sales, is_show
+    FROM ${legacyTable('store_integral')}
+    WHERE id = ? AND is_del = 0
+    LIMIT 1
+    `,
+    [id]
+  );
+  if (!row || Number(row.is_show) !== 1) return null;
+
+  let sliders = [];
+  try {
+    const parsed = JSON.parse(row.slider_image || '[]');
+    if (Array.isArray(parsed)) sliders = parsed;
+  } catch (_) {
+    sliders = [];
+  }
+  let images = toPublicUrlList(sliders, request);
+  const cover = toPublicUrl(row.image, request);
+  if (!images.length && cover) images = [cover];
+
+  let description = String(row.description || '');
+  if (description) {
+    description = description.replace(
+      /(<img[^>]+src=["'])([^"']+)(["'])/gi,
+      (match, prefix, src, suffix) => prefix + toPublicUrl(src, request) + suffix
+    );
+  }
+
+  const stock = Number(row.stock || 0);
+  return {
+    id: row.id,
+    image: cover,
+    images,
+    title: row.title || '积分商品',
+    info: row.info || '',
+    description,
+    price: Number(row.price || 0),
+    unitName: row.unit_name || '',
+    stock,
+    sales: Number(row.sales || 0),
+    canExchange: stock > 0,
+    stockHint: stock > 0 ? '' : '暂时无法兑换，过两天试试'
+  };
 }
 
 function failMembership(reply, error) {
