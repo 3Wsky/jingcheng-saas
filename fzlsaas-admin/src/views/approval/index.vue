@@ -82,9 +82,16 @@
         </el-empty>
       </template>
       <el-table-column prop="requestId" label="ID" width="70" />
-      <el-table-column prop="customerUid" label="客户" width="100">
+      <el-table-column label="客户" min-width="130">
         <template #default="{ row }">
+          <div class="cell-name">{{ row.customerNickname || '（未设昵称）' }}</div>
           <UidLink :uid="row.customerUid" @click="openMember" />
+        </template>
+      </el-table-column>
+      <el-table-column label="提交人（客户经理）" min-width="140">
+        <template #default="{ row }">
+          <div class="cell-name">{{ row.staffNickname || row.clerkNickname || '（未设昵称）' }}</div>
+          <span class="cell-uid">UID {{ row.staffUid ?? row.clerkUid ?? '—' }}</span>
         </template>
       </el-table-column>
       <el-table-column prop="consumptionAmount" label="消费金额" width="100">
@@ -92,6 +99,9 @@
       </el-table-column>
       <el-table-column prop="matchedTierCode" label="档位" width="110">
         <template #default="{ row }">{{ formatTier(row.matchedTierCode) }}</template>
+      </el-table-column>
+      <el-table-column label="提交时间" width="150">
+        <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
       <el-table-column label="状态" width="110">
         <template #default="{ row }">
@@ -251,6 +261,13 @@ function formatTier(code?: string) {
   return code || '—'
 }
 
+function formatTime(ts?: number) {
+  if (!ts) return '—'
+  const d = new Date(ts * 1000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
 // 超管可一键终审的记录：待超管(pending_admin)。与所在 tab 无关，
 // 因此「全部记录」里待超管的记录也能直接通过/驳回。
 function canApprove(row: any) {
@@ -266,6 +283,9 @@ function mapTodoRow(row: any) {
   return {
     requestId: row.requestId,
     customerUid: row.customerUid,
+    customerNickname: row.customerNickname,
+    staffUid: row.clerkUid,
+    staffNickname: row.clerkNickname,
     consumptionAmount: row.consumeAmount,
     matchedTierCode: row.matchedTierCode,
     status: 'pending_admin',
@@ -381,4 +401,6 @@ async function loadAutoPassConfig() {
 .status-bar { margin-bottom: 16px; }
 .range-sep { margin: 0 6px; color: #9CA3AF; }
 .tab-badge { margin-left: 6px; vertical-align: middle; }
+.cell-name { font-weight: 600; color: #1A1A2E; line-height: 1.4; }
+.cell-uid { font-size: 12px; color: #9CA3AF; }
 </style>

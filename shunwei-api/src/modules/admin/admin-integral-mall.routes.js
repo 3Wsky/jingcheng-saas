@@ -305,7 +305,7 @@ function registerAdminIntegralMallRoutes(app) {
     const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
     const vals = [
       d.title, d.image || images[0] || '', serializeImages(images), d.description || '', d.price, d.stock,
-      d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, now
+      d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, 0, now
     ];
     if (d.productId) {
       cols.unshift('product_id');

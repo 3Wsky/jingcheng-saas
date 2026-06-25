@@ -16,9 +16,14 @@
         <section class="detail-section">
           <h4>客户信息</h4>
           <p>
-            UID {{ detail.customerUid }} · {{ detail.customerNickname || '—' }}
+            {{ detail.customerNickname || '（未设昵称）' }} · UID {{ detail.customerUid }}
             <el-button link type="primary" @click="goMember(detail.customerUid)">查看会员详情 →</el-button>
           </p>
+        </section>
+
+        <section class="detail-section">
+          <h4>提交人（客户经理）</h4>
+          <p>{{ detail.staffNickname || '（未设昵称）' }} · UID {{ detail.staffUid }}</p>
         </section>
 
         <section class="detail-section">
@@ -143,9 +148,10 @@ const timelineItems = computed(() => {
   for (const step of detail.value.steps || []) {
     const role = roleLabel[step.stepRole] || step.stepRole || '操作人'
     const time = fmtTime(step.createdAt)
-    const action = step.action === 'approve' ? '通过' : step.action === 'reject' ? '驳回' : step.action === 'revoke' ? '撤销' : step.action || '处理'
+    const action = step.action === 'submit' ? '提交' : step.action === 'approve' ? '通过' : step.action === 'reject' ? '驳回' : step.action === 'revoke' ? '撤销' : step.action || '处理'
+    const who = step.operatorNickname ? `${step.operatorNickname}（UID ${step.operatorUid}）` : `UID ${step.operatorUid || '—'}`
     const suffix = step.comment ? ` 「${step.comment}」` : ''
-    items.push({ text: `${time}  ${role} ${action}${suffix}`, type: step.action === 'reject' ? 'danger' : 'primary' })
+    items.push({ text: `${time}  ${role} ${who} ${action}${suffix}`, type: step.action === 'reject' ? 'danger' : 'primary' })
   }
   if (detail.value.status === 'pending_admin') {
     items.push({ text: '待超管终审', type: 'warning', hollow: true })

@@ -471,12 +471,14 @@ function registerAdminManagementRoutes(app) {
       todoId: t.id,
       requestId: t.request_id,
       customerUid: t.customer_uid,
+      customerNickname: t.customer_nickname || '',
       consumeAmount: Number(t.consumption_amount ?? t.consume_amount ?? 0),
       matchedTierCode: t.matched_tier_code,
       matchedVoucher: Number(t.matched_voucher_amount || 0),
       matchedIntegral: Number(t.matched_integral || 0),
       reqStatus: t.req_status,
       clerkUid: t.staff_uid ?? t.clerk_uid,
+      clerkNickname: t.staff_nickname || '',
       createdAt: Number(t.req_created_at)
     };
   }

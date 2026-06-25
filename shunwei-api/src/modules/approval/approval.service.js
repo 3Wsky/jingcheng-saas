@@ -302,9 +302,12 @@ class ApprovalService {
     const [rows] = await getPool().query(
       `SELECT t.*, r.customer_uid, r.consumption_amount, r.matched_tier_code,
               r.matched_voucher_amount, r.matched_integral, r.status AS req_status,
-              r.created_at AS req_created_at, r.staff_uid AS clerk_uid, r.receipt_no
+              r.created_at AS req_created_at, r.staff_uid AS clerk_uid, r.receipt_no,
+              cu.nickname AS customer_nickname, su.nickname AS staff_nickname
        FROM ${swTable('approval_todo')} t
        JOIN ${swTable('approval_request')} r ON r.id = t.request_id
+       LEFT JOIN ${legacyTable('user')} cu ON cu.uid = r.customer_uid
+       LEFT JOIN ${legacyTable('user')} su ON su.uid = r.staff_uid
        WHERE t.assignee_uid = ? AND t.todo_type = ? AND t.is_done = 0
        ORDER BY t.created_at DESC`,
       [uid, todoType]
@@ -317,9 +320,12 @@ class ApprovalService {
     const [rows] = await getPool().query(
       `SELECT t.*, r.customer_uid, r.consumption_amount, r.matched_tier_code,
               r.matched_voucher_amount, r.matched_integral, r.status AS req_status,
-              r.created_at AS req_created_at, r.staff_uid AS clerk_uid
+              r.created_at AS req_created_at, r.staff_uid AS clerk_uid,
+              cu.nickname AS customer_nickname, su.nickname AS staff_nickname
        FROM ${swTable('approval_todo')} t
        JOIN ${swTable('approval_request')} r ON r.id = t.request_id
+       LEFT JOIN ${legacyTable('user')} cu ON cu.uid = r.customer_uid
+       LEFT JOIN ${legacyTable('user')} su ON su.uid = r.staff_uid
        WHERE t.todo_type = 'admin_review' AND t.is_done = 0 AND r.status = 'admin_review'
        ORDER BY t.created_at DESC`
     );
@@ -445,12 +451,17 @@ class ApprovalService {
   async getStepsForRequest(requestId) {
     try {
       const [steps] = await getPool().query(
-        `SELECT * FROM ${swTable('approval_step')} WHERE request_id = ? ORDER BY id ASC`,
+        `SELECT s.*, u.nickname AS operator_nickname, u.phone AS operator_phone
+         FROM ${swTable('approval_step')} s
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = s.operator_uid
+         WHERE s.request_id = ? ORDER BY s.id ASC`,
         [requestId]
       );
       return steps.map((s) => ({
         stepRole: s.step_role || s.role || '',
         operatorUid: Number(s.operator_uid || s.assignee_uid || 0),
+        operatorNickname: s.operator_nickname || '',
+        operatorPhone: s.operator_phone || '',
         action: s.action || '',
         comment: s.comment || s.remark || '',
         createdAt: Number(s.created_at || 0)
