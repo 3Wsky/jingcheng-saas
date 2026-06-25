@@ -16,6 +16,7 @@ const { registerAdminMerchantRoutes } = require('./modules/merchant/admin-mercha
 const { registerAdminBatchGrantRoutes } = require('./modules/admin/admin-batch-grant.routes');
 const { registerAdminAuditRoutes } = require('./modules/admin/admin-audit.routes');
 const { registerAdminIntegralMallRoutes } = require('./modules/admin/admin-integral-mall.routes');
+const { runStartupBackfillSafe } = require('./modules/admin/integral-image-backfill');
 const { registerAdminAiGiftRoutes } = require('./modules/admin/admin-ai-gift.routes');
 const { registerAdminCrmebProductRoutes } = require('./modules/admin/admin-crmeb-products.routes');
 const { registerAdminUploadRoutes } = require('./modules/admin/admin-upload.routes');
@@ -145,6 +146,8 @@ async function main() {
   const app = await buildServer();
   await app.listen({ port: config.port, host: config.host });
   console.log(`[shunwei-api] listening on ${config.host}:${config.port}`);
+  // 启动后一次性自愈存量积分商品图片裸路径（非阻塞、吞错，不影响服务可用性）。
+  runStartupBackfillSafe(app.log);
 }
 
 if (require.main === module) {

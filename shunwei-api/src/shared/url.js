@@ -64,4 +64,25 @@ function toPublicUrlList(list, request) {
   return list.map((item) => toPublicUrl(item, request)).filter(Boolean);
 }
 
-module.exports = { toPublicUrl, toPublicUrlList };
+/**
+ * 入库前归一化：把图片路径转成「绝对可访问 URL」后再写入 DB。
+ *
+ * 与 toPublicUrl 的区别在使用场景：
+ * - toPublicUrl：读取出图时调用，存量裸路径在响应里临时补全（不改库）。
+ * - toStoredUrl：写入 CRMEB eb_store_integral 等「会被其它系统（如 CRMEB PHP）直接读取」的表前调用，
+ *   让落库值本身就是绝对 URL，从而 CRMEB PHP /api/store_integral/list 等不经过本服务 toPublicUrl 的
+ *   读取方也能拿到可加载的图片（小程序首页 pointsMall / 导航 points_mall 即走 CRMEB PHP 读取）。
+ *
+ * 语义与 toPublicUrl 完全一致（同样的相对→绝对、绝对旧格式纠正、http(s)/data 保留），
+ * 故它是幂等的：已是 /api/file?p= 形式的绝对 URL 原样返回。
+ */
+function toStoredUrl(input, request) {
+  return toPublicUrl(input, request);
+}
+
+/** 数组版本：入库前归一化每个元素，过滤空值。 */
+function toStoredUrlList(list, request) {
+  return toPublicUrlList(list, request);
+}
+
+module.exports = { toPublicUrl, toPublicUrlList, toStoredUrl, toStoredUrlList };

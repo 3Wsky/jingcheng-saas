@@ -1,11 +1,12 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { getPool, legacyTable } = require('../../shared/mysql');
-const { toPublicUrl, toPublicUrlList } = require('../../shared/url');
+const { toPublicUrl, toPublicUrlList, toStoredUrl, toStoredUrlList } = require('../../shared/url');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { IntegralProductExtRepository } = require('./integral-product-ext.repository');
 const { ProductsService } = require('../products/products.service');
+const { backfillIntegralImageUrls } = require('./integral-image-backfill');
 const {
   showcaseToIntegralPayload,
   fetchCrmebProducts,
@@ -149,6 +150,21 @@ function normalizeIntegralPayload(d) {
   return payload;
 }
 
+// 入库前把图片字段归一化为绝对 URL：CRMEB eb_store_integral 会被 CRMEB PHP /api/store_integral/list
+// 直接读取（小程序首页 pointsMall / 导航 points_mall），不经本服务 toPublicUrl，
+// 故落库值必须本身是绝对地址，否则小程序 <image> 拿到裸 /uploads/... 无法加载。
+function normalizeImageFields(d, request) {
+  const payload = { ...d };
+  if (payload.image !== undefined) payload.image = toStoredUrl(payload.image, request);
+  if (payload.images !== undefined) payload.images = toStoredUrlList(payload.images, request);
+  if (Array.isArray(payload.attrs) && payload.attrs.length) {
+    payload.attrs = payload.attrs.map((attr) =>
+      attr && attr.image ? { ...attr, image: toStoredUrl(attr.image, request) } : attr
+    );
+  }
+  return payload;
+}
+
 async function findIntegralByTitle(pool, title) {
   const [[row]] = await pool.query(
     `SELECT id, title FROM ${legacyTable('store_integral')} WHERE title = ? AND is_del = 0 LIMIT 1`,
@@ -184,7 +200,7 @@ async function insertIntegralProduct(pool, payload, overrides = {}, request) {
     return { ok: false, error: '转换失败', detail: parsed.error.flatten() };
   }
 
-  const d = normalizeIntegralPayload(parsed.data);
+  const d = normalizeImageFields(normalizeIntegralPayload(parsed.data), request);
   const poolRef = pool;
   if (d.productId) {
     const dup = await findIntegralByProductId(poolRef, d.productId);
@@ -298,12 +314,14 @@ function registerAdminIntegralMallRoutes(app) {
     const parsed = productSchema.safeParse(body);
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
-    const d = normalizeIntegralPayload(parsed.data);
+    let d = normalizeIntegralPayload(parsed.data);
     if (!showcaseId) {
       if (!d.title?.trim()) return fail(reply, 400, '请填写商品标题');
       const hasImage = Boolean(d.image?.trim()) || (d.images?.length > 0);
       if (!hasImage) return fail(reply, 400, '请上传商品主图');
     }
+    // 落库前归一化为绝对 URL，确保 CRMEB PHP 读取方（小程序首页/导航）也能加载图片
+    d = normalizeImageFields(d, request);
     const images = d.images?.length ? d.images : (d.image ? [d.image] : []);
     const now = Math.floor(Date.now() / 1000);
     const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
@@ -343,7 +361,8 @@ function registerAdminIntegralMallRoutes(app) {
     const parsed = productSchema.partial().safeParse(request.body || {});
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
-    const d = normalizeIntegralPayload({ ...parsed.data });
+    // 落库前归一化为绝对 URL（仅对本次提交了的图片字段生效）
+    const d = normalizeImageFields(normalizeIntegralPayload({ ...parsed.data }), request);
     const sets = [];
     const values = [];
     if (d.productId !== undefined) { sets.push('product_id = ?'); values.push(d.productId); }
@@ -584,6 +603,27 @@ function registerAdminIntegralMallRoutes(app) {
         createdAt: Number(r.add_time || 0)
       }))
     });
+  });
+
+  // 一键修复存量积分商品图片：把 eb_store_integral 历史裸路径改写为绝对 URL，
+  // 使小程序首页/导航（走 CRMEB PHP /api/store_integral/list）也能加载图片。幂等可重复执行。
+  app.post('/api/admin/integral-mall/backfill-image-urls', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      const result = await backfillIntegralImageUrls();
+      const session = getAdminSession(request);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'integral_mall_backfill_image_urls',
+        targetType: 'product',
+        targetId: 0,
+        payload: { scanned: result.scanned, updated: result.updated },
+        ip: getClientIp(request)
+      });
+      return ok(result, `已修复 ${result.updated} / ${result.scanned} 个积分商品图片`);
+    } catch (error) {
+      return fail(reply, 500, error.message || '回填失败');
+    }
   });
 }
 
