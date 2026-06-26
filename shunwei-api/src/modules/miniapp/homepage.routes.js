@@ -3,6 +3,7 @@ const path = require('node:path');
 const { ok, fail } = require('../../shared/http');
 const { config } = require('../../shared/config');
 const { requireAdmin } = require('../admin/admin.auth');
+const { getPool, legacyTable } = require('../../shared/mysql');
 
 const DATA_FILE = path.join(config.dataDir, 'homepage-config.json');
 
@@ -26,6 +27,32 @@ function registerHomepageRoutes(app) {
       return ok(cfg);
     } catch (error) {
       return fail(reply, 500, error.message || '首页配置加载失败');
+    }
+  });
+
+  app.get('/api/stores', async (_request, reply) => {
+    try {
+      const table = legacyTable('system_store');
+      const [rows] = await getPool().query(
+        `SELECT id, name, phone, address, detailed_address, day_time,
+                latitude, longitude, image
+         FROM ${table}
+         WHERE COALESCE(is_del, 0) = 0 AND COALESCE(is_show, 1) = 1
+         ORDER BY id ASC
+         LIMIT 100`
+      );
+      return ok((rows || []).map(r => ({
+        id: Number(r.id),
+        name: r.name || '',
+        phone: r.phone || '',
+        address: [r.address, r.detailed_address].filter(Boolean).join(' '),
+        dayTime: r.day_time || '',
+        latitude: Number(r.latitude || 0),
+        longitude: Number(r.longitude || 0),
+        image: r.image || ''
+      })));
+    } catch (error) {
+      return fail(reply, 500, error.message || '门店列表加载失败');
     }
   });
 
