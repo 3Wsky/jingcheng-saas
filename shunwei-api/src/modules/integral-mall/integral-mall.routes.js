@@ -146,6 +146,40 @@ function registerIntegralMallRoutes(app) {
     }
   });
 
+  app.post('/api/integral-mall/preview-by-code', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const schema = z.object({
+      verifyCode: z.string().trim().min(1).max(64)
+    });
+    const parsed = schema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    try {
+      await mallService.assertStaff(request.auth.uid);
+      const order = await mallService.findIntegralOrder(parsed.data.verifyCode);
+      if (!order) return fail(reply, 404, '未找到积分订单');
+      if (Number(order.status || 0) === 3) return fail(reply, 409, '该订单已核销');
+
+      const { getPool, legacyTable } = require('../../shared/mysql');
+      const [[user]] = await getPool().query(
+        `SELECT uid, nickname FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+        [order.uid]
+      );
+
+      return ok({
+        type: 'integral',
+        orderId: order.order_id,
+        verifyCode: order.verify_code || '',
+        productName: order.store_name || '',
+        integralCost: Number(order.total_price || 0),
+        customerUid: order.uid,
+        customerNickname: user?.nickname || ''
+      });
+    } catch (error) {
+      return failMall(reply, error);
+    }
+  });
+
   app.post('/api/integral-mall/verify-by-code', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const schema = z.object({
