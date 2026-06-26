@@ -107,6 +107,26 @@ function registerApprovalRoutes(app) {
         );
         rows.forEach(r => { nameMap[r.uid] = r.nickname || ''; });
       }
+
+      const clerkNames = {};
+      const clerkUids = Array.from(uids);
+      if (clerkUids.length > 0) {
+        const { swTable } = require('../../shared/sw-mysql');
+        try {
+          const [cards] = await getPool().query(
+            `SELECT staff_uid, display_name FROM ${swTable('staff_card')} WHERE staff_uid IN (?)`,
+            [clerkUids]
+          );
+          cards.forEach(c => {
+            if (c.display_name) {
+              clerkNames[c.staff_uid] = c.display_name;
+            }
+          });
+        } catch (err) {
+          // ignore if table doesn't exist or other error
+        }
+      }
+
       return ok(todos.map(t => {
         const clerkUid = t.staff_uid ?? t.clerk_uid;
         return {
@@ -121,7 +141,7 @@ function registerApprovalRoutes(app) {
           receiptNo: t.receipt_no || '',
           reqStatus: t.req_status,
           clerkUid,
-          clerkName: nameMap[clerkUid] || '',
+          clerkName: clerkNames[clerkUid] || nameMap[clerkUid] || '',
           createdAt: Number(t.req_created_at)
         };
       }));

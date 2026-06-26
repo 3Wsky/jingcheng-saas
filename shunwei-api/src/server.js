@@ -34,6 +34,7 @@ const { registerMiniappConfigRoutes } = require('./modules/miniapp/miniapp-confi
 const { registerHomepageRoutes } = require('./modules/miniapp/homepage.routes');
 const { registerWeworkRoutes } = require('./modules/wework/wework.routes');
 const { registerSnScanRoutes } = require('./modules/admin/admin-sn-scan.routes');
+const { registerSuperuserRoutes } = require('./modules/admin/admin-superuser.routes');
 const { parseLegacyToken } = require('./shared/legacy-token');
 
 async function buildServer() {
@@ -142,6 +143,7 @@ async function buildServer() {
   registerHomepageRoutes(app);
   registerWeworkRoutes(app);
   registerSnScanRoutes(app);
+  registerSuperuserRoutes(app);
 
   return app;
 }
