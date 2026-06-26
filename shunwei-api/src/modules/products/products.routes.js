@@ -132,6 +132,14 @@ const categoryIdParamsSchema = z.object({
 function registerProductRoutes(app) {
   const service = new ProductsService();
 
+  app.get('/api/product-categories', async (request, reply) => {
+    try {
+      return ok(await service.listCategories());
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '分类加载失败');
+    }
+  });
+
   app.get('/api/products', async (request, reply) => {
     const parsed = listQuerySchema.safeParse(request.query || {});
     if (!parsed.success) return fail(reply, 400, '商品查询参数错误', parsed.error.flatten());
