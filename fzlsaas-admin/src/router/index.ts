@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { useUserStore } from '@/store/user'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -135,6 +136,22 @@ const routes: RouteRecordRaw[] = [
       },
     ],
   },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: () => import('@/layout/index.vue'),
+    children: [{
+      path: '',
+      component: {
+        template: `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:50vh;color:#8b95a5">
+          <div style="font-size:64px;font-weight:700;color:#c0c4cc;margin-bottom:16px">404</div>
+          <p style="font-size:15px;margin:0 0 24px">页面不存在或已移除</p>
+          <el-button type="primary" @click="$router.push('/')">返回首页</el-button>
+        </div>`,
+      },
+      meta: { title: '页面未找到' },
+    }],
+  },
 ]
 
 const router = createRouter({
@@ -142,8 +159,22 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   document.title = `${to.meta.title || '锦程数码会员电商系统'} - 管理后台`
+
+  if (to.meta.public) return next()
+
+  const userStore = useUserStore()
+  const loggedIn = await userStore.checkSession()
+
+  if (!loggedIn && to.path !== '/login') {
+    return next('/login')
+  }
+
+  if (loggedIn && to.path === '/login') {
+    return next('/')
+  }
+
   next()
 })
 

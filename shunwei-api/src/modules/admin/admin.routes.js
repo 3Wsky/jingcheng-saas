@@ -4,6 +4,7 @@ const { NewcomerLotteryRepository } = require('../newcomer-lottery/newcomer-lott
 const { NewcomerLotteryService } = require('../newcomer-lottery/newcomer-lottery.service');
 const {
   clearAdminSessionCookie,
+  getAdminSession,
   requireAdmin,
   setAdminSessionCookie,
   verifyAdminCredentials
@@ -86,6 +87,11 @@ function registerAdminRoutes(app) {
   app.post('/admin/logout', async (request, reply) => {
     clearAdminSessionCookie(reply);
     return reply.redirect('/admin/login');
+  });
+
+  app.get('/api/admin/me', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    return ok(reply, { username: getAdminSession(request)?.username || 'admin' });
   });
 
   app.get('/admin', async (request, reply) => {

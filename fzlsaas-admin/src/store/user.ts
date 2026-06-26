@@ -6,6 +6,7 @@ export const useUserStore = defineStore('user', {
     isLoggedIn: false,
     username: '',
     role: 'admin' as 'admin' | 'manager' | 'clerk' | 'merchant',
+    _checked: false,
   }),
 
   actions: {
@@ -23,12 +24,29 @@ export const useUserStore = defineStore('user', {
       this.isLoggedIn = true
       this.username = username
       this.role = 'admin'
+      this._checked = true
     },
 
     logout() {
       request.post('/admin/logout').catch(() => {})
       this.isLoggedIn = false
       this.username = ''
+      this._checked = true
+    },
+
+    async checkSession(): Promise<boolean> {
+      if (this._checked) return this.isLoggedIn
+      try {
+        const data: any = await request.get('/api/admin/me')
+        this.isLoggedIn = true
+        this.username = data?.username || 'admin'
+        this.role = 'admin'
+      } catch {
+        this.isLoggedIn = false
+        this.username = ''
+      }
+      this._checked = true
+      return this.isLoggedIn
     },
   },
 })

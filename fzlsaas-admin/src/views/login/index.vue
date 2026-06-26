@@ -27,7 +27,7 @@
         </el-form-item>
       </el-form>
 
-      <p class="login-footer">系统已启用安全传输与审计审计保护</p>
+      <p class="login-footer">系统已启用安全传输与审计保护</p>
     </div>
   </div>
 </template>

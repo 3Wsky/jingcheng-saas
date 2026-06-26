@@ -39,9 +39,11 @@ function isAdminAuthenticated(request) {
 
 function setAdminSessionCookie(reply, username) {
   const token = createAdminSession(username);
+  const isProduction = config.env === 'production';
   reply.header('Set-Cookie', serializeCookie(COOKIE_NAME, token, {
     httpOnly: true,
-    sameSite: 'Lax',
+    secure: isProduction,
+    sameSite: isProduction ? 'Strict' : 'Lax',
     path: '/',
     maxAge: config.admin.sessionMaxAgeSeconds
   }));
@@ -98,6 +100,7 @@ function serializeCookie(name, value, options = {}) {
   if (options.maxAge !== undefined) parts.push(`Max-Age=${options.maxAge}`);
   if (options.path) parts.push(`Path=${options.path}`);
   if (options.httpOnly) parts.push('HttpOnly');
+  if (options.secure) parts.push('Secure');
   if (options.sameSite) parts.push(`SameSite=${options.sameSite}`);
   return parts.join('; ');
 }

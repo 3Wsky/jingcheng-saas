@@ -13,6 +13,10 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }
 
+app.config.errorHandler = (err, _vm, info) => {
+  console.error(`[Vue Error] ${info}:`, err)
+}
+
 app.use(createPinia())
 app.use(router)
 app.use(ElementPlus, { locale: zhCn })
