@@ -27,13 +27,13 @@
 
     <div class="pool-section" v-if="pool.budget">
       <div class="section-head">
-        <span class="section-title">资金池额度</span>
+        <span class="section-title">现金池额度</span>
         <span class="section-desc">积分（1000积分=¥1）+ 现金券已发放总额</span>
       </div>
       <div class="pool-body">
         <LiquidFillChart
-          :ratio="pool.ratio"
-          label="已使用"
+          :ratio="1 - pool.ratio"
+          label="剩余"
           :size="200"
           :color1="pool.ratio > 0.8 ? '#e34d59' : pool.ratio > 0.6 ? '#ed7b2f' : '#0052d9'"
           :color2="pool.ratio > 0.8 ? '#ff6a6a' : pool.ratio > 0.6 ? '#f5a623' : '#00a870'"
