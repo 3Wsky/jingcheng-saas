@@ -9,6 +9,7 @@
             <div class="profile-sub">{{ profile.phone || '—' }} · {{ profile.divisionName || '—' }}</div>
           </div>
           <el-button size="small" @click="openStoreDialog">修改门店</el-button>
+          <el-button size="small" type="danger" plain @click="dismissStaff" :loading="dismissing">离职</el-button>
         </div>
 
         <el-row :gutter="12" class="stat-row">
@@ -125,7 +126,7 @@
 import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { downloadCsv } from '@/utils/csvExport'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
 import ImageUrlInput from '@/components/ImageUrlInput.vue'
@@ -222,6 +223,31 @@ async function saveCard() {
     await request.put(`/api/admin/staff/${props.uid}/card`, cardForm.value)
     ElMessage.success('名片已保存')
   } catch { /* handled */ }
+}
+
+const dismissing = ref(false)
+
+async function dismissStaff() {
+  if (!props.uid) return
+  const name = profile.value?.nickname || `UID ${props.uid}`
+  try {
+    await ElMessageBox.confirm(
+      `确认将「${name}」设为离职？\n\n操作将：\n· 取消客户经理权限\n· 解除名下所有会员的归属关系`,
+      '客户经理离职',
+      { type: 'warning', confirmButtonText: '确认离职', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch { return }
+  dismissing.value = true
+  try {
+    const data: any = await request.post(`/api/admin/staff/${props.uid}/dismiss`)
+    ElMessage.success(`${name} 已离职，解除 ${data.unboundMembers || 0} 名会员归属`)
+    visible.value = false
+    emit('updated')
+  } catch (e: any) {
+    ElMessage.error(e.message || '操作失败')
+  } finally {
+    dismissing.value = false
+  }
 }
 
 function openStoreDialog() {

@@ -289,6 +289,71 @@ function registerAdminStaffRoutes(app) {
       return fail(reply, error.statusCode || 500, error.message || '名片保存失败');
     }
   });
+
+  app.post('/api/admin/staff/:uid/dismiss', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'UID 无效');
+
+    try {
+      const { getPool, legacyTable } = require('../../shared/mysql');
+      const { swTable } = require('../../shared/sw-mysql');
+      const pool = getPool();
+
+      const [[user]] = await pool.query(
+        `SELECT uid, nickname, is_staff, division_id FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del,0) = 0 LIMIT 1`,
+        [uid]
+      );
+      if (!user) return fail(reply, 404, '用户不存在');
+      if (!Number(user.is_staff)) return fail(reply, 400, '该用户不是客户经理');
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
+
+        await conn.query(
+          `UPDATE ${legacyTable('user')} SET is_staff = 0 WHERE uid = ?`, [uid]
+        );
+
+        try {
+          await conn.query(
+            `UPDATE ${swTable('store_manager')} SET is_active = 0 WHERE manager_uid = ?`, [uid]
+          );
+        } catch { /* table may not exist */ }
+
+        const [result] = await conn.query(
+          `UPDATE ${legacyTable('user')} SET spread_uid = 0 WHERE spread_uid = ? AND COALESCE(is_del,0) = 0`,
+          [uid]
+        );
+        const unboundCount = result.affectedRows || 0;
+
+        await conn.commit();
+
+        const session = getAdminSession(request);
+        await audit.log({
+          adminUsername: session?.username || '',
+          action: 'staff_dismiss',
+          targetType: 'staff',
+          targetId: uid,
+          payload: { nickname: user.nickname, unboundMembers: unboundCount },
+          ip: getClientIp(request)
+        });
+
+        return ok({
+          uid,
+          nickname: user.nickname || '',
+          unboundMembers: unboundCount
+        }, `已离职，解除 ${unboundCount} 名会员的归属关系`);
+      } catch (error) {
+        await conn.rollback();
+        throw error;
+      } finally {
+        conn.release();
+      }
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '离职操作失败');
+    }
+  });
 }
 
 module.exports = { registerAdminStaffRoutes };
