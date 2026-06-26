@@ -92,19 +92,39 @@ function registerApprovalRoutes(app) {
     const role = request.query.role || 'manager';
     try {
       const todos = await service.getTodos(request.auth.uid, role);
-      return ok(todos.map(t => ({
-        todoId: t.id,
-        requestId: t.request_id,
-        customerUid: t.customer_uid,
-        consumeAmount: Number(t.consumption_amount ?? t.consume_amount ?? 0),
-        matchedTierCode: t.matched_tier_code,
-        matchedVoucher: Number(t.matched_voucher_amount || 0),
-        matchedIntegral: Number(t.matched_integral || 0),
-        receiptNo: t.receipt_no || '',
-        reqStatus: t.req_status,
-        clerkUid: t.staff_uid ?? t.clerk_uid,
-        createdAt: Number(t.req_created_at)
-      })));
+      const { getPool, legacyTable } = require('../../shared/mysql');
+      const uids = new Set();
+      todos.forEach(t => {
+        if (t.customer_uid) uids.add(Number(t.customer_uid));
+        const clerkId = t.staff_uid ?? t.clerk_uid;
+        if (clerkId) uids.add(Number(clerkId));
+      });
+      const nameMap = {};
+      if (uids.size > 0) {
+        const [rows] = await getPool().query(
+          `SELECT uid, nickname FROM ${legacyTable('user')} WHERE uid IN (?)`,
+          [Array.from(uids)]
+        );
+        rows.forEach(r => { nameMap[r.uid] = r.nickname || ''; });
+      }
+      return ok(todos.map(t => {
+        const clerkUid = t.staff_uid ?? t.clerk_uid;
+        return {
+          todoId: t.id,
+          requestId: t.request_id,
+          customerUid: t.customer_uid,
+          customerName: nameMap[t.customer_uid] || '',
+          consumeAmount: Number(t.consumption_amount ?? t.consume_amount ?? 0),
+          matchedTierCode: t.matched_tier_code,
+          matchedVoucher: Number(t.matched_voucher_amount || 0),
+          matchedIntegral: Number(t.matched_integral || 0),
+          receiptNo: t.receipt_no || '',
+          reqStatus: t.req_status,
+          clerkUid,
+          clerkName: nameMap[clerkUid] || '',
+          createdAt: Number(t.req_created_at)
+        };
+      }));
     } catch (error) {
       return failApproval(reply, error);
     }
