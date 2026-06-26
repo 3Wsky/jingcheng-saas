@@ -32,6 +32,7 @@ const { registerMerchantRoutes } = require('./modules/merchant/merchant.routes')
 const { registerApprovalRoutes } = require('./modules/approval/approval.routes');
 const { registerMiniappConfigRoutes } = require('./modules/miniapp/miniapp-config.routes');
 const { registerWeworkRoutes } = require('./modules/wework/wework.routes');
+const { registerSnScanRoutes } = require('./modules/admin/admin-sn-scan.routes');
 const { parseLegacyToken } = require('./shared/legacy-token');
 
 async function buildServer() {
@@ -138,6 +139,7 @@ async function buildServer() {
   registerApprovalRoutes(app);
   registerMiniappConfigRoutes(app);
   registerWeworkRoutes(app);
+  registerSnScanRoutes(app);
 
   return app;
 }

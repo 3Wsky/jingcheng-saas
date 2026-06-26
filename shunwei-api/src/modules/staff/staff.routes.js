@@ -35,6 +35,30 @@ function registerStaffRoutes(app) {
     }
   });
 
+  app.get('/api/staff/my-manager-card', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      const { getPool, legacyTable } = require('../../shared/mysql');
+      const [[user]] = await getPool().query(
+        `SELECT spread_uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [request.auth.uid]
+      );
+      const spreadUid = Number(user?.spread_uid || 0);
+      if (!spreadUid) {
+        return ok({ bound: false, card: null, spreadUid: 0 });
+      }
+
+      try {
+        const card = await service.getCard(spreadUid, { publicView: true });
+        return ok({ bound: true, card, spreadUid });
+      } catch (error) {
+        return ok({ bound: true, card: null, spreadUid });
+      }
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '获取客户经理名片失败');
+    }
+  });
+
   app.get('/api/staff/:uid/card', async (request, reply) => {
     const uid = Number(request.params.uid);
     if (!uid) return fail(reply, 400, 'uid 无效');
