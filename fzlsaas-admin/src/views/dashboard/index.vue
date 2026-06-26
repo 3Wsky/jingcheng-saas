@@ -59,6 +59,32 @@
             <span class="ps-label">剩余额度</span>
             <span class="ps-value remain">¥{{ formatNum(pool.remain) }}</span>
           </div>
+          <div class="pause-controls">
+            <div class="pause-item" :class="{ active: pauseStatus.grant }">
+              <span class="pause-label">发放开关</span>
+              <el-switch
+                :model-value="!pauseStatus.grant"
+                :loading="pauseLoading"
+                active-text="正常"
+                inactive-text="已暂停"
+                inline-prompt
+                style="--el-switch-on-color: #00a870; --el-switch-off-color: #e34d59"
+                @change="(val: boolean) => togglePause('grant', !val)"
+              />
+            </div>
+            <div class="pause-item" :class="{ active: pauseStatus.verify }">
+              <span class="pause-label">核销开关</span>
+              <el-switch
+                :model-value="!pauseStatus.verify"
+                :loading="pauseLoading"
+                active-text="正常"
+                inactive-text="已暂停"
+                inline-prompt
+                style="--el-switch-on-color: #00a870; --el-switch-off-color: #e34d59"
+                @change="(val: boolean) => togglePause('verify', !val)"
+              />
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -104,7 +130,7 @@ import StatCard from '@/components/StatCard.vue'
 import LazyIntegralTrendChart from '@/components/LazyIntegralTrendChart'
 import LiquidFillChart from '@/components/LiquidFillChart.vue'
 import { downloadCsv } from '@/utils/csvExport'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const router = useRouter()
 const loading = ref(false)
@@ -113,6 +139,8 @@ const range = ref<'today' | '7d' | '30d'>('today')
 const cards = ref<Record<string, any>>({})
 const trend = ref({ labels: [] as string[], integralGranted: [] as number[], integralConsumed: [] as number[] })
 const pool = ref({ budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 })
+const pauseStatus = ref({ grant: false, verify: false })
+const pauseLoading = ref(false)
 
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -170,12 +198,36 @@ async function loadSummary() {
     cards.value = data?.cards || {}
     trend.value = data?.trend || { labels: [], integralGranted: [], integralConsumed: [] }
     pool.value = data?.fundPool || { budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 }
+    if (data?.pauseStatus) pauseStatus.value = data.pauseStatus
   } catch {
     cards.value = {}
     trend.value = { labels: [], integralGranted: [], integralConsumed: [] }
     pool.value = { budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 }
   } finally {
     loading.value = false
+  }
+}
+
+async function togglePause(type: 'grant' | 'verify', enabled: boolean) {
+  const label = type === 'grant' ? '发放' : '核销'
+  if (enabled) {
+    try {
+      await ElMessageBox.confirm(
+        `确认暂停所有${label}操作？用户端将提示"网络传输故障"`,
+        `暂停${label}`,
+        { type: 'warning', confirmButtonText: '确认暂停', cancelButtonText: '取消' }
+      )
+    } catch { return }
+  }
+  pauseLoading.value = true
+  try {
+    await request.post('/api/admin/dashboard/pause', { type, enabled })
+    pauseStatus.value[type] = enabled
+    ElMessage.success(enabled ? `${label}已暂停` : `${label}已恢复`)
+  } catch (e: any) {
+    ElMessage.error(e.message || '操作失败')
+  } finally {
+    pauseLoading.value = false
   }
 }
 
@@ -306,6 +358,33 @@ onBeforeUnmount(() => {
   font-size: 13px;
   font-weight: 500;
   color: var(--gov-text-secondary, #8b95a5);
+}
+
+.pause-controls {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gov-border, #e8e8e8);
+  display: flex;
+  gap: 24px;
+}
+
+.pause-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.pause-item.active {
+  background: #fff0f0;
+}
+
+.pause-label {
+  font-size: 13px;
+  color: var(--gov-text-secondary, #8b95a5);
+  font-weight: 500;
 }
 
 .chart-section {
