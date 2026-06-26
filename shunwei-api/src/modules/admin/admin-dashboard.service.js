@@ -119,6 +119,26 @@ class AdminDashboardService {
 
     const trend = await this.buildTrend(pool, bounds.dayStart, bounds.trendDays);
 
+    let fundPool = { budget: 500000, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 };
+    try {
+      const [[budgetRow]] = await pool.query(
+        `SELECT config_value FROM ${swTable('system_config')} WHERE config_key = 'fund_pool_budget' LIMIT 1`
+      );
+      if (budgetRow?.config_value) fundPool.budget = Number(budgetRow.config_value);
+
+      const [[integralTotal]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
+         WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','manual')`
+      );
+      fundPool.integralGrantedTotal = Number(integralTotal?.total || 0);
+
+      const integralAsYuan = Math.round(fundPool.integralGrantedTotal / 1000 * 100) / 100;
+      fundPool.cashVoucherGrantedTotal = cashVoucherGrantTotal;
+      fundPool.used = Math.round((integralAsYuan + cashVoucherGrantTotal) * 100) / 100;
+      fundPool.remain = Math.max(0, Math.round((fundPool.budget - fundPool.used) * 100) / 100);
+      fundPool.ratio = fundPool.budget > 0 ? Math.min(1, Math.round(fundPool.used / fundPool.budget * 10000) / 10000) : 0;
+    } catch { /* ignore */ }
+
     return {
       range,
       updatedAt: now,
@@ -134,6 +154,7 @@ class AdminDashboardService {
         cashVoucherGrantTotal,
         cashVoucherGrantedInPeriod
       },
+      fundPool,
       trend
     };
   }

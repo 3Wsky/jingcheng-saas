@@ -25,6 +25,44 @@
       </el-col>
     </el-row>
 
+    <div class="pool-section" v-if="pool.budget">
+      <div class="section-head">
+        <span class="section-title">资金池额度</span>
+        <span class="section-desc">积分（1000积分=¥1）+ 现金券已发放总额</span>
+      </div>
+      <div class="pool-body">
+        <LiquidFillChart
+          :ratio="pool.ratio"
+          label="已使用"
+          :size="180"
+          :color1="pool.ratio > 0.8 ? '#e34d59' : pool.ratio > 0.6 ? '#ed7b2f' : '#0052d9'"
+          :color2="pool.ratio > 0.8 ? '#ff6a6a' : pool.ratio > 0.6 ? '#f5a623' : '#00a870'"
+        />
+        <div class="pool-stats">
+          <div class="ps-row">
+            <span class="ps-label">总预算</span>
+            <span class="ps-value main">¥{{ formatNum(pool.budget) }}</span>
+          </div>
+          <div class="ps-row">
+            <span class="ps-label">已使用</span>
+            <span class="ps-value used">¥{{ formatNum(pool.used) }}</span>
+          </div>
+          <div class="ps-row sub">
+            <span class="ps-label">　├ 积分折现</span>
+            <span class="ps-value">¥{{ formatNum(Math.round(pool.integralGrantedTotal / 1000 * 100) / 100) }}</span>
+          </div>
+          <div class="ps-row sub">
+            <span class="ps-label">　└ 现金券</span>
+            <span class="ps-value">¥{{ formatNum(pool.cashVoucherGrantedTotal) }}</span>
+          </div>
+          <div class="ps-row">
+            <span class="ps-label">剩余额度</span>
+            <span class="ps-value remain">¥{{ formatNum(pool.remain) }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="chart-section">
       <div class="section-head">
         <span class="section-title">积分趋势分析</span>
@@ -64,6 +102,7 @@ import request from '@/utils/request'
 import PageShell from '@/components/PageShell.vue'
 import StatCard from '@/components/StatCard.vue'
 import LazyIntegralTrendChart from '@/components/LazyIntegralTrendChart'
+import LiquidFillChart from '@/components/LiquidFillChart.vue'
 import { downloadCsv } from '@/utils/csvExport'
 import { ElMessage } from 'element-plus'
 
@@ -73,6 +112,7 @@ const exporting = ref(false)
 const range = ref<'today' | '7d' | '30d'>('today')
 const cards = ref<Record<string, any>>({})
 const trend = ref({ labels: [] as string[], integralGranted: [] as number[], integralConsumed: [] as number[] })
+const pool = ref({ budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 })
 
 let timer: ReturnType<typeof setInterval> | null = null
 
@@ -129,9 +169,11 @@ async function loadSummary() {
     const data = await request.get('/api/admin/dashboard/summary', { params: { range: range.value } })
     cards.value = data?.cards || {}
     trend.value = data?.trend || { labels: [], integralGranted: [], integralConsumed: [] }
+    pool.value = data?.fundPool || { budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 }
   } catch {
     cards.value = {}
     trend.value = { labels: [], integralGranted: [], integralConsumed: [] }
+    pool.value = { budget: 0, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 }
   } finally {
     loading.value = false
   }
@@ -189,6 +231,81 @@ onBeforeUnmount(() => {
 <style scoped>
 .stat-row {
   margin-bottom: 8px;
+}
+
+.pool-section {
+  margin-top: 16px;
+  padding: 24px;
+  background: var(--gov-bg-card, #fff);
+  border-radius: var(--gov-radius-card, 8px);
+  border: 1px solid var(--gov-border, #e8e8e8);
+  box-shadow: var(--gov-shadow-card);
+}
+
+.pool-body {
+  display: flex;
+  align-items: center;
+  gap: 48px;
+  margin-top: 20px;
+}
+
+.pool-stats {
+  flex: 1;
+  min-width: 0;
+}
+
+.ps-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dashed var(--gov-border, #e8e8e8);
+}
+
+.ps-row:last-child {
+  border-bottom: none;
+}
+
+.ps-row.sub {
+  padding: 4px 0;
+  border-bottom: none;
+}
+
+.ps-label {
+  font-size: 13px;
+  color: var(--gov-text-secondary, #8b95a5);
+}
+
+.ps-row.sub .ps-label {
+  font-size: 12px;
+  color: var(--gov-text-muted, #c0c4cc);
+}
+
+.ps-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gov-text-primary, #1a1a1a);
+  font-variant-numeric: tabular-nums;
+}
+
+.ps-value.main {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ps-value.used {
+  color: var(--gov-primary, #0052d9);
+}
+
+.ps-value.remain {
+  color: #00a870;
+  font-size: 16px;
+}
+
+.ps-row.sub .ps-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gov-text-secondary, #8b95a5);
 }
 
 .chart-section {
