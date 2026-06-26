@@ -34,7 +34,7 @@
         <LiquidFillChart
           :ratio="pool.ratio"
           label="已使用"
-          :size="180"
+          :size="200"
           :color1="pool.ratio > 0.8 ? '#e34d59' : pool.ratio > 0.6 ? '#ed7b2f' : '#0052d9'"
           :color2="pool.ratio > 0.8 ? '#ff6a6a' : pool.ratio > 0.6 ? '#f5a623' : '#00a870'"
         />
