@@ -31,11 +31,49 @@
     </template>
 
     <TableSkeleton v-if="loading && !pagedList.length" :cols="7" />
+
+    <!-- Grouped by store view -->
+    <template v-if="groupByStore && !loading">
+      <div v-for="group in storeGroups" :key="group.store" class="store-group">
+        <div class="store-group-header">
+          <span class="store-group-name">{{ group.store || '未分配门店' }}</span>
+          <span class="store-group-count">{{ group.items.length }} 人</span>
+        </div>
+        <el-table :data="group.items" size="small">
+          <el-table-column prop="uid" label="UID" width="80" />
+          <el-table-column prop="nickname" label="姓名">
+            <template #default="{ row }">
+              <span :class="{ 'manager-name': row.isManager }">{{ row.nickname }}</span>
+              <el-tag v-if="row.isManager" type="warning" size="small" class="manager-inline-tag">客户主管</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="memberCount" label="发展会员" width="100" />
+          <el-table-column prop="pendingApproval" label="待审批" width="90" />
+          <el-table-column prop="approvedCount" label="已通过" width="90" />
+          <el-table-column label="名片" width="90">
+            <template #default="{ row }">
+              <el-tag :type="row.cardConfigured ? 'success' : 'info'" size="small">
+                {{ row.cardConfigured ? '已配置' : '未配置' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="240" fixed="right">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openDetail(row.uid)">详情</el-button>
+              <el-button link type="primary" @click="openCard(row.uid)">名片</el-button>
+              <el-button link type="primary" @click="goApproval(row.uid)">审批记录</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+      <el-empty v-if="!storeGroups.length" description="暂无客户经理" />
+    </template>
+
+    <!-- Flat list view -->
     <el-table
-      v-else
+      v-if="!groupByStore"
       :data="pagedList"
       v-loading="loading && pagedList.length > 0"
-      :span-method="groupByStore ? storeSpanMethod : undefined"
       :row-class-name="tableRowClass"
     >
       <template #empty>
@@ -53,7 +91,6 @@
       <el-table-column prop="divisionName" label="门店">
         <template #default="{ row }">
           <span class="store-label">{{ row.divisionName || '未分配' }}</span>
-          <span v-if="groupByStore" class="store-count">（{{ getStoreCount(row.divisionName) }}人）</span>
         </template>
       </el-table-column>
       <el-table-column prop="memberCount" label="发展会员" width="100" />
@@ -163,6 +200,16 @@ const filteredList = computed(() => {
 const pagedList = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return filteredList.value.slice(start, start + pageSize.value)
+})
+
+const storeGroups = computed(() => {
+  const map = new Map<string, any[]>()
+  filteredList.value.forEach(row => {
+    const store = row.divisionName || ''
+    if (!map.has(store)) map.set(store, [])
+    map.get(store)!.push(row)
+  })
+  return Array.from(map.entries()).map(([store, items]) => ({ store, items }))
 })
 
 const storeSpanMap = computed(() => {
@@ -317,5 +364,35 @@ async function confirmBatchGrant() {
 }
 :deep(.manager-row td) {
   border-bottom-color: #f5dab1;
+}
+
+.store-group {
+  margin-bottom: 20px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--gov-border, #e8e8e8);
+}
+
+.store-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #f7f8fa;
+  border-bottom: 1px solid var(--gov-border, #e8e8e8);
+}
+
+.store-group-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gov-text-primary, #1a1a1a);
+}
+
+.store-group-count {
+  font-size: 12px;
+  color: var(--gov-text-muted, #c0c4cc);
+  background: #eee;
+  padding: 2px 10px;
+  border-radius: 10px;
 }
 </style>

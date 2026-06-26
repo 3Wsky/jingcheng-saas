@@ -62,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 
 const props = withDefaults(defineProps<{
   ratio: number
@@ -89,11 +89,30 @@ const cx = computed(() => props.size / 2)
 const cy = computed(() => props.size / 2)
 
 const safeRatio = computed(() => Math.max(0, Math.min(1, props.ratio)))
-const displayPercent = computed(() => (safeRatio.value * 100).toFixed(1))
+const animatedRatio = ref(1)
+const displayPercent = computed(() => (animatedRatio.value * 100).toFixed(1))
+
+function animateTo(target: number) {
+  const start = animatedRatio.value
+  const diff = target - start
+  const duration = 1500
+  const startTime = Date.now()
+  function tick() {
+    const elapsed = Date.now() - startTime
+    const progress = Math.min(1, elapsed / duration)
+    const eased = 1 - Math.pow(1 - progress, 3)
+    animatedRatio.value = Math.round((start + diff * eased) * 10000) / 10000
+    if (progress < 1) requestAnimationFrame(tick)
+  }
+  requestAnimationFrame(tick)
+}
+
+watch(safeRatio, (val) => animateTo(val))
+onMounted(() => { setTimeout(() => animateTo(safeRatio.value), 300) })
 
 const waterY = computed(() => {
   const h = props.size
-  return h * (1 - safeRatio.value)
+  return h * (1 - animatedRatio.value)
 })
 
 function buildWavePath(amp: number, period: number, phase: number, y: number): string {
