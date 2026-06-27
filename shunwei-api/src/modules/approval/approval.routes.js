@@ -7,7 +7,7 @@ const submitSchema = z.object({
   customerUid: z.coerce.number().int().positive(),
   tierRuleId: z.coerce.number().int().positive().optional(),
   consumeAmount: z.coerce.number().positive().optional(),
-  receiptNo: z.string().trim().max(64).optional().default('')
+  receiptNo: z.string().trim().max(255).optional().default('')
 }).refine((value) => value.tierRuleId || value.consumeAmount, {
   message: '请选择权益档位'
 });
