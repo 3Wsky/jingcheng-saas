@@ -240,7 +240,7 @@ class IntegralMallService {
       throw error;
     }
     if (Number(order.status || 0) === 3) {
-      const error = new Error('订单已核销，无法撤销');
+      const error = new Error('这笔礼品已到店核销啦，无法再撤销～如有疑问可联系客户经理');
       error.statusCode = 409;
       throw error;
     }
@@ -248,7 +248,7 @@ class IntegralMallService {
     const now = Math.floor(Date.now() / 1000);
     const CANCEL_WINDOW = 24 * 3600;
     if (now - Number(order.add_time || 0) > CANCEL_WINDOW) {
-      const error = new Error('已超过24小时，无法撤销');
+      const error = new Error('已超过 24 小时撤销时限，这笔兑换暂时无法撤销啦～如有需要可联系客户经理协助');
       error.statusCode = 409;
       throw error;
     }
