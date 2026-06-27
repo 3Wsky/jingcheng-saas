@@ -2,25 +2,23 @@ const { ok, fail } = require('../../shared/http');
 const { getPool } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const {
-  getVisionChannel,
-  isVisionConfigured,
+  getRecognitionCapabilities,
   recogniseSnFromImage
 } = require('./sn-vision.service');
 
 function registerSnScanRoutes(app) {
   app.get('/api/staff/scan-sn/status', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
-    const service = await getVisionChannel();
-    return ok({ configured: isVisionConfigured(service) });
+    const caps = await getRecognitionCapabilities();
+    return ok({
+      configured: caps.aiVision || caps.wechatOcr,
+      aiVision: caps.aiVision,
+      wechatOcr: caps.wechatOcr
+    });
   });
 
   app.post('/api/staff/scan-sn', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
-
-    const service = await getVisionChannel();
-    if (!isVisionConfigured(service)) {
-      return fail(reply, 503, 'AI 视觉服务未配置');
-    }
 
     let imageBuffer;
     let imageMime;
@@ -40,7 +38,7 @@ function registerSnScanRoutes(app) {
     } catch (err) {
       if (err.statusCode === 503) return fail(reply, 503, err.message);
       if (err.name === 'TimeoutError') return fail(reply, 504, '识别超时，请重试');
-      return fail(reply, err.statusCode || 502, err.message || 'AI 识别失败');
+      return fail(reply, err.statusCode || 502, err.message || '识别失败');
     }
   });
 

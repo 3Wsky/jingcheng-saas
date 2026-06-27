@@ -1,5 +1,6 @@
 const { config } = require('../../shared/config');
 const { AiImageService } = require('../ai-image/ai-image.service');
+const { isMiniappConfigured, printedTextOcr } = require('../wechat/wechat-mp.service');
 
 const VISION_MODEL = process.env.SN_VISION_MODEL || 'gpt-4o-mini';
 const VISION_PROMPT =
@@ -24,6 +25,43 @@ function buildChatCompletionsUrl(baseUrl) {
   return base.endsWith('/v1') ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
 
+function parseSnImeiFromText(text) {
+  const raw = String(text || '').replace(/\s+/g, ' ');
+  let sn = '';
+  let imei = '';
+
+  const imeiLabel = raw.match(/IMEI[^0-9A-Za-z]{0,6}(\d{15})/i);
+  const imeiBare = raw.match(/\b(\d{15})\b/);
+  if (imeiLabel) imei = imeiLabel[1];
+  else if (imeiBare) imei = imeiBare[1];
+
+  const snPatterns = [
+    /S\/N[^0-9A-Za-z]{0,6}([A-Z0-9]{8,20})/i,
+    /\bSN[^0-9A-Za-z]{0,4}([A-Z0-9]{8,20})/i,
+    /序列号[^0-9A-Za-z]{0,6}([A-Z0-9]{8,20})/i,
+    /Serial[^0-9A-Za-z]{0,6}([A-Z0-9]{8,20})/i
+  ];
+  for (const pattern of snPatterns) {
+    const match = raw.match(pattern);
+    if (match && match[1]) {
+      sn = match[1].toUpperCase();
+      break;
+    }
+  }
+
+  if (!sn) {
+    const candidates = raw.match(/\b([A-Z0-9]{10,12})\b/g) || [];
+    for (const candidate of candidates) {
+      if (candidate !== imei && !/^\d+$/.test(candidate)) {
+        sn = candidate;
+        break;
+      }
+    }
+  }
+
+  return { sn, imei, brand: '', model: '' };
+}
+
 function parseVisionContent(content) {
   const text = String(content || '');
   try {
@@ -35,28 +73,20 @@ function parseVisionContent(content) {
         imei: String(parsed.imei || '').trim(),
         brand: String(parsed.brand || '').trim(),
         model: String(parsed.model || '').trim(),
-        raw: text
+        raw: text,
+        source: 'ai'
       };
     }
   } catch {
     /* fall through */
   }
-  return {
-    sn: text.replace(/[^A-Za-z0-9]/g, '').slice(0, 30),
-    imei: '',
-    brand: '',
-    model: '',
-    raw: text
-  };
+  const fallback = parseSnImeiFromText(text);
+  return { ...fallback, raw: text, source: 'ai' };
 }
 
-async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
+async function recogniseViaAi(buffer, mime) {
   const service = await getVisionChannel();
-  if (!isVisionConfigured(service)) {
-    const err = new Error('AI 视觉服务未配置');
-    err.statusCode = 503;
-    throw err;
-  }
+  if (!isVisionConfigured(service)) return null;
 
   const channel = service.channel;
   const dataUrl = `data:${mime};base64,${buffer.toString('base64')}`;
@@ -81,14 +111,12 @@ async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
         }
       ]
     }),
-    signal: AbortSignal.timeout(Number(config.imageGen.timeoutMs || 30000))
+    signal: AbortSignal.timeout(Math.min(Number(config.imageGen.timeoutMs || 30000), 45000))
   });
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    const err = new Error(`AI 识别失败(${resp.status}): ${text.slice(0, 200)}`);
-    err.statusCode = 502;
-    throw err;
+    throw new Error(`AI 识别失败(${resp.status}): ${text.slice(0, 200)}`);
   }
 
   const result = await resp.json();
@@ -96,9 +124,59 @@ async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
   return parseVisionContent(content);
 }
 
+async function recogniseViaWechatOcr(buffer, mime) {
+  const ocr = await printedTextOcr(buffer, mime);
+  const text = (ocr.items || []).map((item) => String(item.text || '')).join('\n');
+  const parsed = parseSnImeiFromText(text);
+  return { ...parsed, raw: text, source: 'wechat_ocr' };
+}
+
+async function getRecognitionCapabilities() {
+  const service = await getVisionChannel();
+  return {
+    aiVision: isVisionConfigured(service),
+    wechatOcr: await isMiniappConfigured()
+  };
+}
+
+async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
+  if (!buffer || !buffer.length) {
+    const err = new Error('图片为空');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const caps = await getRecognitionCapabilities();
+  if (!caps.aiVision && !caps.wechatOcr) {
+    const err = new Error('识别服务未配置（需配置 IMAGE_GEN_API_KEY 或微信小程序凭证）');
+    err.statusCode = 503;
+    throw err;
+  }
+
+  if (caps.aiVision) {
+    try {
+      const aiResult = await recogniseViaAi(buffer, mime);
+      if (aiResult && (aiResult.sn || aiResult.imei)) return aiResult;
+      if (aiResult) return aiResult;
+    } catch {
+      if (!caps.wechatOcr) throw Object.assign(new Error('AI 识别失败'), { statusCode: 502 });
+    }
+  }
+
+  if (caps.wechatOcr) {
+    return recogniseViaWechatOcr(buffer, mime);
+  }
+
+  const err = new Error('识别失败，请手动输入 SN');
+  err.statusCode = 502;
+  throw err;
+}
+
 module.exports = {
   getVisionChannel,
   isVisionConfigured,
+  getRecognitionCapabilities,
   recogniseSnFromImage,
-  parseVisionContent
+  parseVisionContent,
+  parseSnImeiFromText
 };
