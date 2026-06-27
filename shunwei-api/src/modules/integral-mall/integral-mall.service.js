@@ -191,11 +191,11 @@ class IntegralMallService {
 
       await connection.query(
         `INSERT INTO ${legacyTable('store_integral_order')}
-         (uid, order_id, product_id, store_name, image, total_price, \`unique\`, verify_code,
-          status, is_del, add_time, channel_type, shipping_type)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'routine', 'fictitious')`,
-        [uid, orderId, productId, product.title, product.image, integralCost,
-         orderId, verifyCode, now]
+         (uid, order_id, product_id, store_name, image, suk, total_num, price, total_price,
+          verify_code, status, is_del, add_time, delivery_type, channel_type)
+         VALUES (?, ?, ?, ?, ?, '', 1, ?, ?, ?, 0, 0, ?, 'fictitious', 'routine')`,
+        [uid, orderId, productId, product.title, product.image,
+         integralCost, integralCost, verifyCode, now]
       );
 
       await connection.query(
