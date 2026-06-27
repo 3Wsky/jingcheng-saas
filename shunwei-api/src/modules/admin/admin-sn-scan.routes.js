@@ -12,7 +12,10 @@ function registerSnScanRoutes(app) {
     const caps = await getRecognitionCapabilities();
     return ok({
       configured: caps.aiVision || caps.wechatOcr,
+      mode: caps.mode,
       aiVision: caps.aiVision,
+      aiChannelConfigured: caps.aiChannelConfigured,
+      visionModels: caps.visionModels,
       wechatOcr: caps.wechatOcr
     });
   });
