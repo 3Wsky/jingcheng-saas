@@ -5,18 +5,22 @@ const {
   getRecognitionCapabilities,
   recogniseSnFromImage
 } = require('./sn-vision.service');
+const { getMiniappStatus } = require('../wechat/wechat-mp.service');
 
 function registerSnScanRoutes(app) {
   app.get('/api/staff/scan-sn/status', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const caps = await getRecognitionCapabilities();
+    const wechat = await getMiniappStatus();
     return ok({
       configured: caps.aiVision || caps.wechatOcr,
       mode: caps.mode,
       aiVision: caps.aiVision,
       aiChannelConfigured: caps.aiChannelConfigured,
       visionModels: caps.visionModels,
-      wechatOcr: caps.wechatOcr
+      wechatOcr: caps.wechatOcr,
+      wechatAppIdPreview: wechat.appIdPreview,
+      wechatCredentialSource: wechat.source
     });
   });
 
