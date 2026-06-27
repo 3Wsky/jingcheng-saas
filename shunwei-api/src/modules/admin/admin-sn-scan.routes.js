@@ -20,7 +20,8 @@ function registerSnScanRoutes(app) {
       visionModels: caps.visionModels,
       wechatOcr: caps.wechatOcr,
       wechatAppIdPreview: wechat.appIdPreview,
-      wechatCredentialSource: wechat.source
+      wechatCredentialSource: wechat.source,
+      wechatKeysFound: wechat.keysFound
     });
   });
 
