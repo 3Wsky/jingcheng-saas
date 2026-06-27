@@ -3,7 +3,7 @@ const { AiImageService } = require('../ai-image/ai-image.service');
 const { isMiniappConfigured, printedTextOcr } = require('../wechat/wechat-mp.service');
 
 const VISION_PROMPT =
-  '请识别这张图片中手机包装上的 SN（序列号）或 IMEI 号码。只返回 JSON 格式，不要其他说明文字。格式：{"sn": "识别到的SN码", "imei": "识别到的IMEI码", "brand": "品牌", "model": "型号"}。如果某个字段识别不到就填空字符串。';
+  '请识别这张图片中手机包装上的 SN（序列号）。只返回 JSON，不要其他说明。格式：{"sn": "识别到的SN码", "brand": "品牌", "model": "型号"}。识别不到就填空字符串。不要识别 IMEI。';
 
 let aiImageService = null;
 
@@ -42,15 +42,9 @@ function buildChatCompletionsUrl(baseUrl) {
   return base.endsWith('/v1') ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
 
-function parseSnImeiFromText(text) {
+function parseSnFromText(text) {
   const raw = String(text || '').replace(/\s+/g, ' ');
   let sn = '';
-  let imei = '';
-
-  const imeiLabel = raw.match(/IMEI[^0-9A-Za-z]{0,6}(\d{15})/i);
-  const imeiBare = raw.match(/\b(\d{15})\b/);
-  if (imeiLabel) imei = imeiLabel[1];
-  else if (imeiBare) imei = imeiBare[1];
 
   const snPatterns = [
     /S\/N[^0-9A-Za-z]{0,6}([A-Z0-9]{8,20})/i,
@@ -69,14 +63,14 @@ function parseSnImeiFromText(text) {
   if (!sn) {
     const candidates = raw.match(/\b([A-Z0-9]{10,12})\b/g) || [];
     for (const candidate of candidates) {
-      if (candidate !== imei && !/^\d+$/.test(candidate)) {
+      if (!/^\d+$/.test(candidate)) {
         sn = candidate;
         break;
       }
     }
   }
 
-  return { sn, imei, brand: '', model: '' };
+  return { sn, imei: '', brand: '', model: '' };
 }
 
 function parseVisionContent(content, model) {
@@ -87,7 +81,7 @@ function parseVisionContent(content, model) {
       const parsed = JSON.parse(jsonMatch[0]);
       return {
         sn: String(parsed.sn || '').trim(),
-        imei: String(parsed.imei || '').trim(),
+        imei: '',
         brand: String(parsed.brand || '').trim(),
         model: String(parsed.model || '').trim(),
         raw: text,
@@ -98,7 +92,7 @@ function parseVisionContent(content, model) {
   } catch {
     /* fall through */
   }
-  const fallback = parseSnImeiFromText(text);
+  const fallback = parseSnFromText(text);
   return { ...fallback, raw: text, source: 'ai', visionModel: model || '' };
 }
 
@@ -167,7 +161,7 @@ async function recogniseViaAi(buffer, mime) {
   for (const model of models) {
     try {
       const parsed = await callVisionModel(channel, model, buffer, mime);
-      if (parsed && (parsed.sn || parsed.imei || models.length === 1)) {
+      if (parsed && (parsed.sn || models.length === 1)) {
         return parsed;
       }
       if (parsed) return parsed;
@@ -187,7 +181,7 @@ async function recogniseViaAi(buffer, mime) {
 async function recogniseViaWechatOcr(buffer, mime) {
   const ocr = await printedTextOcr(buffer, mime);
   const text = (ocr.items || []).map((item) => String(item.text || '')).join('\n');
-  const parsed = parseSnImeiFromText(text);
+  const parsed = parseSnFromText(text);
   return { ...parsed, raw: text, source: 'wechat_ocr' };
 }
 
@@ -259,7 +253,7 @@ async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
         return await recogniseViaWechatOcr(buffer, mime);
       }
       const aiResult = await recogniseViaAi(buffer, mime);
-      if (aiResult && (aiResult.sn || aiResult.imei)) return aiResult;
+      if (aiResult && (aiResult.sn || !caps.wechatOcr)) return aiResult;
       if (aiResult && steps.length === 1) return aiResult;
     } catch (err) {
       lastError = err;
@@ -278,5 +272,6 @@ module.exports = {
   getVisionModels,
   recogniseSnFromImage,
   parseVisionContent,
-  parseSnImeiFromText
+  parseSnFromText,
+  parseSnImeiFromText: parseSnFromText
 };
