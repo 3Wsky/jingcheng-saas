@@ -14,7 +14,9 @@ function loadEnvFile(filePath) {
 
     const key = line.slice(0, separator).trim();
     const rawValue = line.slice(separator + 1).trim();
-    if (!key || Object.prototype.hasOwnProperty.call(process.env, key)) continue;
+    if (!key) continue;
+    const existing = process.env[key];
+    if (existing !== undefined && String(existing).trim() !== '') continue;
 
     process.env[key] = stripQuotes(rawValue);
   }

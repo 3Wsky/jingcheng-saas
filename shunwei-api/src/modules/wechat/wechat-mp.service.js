@@ -1,19 +1,23 @@
+const fs = require('node:fs/promises');
+const path = require('node:path');
 const { config } = require('../../shared/config');
 const { getPool, legacyTable } = require('../../shared/mysql');
 
 const MP_API = 'https://api.weixin.qq.com';
 const MAX_OCR_BYTES = 2 * 1024 * 1024;
+const WECHAT_MP_CONFIG_FILE = path.join(config.dataDir, 'wechat-mp-config.json');
 
-/** 仅小程序凭证 — 不用 wechat_appid（多为公众号，会导致 40013 invalid appid） */
 const APP_ID_KEYS = ['routine_appId', 'routine_app_id'];
 const APP_SECRET_KEYS = ['routine_appsecret', 'routine_app_secret'];
 
 let tokenCache = { token: '', expireAt: 0, appId: '' };
+let fileConfigCache = { loadedAt: 0, data: null };
 
 const WECHAT_OCR_ERRORS = {
-  40001: '小程序 AppSecret 无效，请检查 CRMEB 后台「小程序 AppSecret」或 WECHAT_MP_SECRET',
-  40013: '小程序 AppID 无效，请检查 CRMEB 后台「小程序 AppID」(routine_appId)，不要用公众号 AppID',
+  40001: '小程序 AppSecret 无效，请检查 AppSecret 配置',
+  40013: '小程序 AppID 无效，请检查 AppID 是否与当前小程序一致',
   40125: '小程序 AppSecret 无效（40125）',
+  40164: '服务器 IP 未加入微信公众平台白名单',
   41001: '缺少 access_token，请检查小程序凭证',
   45009: '微信 OCR 今日调用次数已达上限（100次/天）',
   85014: '小程序未开通 OCR 能力，请在微信公众平台开通',
@@ -26,8 +30,14 @@ function isValidWxAppId(appId) {
 }
 
 function isValidAppSecret(secret) {
-  const value = String(secret || '').trim();
-  return value.length >= 32;
+  return String(secret || '').trim().length >= 32;
+}
+
+function maskAppId(appId) {
+  const id = String(appId || '').trim();
+  if (!id) return '';
+  if (id.length <= 10) return `${id.slice(0, 4)}***`;
+  return `${id.slice(0, 6)}***${id.slice(-4)}`;
 }
 
 function pickByKeys(map, keys) {
@@ -41,6 +51,29 @@ function pickByKeys(map, keys) {
     if (hit && hit[1]) return hit[1];
   }
   return '';
+}
+
+async function readFileCredentials() {
+  const now = Date.now();
+  if (fileConfigCache.data && now - fileConfigCache.loadedAt < 5000) {
+    return fileConfigCache.data;
+  }
+  try {
+    const raw = await fs.readFile(WECHAT_MP_CONFIG_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    const appId = String(parsed.appId || parsed.appid || '').trim();
+    const appSecret = String(parsed.appSecret || parsed.appsecret || parsed.secret || '').trim();
+    const data = {
+      appId: isValidWxAppId(appId) ? appId : '',
+      appSecret: isValidAppSecret(appSecret) ? appSecret : '',
+      source: 'file'
+    };
+    fileConfigCache = { loadedAt: now, data };
+    return data;
+  } catch {
+    fileConfigCache = { loadedAt: now, data: { appId: '', appSecret: '', source: 'file' } };
+    return fileConfigCache.data;
+  }
 }
 
 async function readCrmebMiniappCredentials() {
@@ -90,20 +123,31 @@ function getEnvCredentials() {
 }
 
 async function getMiniappCredentials() {
+  const fileCfg = await readFileCredentials();
+  if (fileCfg.appId && fileCfg.appSecret) return fileCfg;
+
   const env = getEnvCredentials();
   if (env.appId && env.appSecret) return env;
+
   const crmeb = await readCrmebMiniappCredentials();
   if (crmeb.appId && crmeb.appSecret) return crmeb;
-  return { appId: '', appSecret: '', source: '', debugKeysFound: crmeb.debugKeysFound || [] };
+
+  return {
+    appId: '',
+    appSecret: '',
+    source: '',
+    debugKeysFound: crmeb.debugKeysFound || []
+  };
 }
 
 async function getMiniappStatus() {
   const cred = await getMiniappCredentials();
   return {
     configured: Boolean(cred.appId && cred.appSecret),
-    appIdPreview: cred.appId ? `${cred.appId.slice(0, 6)}***${cred.appId.slice(-4)}` : '',
+    appIdPreview: maskAppId(cred.appId),
     source: cred.source || '',
-    keysFound: cred.debugKeysFound || []
+    keysFound: cred.debugKeysFound || [],
+    configFile: WECHAT_MP_CONFIG_FILE
   };
 }
 
@@ -112,25 +156,27 @@ async function isMiniappConfigured() {
   return Boolean(cred.appId && cred.appSecret);
 }
 
-function mapWechatError(data) {
+function mapWechatError(data, appId) {
   const code = data?.errcode;
   const hint = WECHAT_OCR_ERRORS[code] || WECHAT_OCR_ERRORS[String(code)];
-  if (hint) return hint;
-  return `微信 OCR 失败：${code || 'unknown'} ${data?.errmsg || ''}`.trim();
+  const idHint = appId ? `（AppID: ${maskAppId(appId)}）` : '';
+  if (hint) return `${hint}${idHint}`;
+  return `微信接口失败：${code || 'unknown'} ${data?.errmsg || ''}${idHint}`.trim();
 }
 
 async function getAccessToken(force = false) {
   const now = Math.floor(Date.now() / 1000);
-  const { appId, appSecret, debugKeysFound } = await getMiniappCredentials();
+  const cred = await getMiniappCredentials();
+  const { appId, appSecret, source, debugKeysFound } = cred;
 
   if (!force && tokenCache.token && tokenCache.expireAt - 300 > now && tokenCache.appId === appId) {
     return tokenCache.token;
   }
 
   if (!appId || !appSecret) {
-    const keysHint = debugKeysFound?.length ? `（库中找到字段：${debugKeysFound.join(', ')}）` : '';
+    const keysHint = debugKeysFound?.length ? `（CRMEB字段：${debugKeysFound.join(', ')}）` : '';
     const err = new Error(
-      `微信小程序凭证未配置或格式无效${keysHint}。请在 CRMEB 后台配置 routine_appId / routine_appsecret，或在服务器 .env 设置 WECHAT_MP_APPID / WECHAT_MP_SECRET`
+      `微信小程序凭证未配置或格式无效${keysHint}。请写入 data/wechat-mp-config.json 或 .env 的 WECHAT_MP_APPID / WECHAT_MP_SECRET`
     );
     err.statusCode = 503;
     throw err;
@@ -140,7 +186,9 @@ async function getAccessToken(force = false) {
   const resp = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15000) });
   const data = await resp.json();
   if (!data.access_token) {
-    const err = new Error(mapWechatError(data) || `获取微信 access_token 失败：${data.errcode || ''} ${data.errmsg || ''}`.trim());
+    const err = new Error(
+      mapWechatError(data, appId) || `获取 access_token 失败：${data.errcode || ''} ${data.errmsg || ''} [source:${source || 'unknown'}]`.trim()
+    );
     err.statusCode = 502;
     throw err;
   }
@@ -160,7 +208,7 @@ async function printedTextOcr(buffer, mime = 'image/jpeg') {
     throw err;
   }
   if (buffer.length > MAX_OCR_BYTES) {
-    const err = new Error('图片超过 2MB，微信 OCR 无法处理，请重新拍摄或选择更小的图片');
+    const err = new Error('图片超过 2MB，请重新拍摄或选择更小的图片');
     err.statusCode = 400;
     throw err;
   }
@@ -178,10 +226,11 @@ async function printedTextOcr(buffer, mime = 'image/jpeg') {
   });
   const data = await resp.json();
   if (data.errcode && data.errcode !== 0) {
+    const cred = await getMiniappCredentials();
     if (data.errcode === 40001 || data.errcode === 42001) {
       tokenCache = { token: '', expireAt: 0, appId: '' };
     }
-    const err = new Error(mapWechatError(data));
+    const err = new Error(mapWechatError(data, cred.appId));
     err.statusCode = 502;
     throw err;
   }
@@ -195,5 +244,6 @@ module.exports = {
   getAccessToken,
   printedTextOcr,
   MAX_OCR_BYTES,
-  isValidWxAppId
+  isValidWxAppId,
+  WECHAT_MP_CONFIG_FILE
 };
