@@ -151,6 +151,25 @@ async function getMiniappStatus() {
   };
 }
 
+/** 探测 access_token 是否可用（不消耗 OCR 配额） */
+async function probeAccessToken() {
+  const cred = await getMiniappCredentials();
+  if (!cred.appId || !cred.appSecret) {
+    return { ok: false, error: '凭证未配置', appIdPreview: maskAppId(cred.appId), source: cred.source || '' };
+  }
+  try {
+    await getAccessToken(true);
+    return { ok: true, appIdPreview: maskAppId(cred.appId), source: cred.source || '' };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err.message || '获取 access_token 失败',
+      appIdPreview: maskAppId(cred.appId),
+      source: cred.source || ''
+    };
+  }
+}
+
 async function isMiniappConfigured() {
   const cred = await getMiniappCredentials();
   return Boolean(cred.appId && cred.appSecret);
@@ -186,9 +205,10 @@ async function getAccessToken(force = false) {
   const resp = await fetch(url, { method: 'GET', signal: AbortSignal.timeout(15000) });
   const data = await resp.json();
   if (!data.access_token) {
-    const err = new Error(
-      mapWechatError(data, appId) || `获取 access_token 失败：${data.errcode || ''} ${data.errmsg || ''} [source:${source || 'unknown'}]`.trim()
-    );
+    const msg =
+      mapWechatError(data, appId) || `获取 access_token 失败：${data.errcode || ''} ${data.errmsg || ''} [source:${source || 'unknown'}]`.trim();
+    console.error('[wechat-mp] getAccessToken failed:', { errcode: data.errcode, errmsg: data.errmsg, source, appId: maskAppId(appId) });
+    const err = new Error(msg);
     err.statusCode = 502;
     throw err;
   }
@@ -201,7 +221,7 @@ async function getAccessToken(force = false) {
   return tokenCache.token;
 }
 
-async function printedTextOcr(buffer, mime = 'image/jpeg') {
+async function printedTextOcr(buffer, mime = 'image/jpeg', retry = true) {
   if (!buffer || !buffer.length) {
     const err = new Error('图片为空');
     err.statusCode = 400;
@@ -227,8 +247,10 @@ async function printedTextOcr(buffer, mime = 'image/jpeg') {
   const data = await resp.json();
   if (data.errcode && data.errcode !== 0) {
     const cred = await getMiniappCredentials();
-    if (data.errcode === 40001 || data.errcode === 42001) {
+    console.error('[wechat-mp] commocr failed:', { errcode: data.errcode, errmsg: data.errmsg, appId: maskAppId(cred.appId) });
+    if (retry && (data.errcode === 40001 || data.errcode === 42001)) {
       tokenCache = { token: '', expireAt: 0, appId: '' };
+      return printedTextOcr(buffer, mime, false);
     }
     const err = new Error(mapWechatError(data, cred.appId));
     err.statusCode = 502;
@@ -240,6 +262,7 @@ async function printedTextOcr(buffer, mime = 'image/jpeg') {
 module.exports = {
   getMiniappCredentials,
   getMiniappStatus,
+  probeAccessToken,
   isMiniappConfigured,
   getAccessToken,
   printedTextOcr,

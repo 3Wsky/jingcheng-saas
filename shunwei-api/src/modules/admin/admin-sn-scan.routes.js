@@ -5,13 +5,14 @@ const {
   getRecognitionCapabilities,
   recogniseSnFromImage
 } = require('./sn-vision.service');
-const { getMiniappStatus } = require('../wechat/wechat-mp.service');
+const { getMiniappStatus, probeAccessToken } = require('../wechat/wechat-mp.service');
 
 function registerSnScanRoutes(app) {
   app.get('/api/staff/scan-sn/status', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const caps = await getRecognitionCapabilities();
     const wechat = await getMiniappStatus();
+    const tokenProbe = await probeAccessToken();
     return ok({
       configured: caps.aiVision || caps.wechatOcr,
       mode: caps.mode,
@@ -21,7 +22,10 @@ function registerSnScanRoutes(app) {
       wechatOcr: caps.wechatOcr,
       wechatAppIdPreview: wechat.appIdPreview,
       wechatCredentialSource: wechat.source,
-      wechatKeysFound: wechat.keysFound
+      wechatKeysFound: wechat.keysFound,
+      wechatConfigFile: wechat.configFile,
+      wechatTokenOk: tokenProbe.ok,
+      wechatTokenError: tokenProbe.ok ? '' : tokenProbe.error
     });
   });
 
@@ -44,6 +48,7 @@ function registerSnScanRoutes(app) {
       const parsed = await recogniseSnFromImage({ buffer: imageBuffer, mime: imageMime });
       return ok(parsed);
     } catch (err) {
+      console.error('[scan-sn] recognise failed:', err.message);
       if (err.statusCode === 503) return fail(reply, 503, err.message);
       if (err.name === 'TimeoutError') return fail(reply, 504, '识别超时，请重试');
       return fail(reply, err.statusCode || 502, err.message || '识别失败');
