@@ -8,7 +8,7 @@ const VISION_PROMPT =
 let aiImageService = null;
 
 function getVisionMode() {
-  const mode = String(process.env.SN_VISION_MODE || 'auto').trim().toLowerCase();
+  const mode = String(process.env.SN_VISION_MODE || 'wechat_only').trim().toLowerCase();
   if (['auto', 'wechat', 'ai', 'wechat_first', 'ai_first', 'wechat_only', 'ai_only'].includes(mode)) {
     return mode;
   }
