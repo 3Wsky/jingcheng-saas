@@ -134,6 +134,23 @@ function registerIntegralMallRoutes(app) {
     }
   });
 
+  app.post('/api/integral-mall/cancel-exchange', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+
+    const schema = z.object({
+      orderId: z.string().trim().min(1).max(64)
+    });
+    const parsed = schema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    try {
+      const data = await mallService.cancelExchange(request.auth.uid, parsed.data.orderId);
+      return ok(data, '已撤销，积分已退回');
+    } catch (error) {
+      return failMall(reply, error);
+    }
+  });
+
   app.get('/api/integral-mall/orders', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {

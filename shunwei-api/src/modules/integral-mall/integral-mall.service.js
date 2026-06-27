@@ -221,6 +221,92 @@ class IntegralMallService {
     }
   }
 
+  async cancelExchange(uid, orderId) {
+    const [orderRows] = await getPool().query(
+      `SELECT id, uid, order_id, product_id, store_name, total_price, status, is_del, add_time
+       FROM ${legacyTable('store_integral_order')}
+       WHERE order_id = ? LIMIT 1`,
+      [orderId]
+    );
+    const order = orderRows[0];
+    if (!order || Number(order.is_del) === 1) {
+      const error = new Error('订单不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (Number(order.uid) !== Number(uid)) {
+      const error = new Error('无权操作该订单');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (Number(order.status || 0) === 3) {
+      const error = new Error('订单已核销，无法撤销');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const CANCEL_WINDOW = 24 * 3600;
+    if (now - Number(order.add_time || 0) > CANCEL_WINDOW) {
+      const error = new Error('已超过24小时，无法撤销');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const refund = Number(order.total_price || 0);
+    const connection = await getPool().getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const [delResult] = await connection.query(
+        `UPDATE ${legacyTable('store_integral_order')}
+         SET is_del = 1, status = -1
+         WHERE order_id = ? AND uid = ? AND is_del = 0 AND status <> 3`,
+        [orderId, uid]
+      );
+      if (!delResult.affectedRows) {
+        const error = new Error('撤销失败，订单状态可能已变更');
+        error.statusCode = 409;
+        throw error;
+      }
+
+      await connection.query(
+        `UPDATE ${legacyTable('store_integral')} SET stock = stock + 1 WHERE id = ?`,
+        [order.product_id]
+      );
+
+      const [userRows] = await connection.query(
+        `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+        [uid]
+      );
+      const beforeIntegral = Number(userRows[0]?.integral || 0);
+      const afterIntegral = beforeIntegral + refund;
+      await connection.query(
+        `UPDATE ${legacyTable('user')} SET integral = ? WHERE uid = ?`,
+        [afterIntegral, uid]
+      );
+
+      await connection.query(
+        `INSERT INTO ${legacyTable('user_bill')}
+         (uid, link_id, pm, title, category, type, number, balance, mark, add_time, status, take, frozen_time)
+         VALUES (?, ?, 1, '积分兑换撤销', 'integral', 'system_add', ?, ?, ?, ?, 1, 0, 0)`,
+        [uid, orderId, refund, afterIntegral, `撤销兑换退回${order.store_name || ''}`, now]
+      );
+
+      await connection.commit();
+      return {
+        orderId,
+        refundIntegral: refund,
+        balanceAfter: afterIntegral
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async listUserOrders(uid, page = 1, limit = 20, request) {
     const offset = (page - 1) * limit;
     const [[countRow]] = await getPool().query(
