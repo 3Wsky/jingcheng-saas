@@ -6,15 +6,35 @@ let tokenCache = { token: '', expireAt: 0 };
 
 async function readCrmebMiniappCredentials() {
   try {
+    const table = legacyTable('system_config');
     const [rows] = await getPool().query(
-      `SELECT menu_name, value FROM ${legacyTable('system_config')}
-       WHERE menu_name IN ('routine_appId', 'routine_appsecret', 'wechat_appid', 'wechat_appsecret')
-         AND status = 1`
+      `SELECT menu_name, value FROM ${table}
+       WHERE menu_name IN (
+         'routine_appId', 'routine_appsecret',
+         'wechat_appid', 'wechat_appsecret',
+         'routine_app_id', 'routine_app_secret'
+       ) OR menu_name LIKE '%routine%app%' OR menu_name LIKE '%wechat%app%'`
     );
-    const map = Object.fromEntries(rows.map((row) => [row.menu_name, String(row.value || '').trim()]));
+    const map = Object.fromEntries(
+      rows.map((row) => [String(row.menu_name || '').trim(), String(row.value || '').trim()])
+    );
+
+    const findValue = (...keys) => {
+      for (const key of keys) {
+        if (map[key]) return map[key];
+      }
+      const lowerEntries = Object.entries(map);
+      for (const key of keys) {
+        const lk = key.toLowerCase();
+        const hit = lowerEntries.find(([k]) => k.toLowerCase() === lk);
+        if (hit && hit[1]) return hit[1];
+      }
+      return '';
+    };
+
     return {
-      appId: map.routine_appId || map.wechat_appid || '',
-      appSecret: map.routine_appsecret || map.wechat_appsecret || ''
+      appId: findValue('routine_appId', 'routine_app_id', 'wechat_appid'),
+      appSecret: findValue('routine_appsecret', 'routine_app_secret', 'wechat_appsecret')
     };
   } catch {
     return { appId: '', appSecret: '' };

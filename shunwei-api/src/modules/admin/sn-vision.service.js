@@ -139,6 +139,17 @@ async function getRecognitionCapabilities() {
   };
 }
 
+function isAiAuthError(message) {
+  return /401|403|invalid_api_key|Incorrect API key|authentication/i.test(String(message || ''));
+}
+
+function friendlyError(message, fallback) {
+  const raw = String(message || '');
+  if (isAiAuthError(raw)) return 'AI 识别密钥无效，已尝试其他识别方式';
+  if (raw.length > 120) return fallback || '识别失败，请手动输入 SN';
+  return raw || fallback || '识别失败';
+}
+
 async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
   if (!buffer || !buffer.length) {
     const err = new Error('图片为空');
@@ -153,21 +164,32 @@ async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
     throw err;
   }
 
+  let aiError = null;
+
   if (caps.aiVision) {
     try {
       const aiResult = await recogniseViaAi(buffer, mime);
       if (aiResult && (aiResult.sn || aiResult.imei)) return aiResult;
-      if (aiResult) return aiResult;
-    } catch {
-      if (!caps.wechatOcr) throw Object.assign(new Error('AI 识别失败'), { statusCode: 502 });
+      if (aiResult && !caps.wechatOcr) return aiResult;
+    } catch (err) {
+      aiError = err;
+      if (!caps.wechatOcr) {
+        const msg = friendlyError(err.message, 'AI 识别失败');
+        throw Object.assign(new Error(msg), { statusCode: 502 });
+      }
     }
   }
 
   if (caps.wechatOcr) {
-    return recogniseViaWechatOcr(buffer, mime);
+    try {
+      return await recogniseViaWechatOcr(buffer, mime);
+    } catch (ocrErr) {
+      const msg = friendlyError(aiError?.message || ocrErr.message, '识别失败，请手动输入 SN');
+      throw Object.assign(new Error(msg), { statusCode: 502 });
+    }
   }
 
-  const err = new Error('识别失败，请手动输入 SN');
+  const err = new Error(friendlyError(aiError?.message, '识别失败，请手动输入 SN'));
   err.statusCode = 502;
   throw err;
 }
