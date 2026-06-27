@@ -20,7 +20,7 @@ const WECHAT_OCR_ERRORS = {
   40164: '服务器 IP 未加入微信公众平台白名单',
   41001: '缺少 access_token，请检查小程序凭证',
   45009: '微信 OCR 今日调用次数已达上限（100次/天）',
-  85014: '小程序未开通 OCR 能力，请在微信公众平台开通',
+  101003: '微信 OCR 今日免费额度已用完（100次/天），可在微信服务平台购买',
   85015: '小程序 OCR 权限不足',
   '-1': '微信系统繁忙，请稍后重试'
 };
@@ -238,7 +238,7 @@ async function printedTextOcr(buffer, mime = 'image/jpeg', retry = true) {
   const ext = mime.includes('png') ? 'png' : 'jpg';
   form.append('img', new Blob([buffer], { type: mime }), `scan.${ext}`);
 
-  const url = `${MP_API}/cv/ocr/commocr?access_token=${encodeURIComponent(token)}`;
+  const url = `${MP_API}/cv/ocr/comm?access_token=${encodeURIComponent(token)}`;
   const resp = await fetch(url, {
     method: 'POST',
     body: form,
@@ -247,7 +247,7 @@ async function printedTextOcr(buffer, mime = 'image/jpeg', retry = true) {
   const data = await resp.json();
   if (data.errcode && data.errcode !== 0) {
     const cred = await getMiniappCredentials();
-    console.error('[wechat-mp] commocr failed:', { errcode: data.errcode, errmsg: data.errmsg, appId: maskAppId(cred.appId) });
+    console.error('[wechat-mp] ocr/comm failed:', { errcode: data.errcode, errmsg: data.errmsg, appId: maskAppId(cred.appId) });
     if (retry && (data.errcode === 40001 || data.errcode === 42001)) {
       tokenCache = { token: '', expireAt: 0, appId: '' };
       return printedTextOcr(buffer, mime, false);
