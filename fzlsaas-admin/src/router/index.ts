@@ -99,6 +99,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审计日志', icon: 'Document', module: 'settings' },
       },
       {
+        path: 'content',
+        name: 'Content',
+        component: () => import('@/views/content/index.vue'),
+        meta: { title: '内容管理', icon: 'Document', module: 'settings' },
+      },
+      {
         path: 'system-settings',
         name: 'SystemSettings',
         component: () => import('@/views/system/settings.vue'),

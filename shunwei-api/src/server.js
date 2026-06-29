@@ -31,6 +31,7 @@ const { registerCashVoucherRoutes } = require('./modules/cash-voucher/cash-vouch
 const { registerMerchantRoutes } = require('./modules/merchant/merchant.routes');
 const { registerApprovalRoutes } = require('./modules/approval/approval.routes');
 const { registerMiniappConfigRoutes } = require('./modules/miniapp/miniapp-config.routes');
+const { registerContentRoutes } = require('./modules/miniapp/content.routes');
 const { registerHomepageRoutes } = require('./modules/miniapp/homepage.routes');
 const { registerWeworkRoutes } = require('./modules/wework/wework.routes');
 const { registerSnScanRoutes } = require('./modules/admin/admin-sn-scan.routes');
@@ -141,6 +142,7 @@ async function buildServer() {
   registerMerchantRoutes(app);
   registerApprovalRoutes(app);
   registerMiniappConfigRoutes(app);
+  registerContentRoutes(app);
   registerHomepageRoutes(app);
   registerWeworkRoutes(app);
   registerSnScanRoutes(app);

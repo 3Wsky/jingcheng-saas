@@ -19,7 +19,7 @@ export const MENU_MODULES: MenuModuleConfig[] = [
   {
     key: 'settings',
     label: '设置',
-    routes: ['finance-cash', 'lottery', 'finance-settings', 'audit-logs', 'system-settings'],
+    routes: ['finance-cash', 'lottery', 'finance-settings', 'content', 'audit-logs', 'system-settings'],
   },
 ]
 
