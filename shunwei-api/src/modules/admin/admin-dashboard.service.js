@@ -38,27 +38,28 @@ class AdminDashboardService {
     } catch { /* table may not exist */ }
 
     try {
+      // 仅统计真实核销：merchant_id > 0（排除超管回收/撤销，那类 direction=0 但 merchant_id=0）
       const [[v2]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND created_at >= ?`,
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
         [bounds.cardStart]
       );
       verifyToday += Number(v2?.cnt || 0);
     } catch { /* ignore */ }
 
-    // 已核销金额（现金券消费 direction=0 的金额合计）：累计 + 本期
+    // 已核销金额（现金券核销 direction=0 且 merchant_id>0 的金额合计，排除超管回收）：累计 + 本期
     let verifyAmountTotal = 0;
     let verifyAmountInPeriod = 0;
     try {
       const [[totalRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0`
+         WHERE direction = 0 AND merchant_id > 0`
       );
       verifyAmountTotal = Number(totalRow?.total || 0);
 
       const [[periodRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND created_at >= ?`,
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
         [bounds.dayStart]
       );
       verifyAmountInPeriod = Number(periodRow?.total || 0);

@@ -219,7 +219,7 @@ class AdminMembersService {
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
          LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
-         WHERE l.uid = ? AND l.direction = 0
+         WHERE l.uid = ? AND l.direction = 0 AND l.merchant_id > 0
          ORDER BY l.id DESC LIMIT 50`,
         [uid]
       );
@@ -237,7 +237,7 @@ class AdminMembersService {
 
       const [[usedRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE uid = ? AND direction = 0`,
+         WHERE uid = ? AND direction = 0 AND merchant_id > 0`,
         [uid]
       );
       cashVoucherUsedTotal = Number(usedRow?.total || 0);
