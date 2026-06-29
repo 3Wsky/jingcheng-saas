@@ -13,7 +13,7 @@ export const MENU_MODULES: MenuModuleConfig[] = [
   {
     key: 'integral',
     label: '商品',
-    routes: ['products', 'integral-mall', 'integral-mall/orders', 'finance-integral', 'finance-recharge'],
+    routes: ['products', 'integral-mall', 'integral-mall/orders', 'sn-catalog', 'finance-integral', 'finance-recharge'],
   },
   { key: 'merchant', label: '商家', routes: ['merchant', 'finance-settlement'] },
   {

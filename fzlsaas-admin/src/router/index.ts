@@ -87,6 +87,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '兑换订单', icon: 'List', module: 'integral' },
       },
       {
+        path: 'sn-catalog',
+        name: 'SnCatalog',
+        component: () => import('@/views/sn-catalog/index.vue'),
+        meta: { title: 'SN产品库', icon: 'Postcard', module: 'integral' },
+      },
+      {
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => import('@/views/audit-logs/index.vue'),
