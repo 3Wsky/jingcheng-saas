@@ -96,7 +96,45 @@ async function main() {
 
     if (onlyUid) {
       userIds = [onlyUid];
-      console.log(`\n=== 指定用户对账 uid=${onlyUid} ===\n`);
+      console.log(`\n=== 用户 uid=${onlyUid} 的现金券核销记录（全部，倒序）===\n`);
+      const [recs] = await conn.query(
+        `SELECT l.id, l.amount, l.merchant_id, l.operator_uid, l.biz_id, l.remark, l.created_at,
+                m.merchant_name, op.nickname AS op_name
+         FROM ${SW('cash_voucher_ledger')} l
+         LEFT JOIN ${SW('merchant')} m ON m.id = l.merchant_id
+         LEFT JOIN ${mysqlCfg.prefix}user op ON op.uid = l.operator_uid
+         WHERE l.uid = ? AND l.direction = 0
+         ORDER BY l.id DESC`,
+        [onlyUid]
+      );
+      if (!recs.length) {
+        console.log('（该用户暂无核销/扣减记录）');
+      }
+      let usedSum = 0;
+      for (const r of recs) {
+        usedSum = round2(usedSum + Number(r.amount));
+        const kind = Number(r.merchant_id) > 0 ? '商家核销' : '超管回收/其他';
+        console.log(
+          `#${r.id} ${fmtTime(r.created_at)} | 扣 ￥${round2(r.amount)} | ${kind} ` +
+          `${r.merchant_id ? r.merchant_id + '(' + (r.merchant_name || '-') + ')' : ''} ` +
+          `${r.operator_uid ? '| 操作员 ' + r.operator_uid + '(' + (r.op_name || '-') + ')' : ''} ` +
+          `${r.biz_id ? '| ' + r.biz_id : ''} ${r.remark ? '| ' + r.remark : ''}`
+        );
+      }
+      console.log(`\n该用户累计扣减(含回收) ￥${usedSum}，其中商家核销与超管回收见上面「类型」列。`);
+
+      // 也列出发放明细，方便核对净额
+      const [grants] = await conn.query(
+        `SELECT id, amount, biz_id, remark, created_at
+         FROM ${SW('cash_voucher_ledger')}
+         WHERE uid = ? AND direction = 1
+         ORDER BY id DESC`,
+        [onlyUid]
+      );
+      console.log(`\n--- 该用户现金券发放记录（${grants.length} 笔）---`);
+      for (const g of grants) {
+        console.log(`#${g.id} ${fmtTime(g.created_at)} | 发放 ￥${round2(g.amount)} ${g.remark ? '| ' + g.remark : ''}`);
+      }
     } else {
       console.log(`\n=== 最近 ${limit} 笔现金券核销（direction=0, merchant_id>0） ===\n`);
       const [rows] = await conn.query(
