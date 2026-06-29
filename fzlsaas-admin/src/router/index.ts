@@ -117,6 +117,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '新客抽奖', icon: 'Present', module: 'operation' },
       },
       {
+        path: 'share-config',
+        name: 'ShareConfig',
+        component: () => import('@/views/operation/share-config.vue'),
+        meta: { title: '分享设置', icon: 'Share', module: 'operation' },
+      },
+      {
         path: 'finance-cash',
         name: 'FinanceCash',
         component: () => import('@/views/finance/cash-ledger.vue'),
