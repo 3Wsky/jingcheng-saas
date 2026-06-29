@@ -1,6 +1,10 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
+function roundMoney(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
 class CashVoucherService {
   async getAssets(uid) {
     const [[user]] = await getPool().query(
@@ -96,7 +100,7 @@ class CashVoucherService {
   }
 
   async verify(uid, amount, operatorUid, merchantId = 0, remark = '') {
-    const verifyAmount = Number(amount);
+    const verifyAmount = roundMoney(amount);
     if (!verifyAmount || verifyAmount <= 0) {
       const error = new Error('核销金额必须大于0');
       error.statusCode = 400;
@@ -104,10 +108,13 @@ class CashVoucherService {
     }
 
     const verifyMode = await this.getVerifyMode();
-    if (verifyMode === 'hundred' && verifyAmount % 100 !== 0) {
-      const error = new Error('当前核销模式要求整百金额');
-      error.statusCode = 400;
-      throw error;
+    if (verifyMode === 'hundred') {
+      const cents = Math.round(verifyAmount * 100);
+      if (cents % 10000 !== 0) {
+        const error = new Error('当前核销模式要求整百金额');
+        error.statusCode = 400;
+        throw error;
+      }
     }
 
     const connection = await getPool().getConnection();
@@ -124,9 +131,10 @@ class CashVoucherService {
       );
 
       let totalAvailable = 0;
-      for (const b of batches) totalAvailable += Number(b.remain_amount || 0);
+      for (const b of batches) totalAvailable += roundMoney(b.remain_amount || 0);
+      totalAvailable = roundMoney(totalAvailable);
 
-      if (totalAvailable < verifyAmount) {
+      if (totalAvailable + 0.001 < verifyAmount) {
         const error = new Error(`现金券余额不足（可用 ${totalAvailable}，需核销 ${verifyAmount}）`);
         error.statusCode = 400;
         throw error;
@@ -138,8 +146,8 @@ class CashVoucherService {
 
       for (const batch of batches) {
         if (remaining <= 0) break;
-        const batchRemain = Number(batch.remain_amount);
-        const deduct = Math.min(batchRemain, remaining);
+        const batchRemain = roundMoney(batch.remain_amount);
+        const deduct = roundMoney(Math.min(batchRemain, remaining));
 
         const newRemain = batchRemain - deduct;
         await connection.query(
@@ -169,7 +177,7 @@ class CashVoucherService {
       }
 
       await connection.commit();
-      return { bizId, amount: verifyAmount, balanceAfter: totalAvailable - verifyAmount };
+      return { bizId, amount: verifyAmount, balanceAfter: roundMoney(totalAvailable - verifyAmount) };
     } catch (error) {
       await connection.rollback();
       throw error;
