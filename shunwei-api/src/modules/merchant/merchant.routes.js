@@ -135,7 +135,8 @@ function registerMerchantRoutes(app) {
         parsed.data.amount,
         request.auth.uid,
         merchant.id,
-        parsed.data.remark || `${merchant.merchant_name}核销`
+        parsed.data.remark || `${merchant.merchant_name}核销`,
+        tokenResult.nonce || ''
       );
       return ok(result, '核销成功');
     } catch (error) {

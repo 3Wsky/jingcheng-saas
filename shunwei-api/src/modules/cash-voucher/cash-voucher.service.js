@@ -99,13 +99,33 @@ class CashVoucherService {
     };
   }
 
-  async verify(uid, amount, operatorUid, merchantId = 0, remark = '') {
+  async ensureNonceTable() {
+    if (this._nonceTableReady) return;
+    try {
+      await getPool().query(
+        `CREATE TABLE IF NOT EXISTS ${swTable('cash_voucher_nonce')} (
+          nonce varchar(64) NOT NULL COMMENT '核销码一次性随机串',
+          biz_id varchar(64) NOT NULL DEFAULT '',
+          uid int(10) unsigned NOT NULL DEFAULT '0',
+          amount decimal(12,2) NOT NULL DEFAULT '0.00',
+          created_at int(10) unsigned NOT NULL DEFAULT '0',
+          PRIMARY KEY (nonce)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='现金券核销幂等去重'`
+      );
+    } catch (e) { /* 表已存在或无权限时忽略，降级为内存去重 */ }
+    this._nonceTableReady = true;
+  }
+
+  // idempotencyKey: 出码 token 的一次性 nonce，用于 DB 级幂等（同一张码绝不二次扣款，且重启/多实例下仍生效）
+  async verify(uid, amount, operatorUid, merchantId = 0, remark = '', idempotencyKey = '') {
     const verifyAmount = roundMoney(amount);
     if (!verifyAmount || verifyAmount <= 0) {
       const error = new Error('核销金额必须大于0');
       error.statusCode = 400;
       throw error;
     }
+
+    if (idempotencyKey) await this.ensureNonceTable();
 
     const verifyMode = await this.getVerifyMode();
     if (verifyMode === 'hundred') {
@@ -120,6 +140,26 @@ class CashVoucherService {
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
+
+      // DB 级幂等：先抢占 nonce（唯一主键）。同一张核销码二次提交会撞主键 → 整笔回滚，绝不二次扣款。
+      const now0 = Math.floor(Date.now() / 1000);
+      const bizId = `CV${now0}${uid}${Math.random().toString(36).slice(2, 6)}`;
+      if (idempotencyKey && this._nonceTableReady) {
+        try {
+          await connection.query(
+            `INSERT INTO ${swTable('cash_voucher_nonce')} (nonce, biz_id, uid, amount, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [idempotencyKey, bizId, uid, verifyAmount, now0]
+          );
+        } catch (e) {
+          if (e && e.code === 'ER_DUP_ENTRY') {
+            const error = new Error('该核销码已使用，请让顾客生成新码');
+            error.statusCode = 409;
+            throw error;
+          }
+          throw e;
+        }
+      }
 
       const [batches] = await connection.query(
         `SELECT id, remain_amount, expire_at
@@ -141,8 +181,7 @@ class CashVoucherService {
       }
 
       let remaining = verifyAmount;
-      const now = Math.floor(Date.now() / 1000);
-      const bizId = `CV${now}${uid}${Math.random().toString(36).slice(2, 6)}`;
+      const now = now0;
 
       let deductedTotal = 0;
       let ledgerRows = 0;
