@@ -62,6 +62,7 @@ declare module 'vue' {
     ImageListInput: typeof import('./src/components/ImageListInput.vue')['default']
     ImageUrlInput: typeof import('./src/components/ImageUrlInput.vue')['default']
     IntegralTrendChart: typeof import('./src/components/IntegralTrendChart.vue')['default']
+    LiquidFillChart: typeof import('./src/components/LiquidFillChart.vue')['default']
     MemberTag: typeof import('./src/components/MemberTag.vue')['default']
     PageShell: typeof import('./src/components/PageShell.vue')['default']
     ProductCollectDialog: typeof import('./src/components/ProductCollectDialog.vue')['default']
