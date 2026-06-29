@@ -267,6 +267,44 @@ class CashVoucherService {
     );
     return rows[0]?.config_value || 'any';
   }
+
+  // 按 nonce 回查这张核销码到底成没成功。
+  // nonce 表只有在 verify() 事务成功提交后才会留下记录（幂等主键），
+  // 因此「查得到 = 真的核销成功了」「查不到 = 没成功，可安全重试」。
+  async lookupVerifyByNonce(nonce) {
+    if (!nonce) return { verified: false };
+    await this.ensureNonceTable();
+    if (!this._nonceTableReady) return { verified: false, unknown: true };
+    let rows;
+    try {
+      [rows] = await getPool().query(
+        `SELECT nonce, biz_id, uid, amount, created_at
+         FROM ${swTable('cash_voucher_nonce')} WHERE nonce = ? LIMIT 1`,
+        [nonce]
+      );
+    } catch (e) {
+      // 表不存在/查询异常时无法判定，返回 unknown 让前端保持谨慎提示
+      return { verified: false, unknown: true };
+    }
+    const row = rows && rows[0];
+    if (!row) return { verified: false };
+
+    // 已核销：顺带返回该用户当前余额，便于前端展示「本次核销 ¥X｜剩余 ¥Y」
+    let balanceAfter = null;
+    try {
+      const wallet = await this.getWallet(Number(row.uid));
+      balanceAfter = roundMoney(wallet.balance || 0);
+    } catch (e) { /* 余额查询失败不影响“已核销”结论 */ }
+
+    return {
+      verified: true,
+      uid: Number(row.uid),
+      amount: roundMoney(row.amount || 0),
+      bizId: row.biz_id || '',
+      balanceAfter,
+      verifiedAt: Number(row.created_at || 0)
+    };
+  }
 }
 
 module.exports = { CashVoucherService };

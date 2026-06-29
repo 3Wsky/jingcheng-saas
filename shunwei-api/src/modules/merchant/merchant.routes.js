@@ -144,6 +144,23 @@ function registerMerchantRoutes(app) {
     }
   });
 
+  // 核销结果回查：核销员遇到网络异常（结果未知）时，凭原核销码回查这笔到底成没成功。
+  // 依据 DB nonce 表（核销成功才会落记录），实现「网络恢复后自动确认，免去手动核对」。
+  app.post('/api/merchant/verify-status', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const token = String(request.body?.verifyToken || '').trim();
+    if (!token) return fail(reply, 400, '请提供核销码');
+    try {
+      await resolveMerchantAccess(request.auth.uid);
+      const parsedToken = getVerifyTokenService().extractNonce(token);
+      if (!parsedToken.valid) return fail(reply, 400, parsedToken.reason || '核销码无法识别');
+      const status = await cvService.lookupVerifyByNonce(parsedToken.nonce);
+      return ok(status);
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
   app.get('/api/merchant/staff', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {

@@ -83,6 +83,30 @@ class VerifyTokenService {
     return { valid: true, uid: Number(uid) };
   }
 
+  // 仅校验签名并取出 nonce/uid，不消费 nonce、不校验 TTL。
+  // 用于「核销结果回查」：此时核销码本就已被提交、可能已过期/已用，
+  // 我们只需要拿到它的 nonce 去 DB nonce 表里查这笔到底成没成功。
+  extractNonce(token) {
+    if (!token || typeof token !== 'string') {
+      return { valid: false, reason: '无效的核销码' };
+    }
+    const stripped = token.startsWith('sw-pay:') ? token.slice(7) : token;
+    const dotIdx = stripped.lastIndexOf('.');
+    if (dotIdx < 0) return { valid: false, reason: '核销码格式错误' };
+
+    const payloadB64 = stripped.slice(0, dotIdx);
+    const sig = stripped.slice(dotIdx + 1);
+    const expected = this._sign(payloadB64);
+    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+      return { valid: false, reason: '核销码签名无效' };
+    }
+    let payload;
+    try { payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString()); } catch { return { valid: false, reason: '核销码数据损坏' }; }
+    const { uid, n: nonce } = payload;
+    if (!uid || !nonce) return { valid: false, reason: '核销码内容不完整' };
+    return { valid: true, uid: Number(uid), nonce };
+  }
+
   _sign(data) {
     return crypto.createHmac('sha256', this._secret).update(data).digest('base64url');
   }
