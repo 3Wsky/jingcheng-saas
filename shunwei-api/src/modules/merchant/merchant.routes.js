@@ -93,10 +93,12 @@ function registerMerchantRoutes(app) {
       if (!user) return fail(reply, 404, '用户不存在');
 
       const wallet = await cvService.getWallet(tokenResult.uid);
+      const verifyMode = await cvService.getVerifyMode();
       return ok({
         uid: tokenResult.uid,
         nickname: user.nickname || '',
-        balance: wallet.balance
+        balance: wallet.balance,
+        verifyMode
       });
     } catch (error) {
       return failMerchant(reply, error);
