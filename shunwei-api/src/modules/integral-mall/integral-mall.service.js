@@ -155,16 +155,17 @@ class IntegralMallService {
     }
 
     const integralCost = Number(product.price || 0);
-    const [userRows] = await getPool().query(
+    // 事务前预检查仅用于快速失败/友好提示；真正的扣减以事务内「锁后重读」为准（防并发双花）。
+    const [preUserRows] = await getPool().query(
       `SELECT uid, integral FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del,0)=0 LIMIT 1`,
       [uid]
     );
-    if (!userRows[0]) {
+    if (!preUserRows[0]) {
       const error = new Error('用户不存在');
       error.statusCode = 404;
       throw error;
     }
-    if (Number(userRows[0].integral || 0) < integralCost) {
+    if (Number(preUserRows[0].integral || 0) < integralCost) {
       const error = new Error('积分不足');
       error.statusCode = 400;
       throw error;
@@ -178,12 +179,35 @@ class IntegralMallService {
     try {
       await connection.beginTransaction();
 
-      await connection.query(
+      // 锁定用户行后重读积分（权威值），杜绝并发/双击下的丢失更新（积分双花）。
+      const [lockedUserRows] = await connection.query(
+        `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del,0)=0 LIMIT 1 FOR UPDATE`,
+        [uid]
+      );
+      if (!lockedUserRows[0]) {
+        const error = new Error('用户不存在');
+        error.statusCode = 404;
+        throw error;
+      }
+      const beforeIntegral = Number(lockedUserRows[0].integral || 0);
+      if (beforeIntegral < integralCost) {
+        const error = new Error('积分不足');
+        error.statusCode = 400;
+        throw error;
+      }
+
+      // 原子扣库存并校验 affectedRows：售罄（=0 行）立即回滚，绝不“扣分却没货”。
+      const [stockUpd] = await connection.query(
         `UPDATE ${legacyTable('store_integral')} SET stock = stock - 1 WHERE id = ? AND stock > 0`,
         [productId]
       );
+      if (!stockUpd.affectedRows) {
+        const error = new Error('手慢了，刚被兑换完，过两天试试');
+        error.statusCode = 409;
+        throw error;
+      }
 
-      const afterIntegral = Number(userRows[0].integral) - integralCost;
+      const afterIntegral = beforeIntegral - integralCost;
       await connection.query(
         `UPDATE ${legacyTable('user')} SET integral = ? WHERE uid = ?`,
         [afterIntegral, uid]
@@ -275,8 +299,9 @@ class IntegralMallService {
         [order.product_id]
       );
 
+      // 锁定用户行后重读积分，避免与并发兑换/其它积分变动互相覆盖（丢失更新）。
       const [userRows] = await connection.query(
-        `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+        `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1 FOR UPDATE`,
         [uid]
       );
       const beforeIntegral = Number(userRows[0]?.integral || 0);

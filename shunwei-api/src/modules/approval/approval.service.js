@@ -679,8 +679,9 @@ class ApprovalService {
       return 0;
     }
 
+    // 锁定用户行后重读积分，避免审批撤销扣分与并发积分变动互相覆盖（丢失更新）。
     const [[userRow]] = await connection.query(
-      `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+      `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1 FOR UPDATE`,
       [uid]
     );
     const current = Number(userRow?.integral || 0);
