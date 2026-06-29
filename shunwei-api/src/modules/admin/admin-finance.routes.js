@@ -4,6 +4,7 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { requireAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
+const { ensureSettlementColumns } = require('../merchant/merchant.routes');
 
 const pageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -383,6 +384,7 @@ function registerAdminFinanceRoutes(app) {
     const where = conditions.join(' AND ');
 
     try {
+      await ensureSettlementColumns();
       const [[countRow]] = await getPool().query(
         `SELECT COUNT(*) AS total FROM ${swTable('merchant_settlement')} s WHERE ${where}`,
         values

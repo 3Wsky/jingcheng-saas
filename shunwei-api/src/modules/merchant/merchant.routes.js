@@ -348,6 +348,11 @@ function registerMerchantRoutes(app) {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     const parsed = withdrawSchema.safeParse(request.body || {});
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      await ensureSettlementColumns();
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
@@ -397,6 +402,7 @@ function registerMerchantRoutes(app) {
     try {
       const access = await resolveMerchantAccess(request.auth.uid);
       if (!access.isManager) return fail(reply, 403, '仅店长可查看提现记录');
+      await ensureSettlementColumns();
       const [rows] = await getPool().query(
         `SELECT id, amount, status, remark, created_at, settled_at, expected_at
          FROM ${swTable('merchant_settlement')}
@@ -457,6 +463,34 @@ async function ensureSuspendedColumn() {
     if (e.code !== 'ER_DUP_FIELDNAME') throw e;
   }
   _columnEnsured = true;
+}
+
+// 商家提现申请（admin-r5 迁移）所需的两列。生产若未手动执行该迁移，
+// 提现/结算接口一打开就会 Unknown column 报错。这里在运行时幂等补列，
+// 让接口自愈（与 ensureSuspendedColumn 同思路），无需手动 SSH 跑 SQL。
+let _settlementColumnsEnsured = false;
+async function ensureSettlementColumns() {
+  if (_settlementColumnsEnsured) return;
+  const alters = [
+    `ALTER TABLE ${swTable('merchant_settlement')} ADD COLUMN applicant_uid int(10) unsigned NOT NULL DEFAULT '0' COMMENT '提现申请人uid'`,
+    `ALTER TABLE ${swTable('merchant_settlement')} ADD COLUMN expected_at int(10) unsigned NOT NULL DEFAULT '0' COMMENT '预计到账时间(T+3)'`
+  ];
+  for (const sql of alters) {
+    try {
+      await getPool().query(sql);
+    } catch (e) {
+      // 列已存在=正常（幂等）；表不存在则保留给上层 catch 处理
+      if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+    }
+  }
+  try {
+    await getPool().query(
+      `ALTER TABLE ${swTable('merchant_settlement')} ADD KEY idx_merchant_status_created (merchant_id, status, created_at)`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_KEYNAME') throw e;
+  }
+  _settlementColumnsEnsured = true;
 }
 
 function pickMerchantFields(row) {
@@ -571,4 +605,4 @@ function failMerchant(reply, error) {
   return fail(reply, error.statusCode || 500, error.message || '商家服务异常');
 }
 
-module.exports = { registerMerchantRoutes, resolveMerchantAccess };
+module.exports = { registerMerchantRoutes, resolveMerchantAccess, ensureSettlementColumns };
