@@ -640,7 +640,7 @@ watch(activeTab, (tab) => {
 
 async function loadMvMerchantOptions() {
   try {
-    const data = await request.get('/api/admin/merchant/list', { params: { page: 1, pageSize: 200, sortBy: 'id', sortOrder: 'asc' } })
+    const data = await request.get('/api/admin/merchant/list', { params: { page: 1, pageSize: 100, sortBy: 'id', sortOrder: 'asc' } })
     mvMerchantOptions.value = (data?.list || [])
       .filter((m: any) => m.canVerify)
       .map((m: any) => ({ id: m.id, merchantName: m.merchantName }))

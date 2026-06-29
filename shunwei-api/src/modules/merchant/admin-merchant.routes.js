@@ -17,7 +17,7 @@ const manualVerifySchema = z.object({
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  pageSize: z.coerce.number().int().min(1).max(500).optional().default(20),
   keyword: z.string().trim().max(64).optional().default(''),
   category: z.string().trim().max(64).optional().default(''),
   sortBy: z.enum(['id', 'todayAmount', 'monthAmount', 'staffActive', 'staffBound', 'pending', 'lastVerify']).optional().default('id'),
