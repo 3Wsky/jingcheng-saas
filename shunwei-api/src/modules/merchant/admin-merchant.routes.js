@@ -5,6 +5,15 @@ const { swTable } = require('../../shared/sw-mysql');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { AdminMerchantStaffService } = require('./admin-merchant-staff.service');
+const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
+
+const manualVerifySchema = z.object({
+  uid: z.coerce.number().int().positive(),
+  amount: z.coerce.number().positive(),
+  merchantId: z.coerce.number().int().positive(),
+  operatorUid: z.coerce.number().int().positive(),
+  remark: z.string().trim().max(200).optional().default('')
+});
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -73,6 +82,7 @@ function mapMerchant(row) {
 function registerAdminMerchantRoutes(app) {
   const audit = new AdminAuditService();
   const staffService = new AdminMerchantStaffService();
+  const cashVoucherService = new CashVoucherService();
 
   app.get('/api/admin/merchant/list', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
@@ -538,6 +548,158 @@ function registerAdminMerchantRoutes(app) {
       totalAmount: list.reduce((sum, r) => sum + r.totalAmount, 0),
       list
     });
+  });
+
+  // ========== 后台手动核销现金券（小程序故障时的兜底入口）==========
+
+  // 查询客户现金券余额（用于手动核销前确认对象）
+  app.get('/api/admin/cash-voucher/lookup', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const uid = Number(request.query.uid || 0);
+    if (!uid || uid <= 0) return fail(reply, 400, '请输入有效的客户 UID');
+    try {
+      const [[user]] = await getPool().query(
+        `SELECT uid, nickname, phone FROM ${legacyTable('user')}
+         WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [uid]
+      );
+      if (!user) return fail(reply, 404, '客户不存在');
+      const wallet = await cashVoucherService.getWallet(uid);
+      return ok({
+        uid: Number(user.uid),
+        nickname: user.nickname || '',
+        phone: user.phone || '',
+        balance: Number(wallet.balance || 0),
+        batchCount: Number(wallet.batchCount || 0)
+      });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '客户查询失败');
+    }
+  });
+
+  // 查询某商家的可选核销员（店长 + 店员 + 绑定账号）
+  app.get('/api/admin/merchant/:id/verify-staff', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const merchantId = Number(request.params.id);
+    if (!merchantId) return fail(reply, 400, '商家 ID 无效');
+    await staffService.ensureTable();
+
+    const [[merchant]] = await getPool().query(
+      `SELECT id, merchant_name, login_uid FROM ${swTable('merchant')} WHERE id = ? LIMIT 1`,
+      [merchantId]
+    );
+    if (!merchant) return fail(reply, 404, '商家不存在');
+
+    const [rows] = await getPool().query(
+      `SELECT ms.staff_uid, ms.role, u.nickname, u.phone
+       FROM ${swTable('merchant_staff')} ms
+       LEFT JOIN ${legacyTable('user')} u ON u.uid = ms.staff_uid
+       WHERE ms.merchant_id = ? AND ms.is_active = 1
+       ORDER BY ms.role = 'manager' DESC, ms.id ASC`,
+      [merchantId]
+    );
+
+    const staffMap = new Map();
+    for (const r of rows) {
+      const uid = Number(r.staff_uid || 0);
+      if (!uid) continue;
+      staffMap.set(uid, {
+        uid,
+        role: r.role === 'manager' ? 'manager' : 'staff',
+        nickname: r.nickname || `UID:${uid}`,
+        phone: r.phone || ''
+      });
+    }
+
+    // 商家绑定账号（login_uid）若不在核销员表中也补进来，作为店长
+    const ownerUid = Number(merchant.login_uid || 0);
+    if (ownerUid && !staffMap.has(ownerUid)) {
+      const [[ownerUser]] = await getPool().query(
+        `SELECT uid, nickname, phone FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+        [ownerUid]
+      );
+      staffMap.set(ownerUid, {
+        uid: ownerUid,
+        role: 'manager',
+        nickname: ownerUser?.nickname || `UID:${ownerUid}`,
+        phone: ownerUser?.phone || ''
+      });
+    }
+
+    return ok({
+      merchantId,
+      merchantName: merchant.merchant_name || '',
+      list: [...staffMap.values()]
+    });
+  });
+
+  // 执行手动核销：复用与小程序完全一致的核销事务
+  app.post('/api/admin/cash-voucher/manual-verify', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = manualVerifySchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    const { uid, amount, merchantId, operatorUid, remark } = parsed.data;
+    const session = getAdminSession(request);
+
+    // 校验商家有效且具备核销权限
+    const [[merchant]] = await getPool().query(
+      `SELECT id, merchant_name, login_uid, can_verify, is_active FROM ${swTable('merchant')} WHERE id = ? LIMIT 1`,
+      [merchantId]
+    );
+    if (!merchant || Number(merchant.is_active) !== 1) {
+      return fail(reply, 404, '商家不存在或已停用');
+    }
+    if (Number(merchant.can_verify) !== 1) {
+      return fail(reply, 400, '该商家未开通核销权限');
+    }
+
+    // 校验核销员属于该商家（核销员表中存在，或为商家绑定账号）
+    await staffService.ensureTable();
+    const [[staffRow]] = await getPool().query(
+      `SELECT id FROM ${swTable('merchant_staff')}
+       WHERE merchant_id = ? AND staff_uid = ? AND is_active = 1 LIMIT 1`,
+      [merchantId, operatorUid]
+    );
+    const isOwner = Number(merchant.login_uid || 0) === operatorUid;
+    if (!staffRow && !isOwner) {
+      return fail(reply, 400, '所选核销员不属于该商家');
+    }
+
+    const finalRemark = remark || `后台手动核销（操作管理员：${session?.username || '-'}）`;
+    try {
+      const result = await cashVoucherService.verify(uid, amount, operatorUid, merchantId, finalRemark);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'cash_voucher_manual_verify',
+        targetType: 'user',
+        targetId: uid,
+        payload: {
+          uid,
+          amount: result.amount,
+          merchantId,
+          merchantName: merchant.merchant_name || '',
+          operatorUid,
+          bizId: result.bizId,
+          balanceAfter: result.balanceAfter,
+          remark: finalRemark
+        },
+        ip: getClientIp(request)
+      });
+      return ok(result, '手动核销成功');
+    } catch (error) {
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'cash_voucher_manual_verify',
+        targetType: 'user',
+        targetId: uid,
+        payload: { uid, amount, merchantId, operatorUid, remark: finalRemark },
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '手动核销失败');
+    }
   });
 }
 

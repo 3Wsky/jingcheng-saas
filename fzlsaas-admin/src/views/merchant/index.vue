@@ -4,6 +4,7 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="商家列表" name="list" />
         <el-tab-pane label="核销员排行" name="leaderboard" />
+        <el-tab-pane label="手动核销" name="manual-verify" />
         <el-tab-pane label="开通商家" name="create" />
       </el-tabs>
     </template>
@@ -176,7 +177,115 @@
       </el-table>
     </template>
 
-    <el-form v-else :model="createForm" label-width="120px" style="max-width:600px">
+    <!-- ============ 手动核销 ============ -->
+    <template v-if="activeTab === 'manual-verify'">
+      <div class="mv-wrap">
+        <el-alert type="warning" :closable="false" show-icon class="mv-tip">
+          <template #title>
+            <span>应急手动核销：小程序无法核销时，管理员可在此代核销现金券。</span>
+          </template>
+          核销逻辑与小程序<strong>完全一致</strong>（扣客户现金券、记账到指定商家与核销员、计入待结算），操作会写入审计日志。请谨慎使用。
+        </el-alert>
+
+        <el-form :model="mvForm" label-width="110px" class="mv-form">
+          <el-divider content-position="left">① 选择核销商家与核销员</el-divider>
+          <el-form-item label="核销商家" required>
+            <el-select
+              v-model="mvForm.merchantId"
+              placeholder="请选择商家"
+              filterable
+              style="width: 320px"
+              @change="onMvMerchantChange"
+            >
+              <el-option v-for="m in mvMerchantOptions" :key="m.id" :label="m.merchantName" :value="m.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="核销员" required>
+            <el-select
+              v-model="mvForm.operatorUid"
+              placeholder="请先选择商家"
+              :disabled="!mvForm.merchantId"
+              :loading="mvStaffLoading"
+              style="width: 320px"
+            >
+              <el-option
+                v-for="s in mvStaffList"
+                :key="s.uid"
+                :label="`${s.nickname}（UID:${s.uid}）${s.role === 'manager' ? ' · 店长' : ''}`"
+                :value="s.uid"
+              />
+              <template #empty>
+                <p class="mv-empty">该商家暂无核销员，请先在「会员管理 → 商家角色」开通</p>
+              </template>
+            </el-select>
+          </el-form-item>
+
+          <el-divider content-position="left">② 确认客户与金额</el-divider>
+          <el-form-item label="客户 UID" required>
+            <el-input
+              v-model="mvForm.uid"
+              placeholder="输入客户 UID"
+              style="width: 220px"
+              @keyup.enter="lookupCustomer"
+            >
+              <template #append>
+                <el-button :loading="mvLookupLoading" @click="lookupCustomer">查询余额</el-button>
+              </template>
+            </el-input>
+          </el-form-item>
+
+          <el-form-item v-if="mvCustomer" label="客户信息">
+            <div class="mv-customer-card">
+              <div class="mv-customer-row">
+                <span class="mv-cust-name">{{ mvCustomer.nickname || '（无昵称）' }}</span>
+                <span class="mv-cust-uid">UID {{ mvCustomer.uid }}</span>
+                <span v-if="mvCustomer.phone" class="mv-cust-phone">{{ mvCustomer.phone }}</span>
+              </div>
+              <div class="mv-customer-row">
+                <span class="mv-cust-label">现金券可用余额：</span>
+                <span class="mv-balance" :class="{ 'mv-balance-low': mvCustomer.balance <= 0 }">
+                  ¥{{ fmtAmount(mvCustomer.balance) }}
+                </span>
+                <span class="mv-cust-batch">（{{ mvCustomer.batchCount }} 个批次）</span>
+              </div>
+            </div>
+          </el-form-item>
+
+          <el-form-item label="核销金额" required>
+            <el-input-number
+              v-model="mvForm.amount"
+              :min="0.01"
+              :precision="2"
+              :step="1"
+              controls-position="right"
+              style="width: 220px"
+              placeholder="如 212.33"
+            />
+            <span class="mv-amount-hint">支持小数，如 212.33</span>
+          </el-form-item>
+          <el-form-item label="备注">
+            <el-input
+              v-model="mvForm.remark"
+              type="textarea"
+              :rows="2"
+              maxlength="200"
+              show-word-limit
+              placeholder="可选，如：212.33 现金券小程序核销失败，后台补核销"
+              style="width: 420px"
+            />
+          </el-form-item>
+
+          <el-form-item>
+            <el-button type="primary" :loading="mvSubmitting" :disabled="!canSubmitMv" @click="submitManualVerify">
+              确认核销
+            </el-button>
+            <el-button @click="resetMvForm">重置</el-button>
+          </el-form-item>
+        </el-form>
+      </div>
+    </template>
+
+    <el-form v-else-if="activeTab === 'create'" :model="createForm" label-width="120px" style="max-width:600px">
       <el-alert type="info" :closable="false" show-icon class="create-tip">
         商家资料用于小程序「现金券 → 可核销商家」展示。人员权限请在<strong>会员管理 → 商家角色</strong>开通（用户需先登录小程序）。
       </el-alert>
@@ -406,6 +515,28 @@ const lbLoading = ref(false)
 const lbTotalCount = ref(0)
 const lbTotalAmount = ref(0)
 const merchantOptions = ref<{ id: number; merchantName: string }[]>([])
+
+// ===== 手动核销 =====
+const mvMerchantOptions = ref<{ id: number; merchantName: string }[]>([])
+const mvStaffList = ref<{ uid: number; role: string; nickname: string; phone: string }[]>([])
+const mvStaffLoading = ref(false)
+const mvLookupLoading = ref(false)
+const mvSubmitting = ref(false)
+const mvCustomer = ref<{ uid: number; nickname: string; phone: string; balance: number; batchCount: number } | null>(null)
+const mvForm = ref<{ merchantId: number | undefined; operatorUid: number | undefined; uid: string; amount: number | undefined; remark: string }>({
+  merchantId: undefined,
+  operatorUid: undefined,
+  uid: '',
+  amount: undefined,
+  remark: ''
+})
+const canSubmitMv = computed(() =>
+  !!mvForm.value.merchantId &&
+  !!mvForm.value.operatorUid &&
+  Number(mvForm.value.uid) > 0 &&
+  Number(mvForm.value.amount) > 0
+)
+
 const creating = ref(false)
 const createForm = ref({
   merchantName: '', category: '', contactName: '', contactPhone: '', loginUid: 0, canVerify: true,
@@ -527,7 +658,114 @@ watch(activeTab, (tab) => {
     loadMerchantOptions()
     if (!leaderboard.value.length) loadLeaderboard()
   }
+  if (tab === 'manual-verify' && !mvMerchantOptions.value.length) {
+    loadMvMerchantOptions()
+  }
 })
+
+async function loadMvMerchantOptions() {
+  try {
+    const data = await request.get('/api/admin/merchant/list', { params: { page: 1, pageSize: 200, sortBy: 'id', sortOrder: 'asc' } })
+    mvMerchantOptions.value = (data?.list || [])
+      .filter((m: any) => m.canVerify)
+      .map((m: any) => ({ id: m.id, merchantName: m.merchantName }))
+  } catch {
+    mvMerchantOptions.value = []
+  }
+}
+
+async function onMvMerchantChange() {
+  mvForm.value.operatorUid = undefined
+  mvStaffList.value = []
+  if (!mvForm.value.merchantId) return
+  mvStaffLoading.value = true
+  try {
+    const data = await request.get(`/api/admin/merchant/${mvForm.value.merchantId}/verify-staff`)
+    mvStaffList.value = data?.list || []
+    if (mvStaffList.value.length === 1) {
+      mvForm.value.operatorUid = mvStaffList.value[0].uid
+    }
+  } catch {
+    mvStaffList.value = []
+  } finally {
+    mvStaffLoading.value = false
+  }
+}
+
+async function lookupCustomer() {
+  const uid = Number(mvForm.value.uid)
+  if (!uid || uid <= 0) {
+    ElMessage.warning('请输入有效的客户 UID')
+    return
+  }
+  mvLookupLoading.value = true
+  mvCustomer.value = null
+  try {
+    mvCustomer.value = await request.get('/api/admin/cash-voucher/lookup', { params: { uid } })
+  } catch {
+    mvCustomer.value = null
+  } finally {
+    mvLookupLoading.value = false
+  }
+}
+
+function resetMvForm() {
+  mvForm.value = { merchantId: undefined, operatorUid: undefined, uid: '', amount: undefined, remark: '' }
+  mvStaffList.value = []
+  mvCustomer.value = null
+}
+
+async function submitManualVerify() {
+  if (!canSubmitMv.value) return
+  const uid = Number(mvForm.value.uid)
+  const amount = Number(mvForm.value.amount)
+  const merchant = mvMerchantOptions.value.find((m) => m.id === mvForm.value.merchantId)
+  const staff = mvStaffList.value.find((s) => s.uid === mvForm.value.operatorUid)
+
+  // 核销前确认余额（若未查询过则先查）
+  if (!mvCustomer.value || mvCustomer.value.uid !== uid) {
+    await lookupCustomer()
+    if (!mvCustomer.value) return
+  }
+  if (mvCustomer.value.balance + 0.001 < amount) {
+    ElMessage.error(`客户余额不足：可用 ¥${fmtAmount(mvCustomer.value.balance)}，需核销 ¥${fmtAmount(amount)}`)
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `<div style="line-height:1.9">
+        <div>客户：<b>${mvCustomer.value.nickname || '（无昵称）'}</b>（UID ${uid}）</div>
+        <div>核销金额：<b style="color:#ed7b2f">¥${fmtAmount(amount)}</b></div>
+        <div>归属商家：<b>${merchant?.merchantName || ''}</b></div>
+        <div>核销员：<b>${staff?.nickname || ''}</b>（UID ${mvForm.value.operatorUid}）</div>
+        <div style="margin-top:6px;color:#909399">核销后客户余额：¥${fmtAmount(mvCustomer.value.balance - amount)}</div>
+      </div>`,
+      '确认手动核销',
+      { confirmButtonText: '确认核销', cancelButtonText: '取消', dangerouslyUseHTMLString: true, type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  mvSubmitting.value = true
+  try {
+    const result = await request.post('/api/admin/cash-voucher/manual-verify', {
+      uid,
+      amount,
+      merchantId: mvForm.value.merchantId,
+      operatorUid: mvForm.value.operatorUid,
+      remark: mvForm.value.remark.trim()
+    })
+    ElMessage.success(`核销成功，客户余额 ¥${fmtAmount(result?.balanceAfter)}`)
+    resetMvForm()
+    loadOverview()
+  } catch {
+    /* handled by interceptor */
+  } finally {
+    mvSubmitting.value = false
+  }
+}
 
 async function handleCreate() {
   creating.value = true
@@ -697,6 +935,28 @@ function fmtAmount(val?: number) {
 <style scoped>
 .create-tip { margin-bottom: 16px; }
 .coord-sep { margin: 0 8px; color: #9CA3AF; }
+
+/* 手动核销 */
+.mv-wrap { max-width: 640px; }
+.mv-tip { margin-bottom: 20px; }
+.mv-form { margin-top: 8px; }
+.mv-empty { padding: 8px 0; color: #909399; font-size: 13px; text-align: center; }
+.mv-amount-hint { margin-left: 10px; font-size: 12px; color: #9CA3AF; }
+.mv-customer-card {
+  background: #f7f9fc;
+  border: 1px solid #e6ebf2;
+  border-radius: 10px;
+  padding: 12px 16px;
+  width: 420px;
+}
+.mv-customer-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; line-height: 1.9; }
+.mv-cust-name { font-weight: 600; font-size: 15px; color: #1f2733; }
+.mv-cust-uid { font-size: 12px; color: #909399; background: #eef1f6; padding: 1px 8px; border-radius: 4px; }
+.mv-cust-phone { font-size: 13px; color: #606266; }
+.mv-cust-label { font-size: 13px; color: #606266; }
+.mv-cust-batch { font-size: 12px; color: #909399; }
+.mv-balance { font-size: 18px; font-weight: 700; color: var(--gov-success, #00a870); font-variant-numeric: tabular-nums; }
+.mv-balance-low { color: #f56c6c; }
 .field-hint { margin: 4px 0 0; font-size: 12px; color: #9CA3AF; line-height: 1.4; }
 .stats-toolbar { display: flex; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 .staff-name { font-weight: 600; }
