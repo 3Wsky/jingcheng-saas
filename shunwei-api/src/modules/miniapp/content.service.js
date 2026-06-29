@@ -28,7 +28,7 @@ const DEFAULT_CASH_VOUCHER_TERMS = {
 
 const DEFAULT_ACTIVITY_RULES = {
   activityName: '米东区联盟消费券购机赠送活动',
-  subTitle: '活动说明（最终审核版）',
+  subTitle: '活动说明',
   updatedAt: '',
   notice: '本活动为米东区促消费活动组成部分，消费券数量有限，发完即止；点击领取为权益登记入口，最终以活动规则及门店核实结果为准。',
   sections: [

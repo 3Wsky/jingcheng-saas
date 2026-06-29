@@ -138,25 +138,7 @@ class AdminDashboardService {
 
     const trend = await this.buildTrend(pool, bounds.dayStart, bounds.trendDays);
 
-    let fundPool = { budget: 500000, integralGrantedTotal: 0, cashVoucherGrantedTotal: 0, used: 0, remain: 0, ratio: 0 };
-    try {
-      const [[budgetRow]] = await pool.query(
-        `SELECT config_value FROM ${swTable('system_config')} WHERE config_key = 'fund_pool_budget' LIMIT 1`
-      );
-      if (budgetRow?.config_value) fundPool.budget = Number(budgetRow.config_value);
-
-      const [[integralTotal]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-         WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','manual')`
-      );
-      fundPool.integralGrantedTotal = Number(integralTotal?.total || 0);
-
-      const integralAsYuan = Math.round(fundPool.integralGrantedTotal / 1000 * 100) / 100;
-      fundPool.cashVoucherGrantedTotal = cashVoucherGrantTotal;
-      fundPool.used = Math.round((integralAsYuan + cashVoucherGrantTotal) * 100) / 100;
-      fundPool.remain = Math.max(0, Math.round((fundPool.budget - fundPool.used) * 100) / 100);
-      fundPool.ratio = fundPool.budget > 0 ? Math.min(1, Math.round(fundPool.used / fundPool.budget * 10000) / 10000) : 0;
-    } catch { /* ignore */ }
+    const fundPool = await this.getFundPool();
 
     return {
       range,
@@ -178,6 +160,57 @@ class AdminDashboardService {
       fundPool,
       trend
     };
+  }
+
+  // 现金池额度：总预算(后台可配) vs 已发放(积分折现 + 现金券)；供看板与小程序进度图复用
+  async getFundPool() {
+    const pool = getPool();
+    const fundPool = {
+      budget: 500000,
+      integralGrantedTotal: 0,
+      cashVoucherGrantedTotal: 0,
+      used: 0,
+      remain: 0,
+      ratio: 0
+    };
+    try {
+      const [[budgetRow]] = await pool.query(
+        `SELECT config_value FROM ${swTable('system_config')} WHERE config_key = 'fund_pool_budget' LIMIT 1`
+      );
+      if (budgetRow?.config_value) fundPool.budget = Number(budgetRow.config_value) || fundPool.budget;
+
+      const [[integralTotal]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
+         WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','manual')`
+      );
+      fundPool.integralGrantedTotal = Number(integralTotal?.total || 0);
+
+      const [[cashTotalRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 1`
+      );
+      fundPool.cashVoucherGrantedTotal = Number(cashTotalRow?.total || 0);
+
+      const integralAsYuan = Math.round(fundPool.integralGrantedTotal / 1000 * 100) / 100;
+      fundPool.used = Math.round((integralAsYuan + fundPool.cashVoucherGrantedTotal) * 100) / 100;
+      fundPool.remain = Math.max(0, Math.round((fundPool.budget - fundPool.used) * 100) / 100);
+      fundPool.ratio = fundPool.budget > 0
+        ? Math.min(1, Math.round(fundPool.used / fundPool.budget * 10000) / 10000)
+        : 0;
+    } catch { /* ignore */ }
+    return fundPool;
+  }
+
+  async setFundPoolBudget(budget) {
+    const value = Math.max(0, Math.round(Number(budget) * 100) / 100);
+    const now = Math.floor(Date.now() / 1000);
+    await getPool().query(
+      `INSERT INTO ${swTable('system_config')} (config_key, config_value, remark, created_at, updated_at)
+       VALUES ('fund_pool_budget', ?, '现金池总预算(元)', ?, ?)
+       ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = VALUES(updated_at)`,
+      [String(value), now, now]
+    );
+    return this.getFundPool();
   }
 
   async buildTrend(pool, startSec, days) {

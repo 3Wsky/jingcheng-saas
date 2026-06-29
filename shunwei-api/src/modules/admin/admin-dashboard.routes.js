@@ -9,6 +9,10 @@ const rangeSchema = z.object({
   range: z.enum(['today', '7d', '30d']).optional().default('today')
 });
 
+const budgetSchema = z.object({
+  budget: z.coerce.number().min(0).max(1000000000)
+});
+
 const PAUSE_MSG = '网络传输故障，请稍后再试';
 
 async function isPaused(key) {
@@ -60,6 +64,29 @@ function registerAdminDashboardRoutes(app) {
       return ok({ type, enabled: Boolean(enabled) }, enabled ? '已暂停' : '已恢复');
     } catch (error) {
       return fail(reply, 500, error.message || '操作失败');
+    }
+  });
+
+  // 现金池额度：后台读取完整数据（总预算/已用/剩余/进度）
+  app.get('/api/admin/config/fund-pool', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      return ok(await service.getFundPool());
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '现金池数据读取失败');
+    }
+  });
+
+  // 现金池额度：后台设置总预算
+  app.put('/api/admin/config/fund-pool', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = budgetSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      const data = await service.setFundPoolBudget(parsed.data.budget);
+      return ok(data, '现金池总预算已更新');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '现金池预算更新失败');
     }
   });
 

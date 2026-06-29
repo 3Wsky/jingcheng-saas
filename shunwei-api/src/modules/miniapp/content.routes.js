@@ -2,6 +2,7 @@ const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
+const { AdminDashboardService } = require('../admin/admin-dashboard.service');
 const { ContentService } = require('./content.service');
 
 // 现金券使用须知：标题 + 条款数组
@@ -30,6 +31,7 @@ const updateSchema = z.object({
 
 function registerContentRoutes(app) {
   const service = new ContentService();
+  const dashboardService = new AdminDashboardService();
   const auditService = new AdminAuditService();
 
   // 公开读取（小程序用，免登录）
@@ -38,6 +40,23 @@ function registerContentRoutes(app) {
       return ok(await service.getContent());
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '内容读取失败');
+    }
+  });
+
+  // 公开读取现金池「进度」：仅返回比例与档位，绝不暴露预算/已用/剩余的具体金额
+  app.get('/api/miniapp/pool-status', async (_request, reply) => {
+    try {
+      const fp = await dashboardService.getFundPool();
+      const issuedRatio = Math.max(0, Math.min(1, Number(fp.ratio) || 0));
+      const remainRatio = Math.max(0, Math.min(1, Math.round((1 - issuedRatio) * 10000) / 10000));
+      // 档位仅用于文案/配色，不反推金额
+      let level = 'sufficient';
+      if (remainRatio <= 0.1) level = 'low';
+      else if (remainRatio <= 0.4) level = 'tight';
+      else if (remainRatio <= 0.7) level = 'half';
+      return ok({ issuedRatio, remainRatio, level });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '进度读取失败');
     }
   });
 
