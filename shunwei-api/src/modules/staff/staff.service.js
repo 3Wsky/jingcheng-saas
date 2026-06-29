@@ -165,6 +165,22 @@ class StaffService {
   async getStats(staffUid) {
     const access = await this.assertStaffOrManager(staffUid);
 
+    // 按精确 UID 取本人档案（避免前端用模糊关键字搜列表导致串号）
+    const [[userRow]] = await getPool().query(
+      `SELECT uid, nickname, phone, avatar, division_id FROM ${legacyTable('user')}
+       WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+      [staffUid]
+    );
+    const profile = userRow ? {
+      uid: Number(userRow.uid),
+      nickname: userRow.nickname || '',
+      phone: maskPhone(userRow.phone),
+      avatar: userRow.avatar || '',
+      divisionId: Number(userRow.division_id || 0),
+      divisionName: await this.resolveDivisionName(userRow.division_id),
+      isManager: access.isManager
+    } : null;
+
     const [members] = await getPool().query(
       `SELECT u.uid, u.nickname, u.phone, u.add_time AS registerAt,
               m.tier_code, m.expire_at
@@ -207,6 +223,7 @@ class StaffService {
 
     return {
       uid: staffUid,
+      profile,
       memberCount: members.length,
       members: members.map((m) => ({
         uid: m.uid,

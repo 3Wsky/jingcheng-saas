@@ -163,9 +163,9 @@ watch(() => [props.uid, visible.value, props.initialTab], async ([uid, open]) =>
   activeTab.value = props.initialTab || 'members'
   loading.value = true
   try {
-    const row = await request.get('/api/admin/staff/list', { params: { keyword: String(uid), pageSize: 1 } })
-    profile.value = row?.list?.[0] || { uid, nickname: '', phone: '', divisionName: '' }
+    // 按精确 UID 拉取统计 + 本人档案（profile 来自 stats，避免模糊关键字搜列表串号）
     stats.value = await request.get(`/api/admin/staff/${uid}/stats`)
+    profile.value = stats.value?.profile || { uid, nickname: '', phone: '', divisionName: '' }
     const card = await request.get(`/api/admin/staff/${uid}/card`).catch(() => ({}))
     cardForm.value = {
       displayName: card.displayName || '',
