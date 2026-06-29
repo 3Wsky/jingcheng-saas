@@ -416,11 +416,9 @@ class ApprovalService {
       { ...values, limit: pageSize, offset }
     );
 
-    const list = [];
-    for (const row of rows) {
-      const steps = await this.getStepsForRequest(row.id);
-      list.push(this.mapApprovalListItem(row, steps));
-    }
+    // 批量取 steps（避免 N+1：原先每条审批单单独查一次 steps）
+    const stepsByRequest = await this.getStepsForRequests(rows.map((r) => r.id));
+    const list = rows.map((row) => this.mapApprovalListItem(row, stepsByRequest[row.id] || []));
 
     return {
       total: Number(countRow?.total || 0),
@@ -428,6 +426,39 @@ class ApprovalService {
       pageSize,
       list
     };
+  }
+
+  /** 一次性按多个 requestId 批量取步骤，返回 { [requestId]: steps[] }，避免列表 N+1 查询 */
+  async getStepsForRequests(requestIds) {
+    const ids = (requestIds || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0);
+    if (!ids.length) return {};
+    try {
+      const [steps] = await getPool().query(
+        `SELECT s.*, u.nickname AS operator_nickname, u.phone AS operator_phone
+         FROM ${swTable('approval_step')} s
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = s.operator_uid
+         WHERE s.request_id IN (${ids.map(() => '?').join(',')})
+         ORDER BY s.id ASC`,
+        ids
+      );
+      const grouped = {};
+      for (const s of steps) {
+        const rid = Number(s.request_id);
+        if (!grouped[rid]) grouped[rid] = [];
+        grouped[rid].push({
+          stepRole: s.step_role || s.role || '',
+          operatorUid: Number(s.operator_uid || s.assignee_uid || 0),
+          operatorNickname: s.operator_nickname || '',
+          operatorPhone: s.operator_phone || '',
+          action: s.action || '',
+          comment: s.comment || s.remark || '',
+          createdAt: Number(s.created_at || 0)
+        });
+      }
+      return grouped;
+    } catch {
+      return {};
+    }
   }
 
   async getApprovalDetail(requestId) {
@@ -526,12 +557,11 @@ class ApprovalService {
     const pool = getPool();
 
     if (input.scope === 'integral_mall' || input.scope === 'all') {
-      const enabled = input.scope === 'all' ? input.enabled : input.enabled;
       await pool.query(
         `INSERT INTO ${swTable('system_config')} (config_key, config_value, updated_at)
          VALUES ('integral_mall_skip_approval', ?, ?)
          ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = VALUES(updated_at)`,
-        [enabled ? '1' : '0', now]
+        [input.enabled ? '1' : '0', now]
       );
     }
 

@@ -46,8 +46,21 @@ async function buildServer() {
     }
   });
 
+  // CORS：默认反射来源（兼容小程序 WebView 无固定 Origin + Bearer token 鉴权）。
+  // 生产可用 CORS_ORIGINS=https://a.com,https://b.com 显式收窄为白名单，更安全。
+  const corsAllowList = String(process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const corsOrigin = corsAllowList.length
+    ? (origin, cb) => {
+        // 无 Origin（小程序/同源/服务端调用）或命中白名单 → 放行；否则拒绝
+        if (!origin || corsAllowList.includes(origin)) return cb(null, true);
+        return cb(null, false);
+      }
+    : true;
   await app.register(cors, {
-    origin: true,
+    origin: corsOrigin,
     allowedHeaders: ['Content-Type', 'Authorization', 'Authori-zation', 'Cb-lang'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
   });

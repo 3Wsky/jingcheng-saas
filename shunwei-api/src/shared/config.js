@@ -42,7 +42,7 @@ const config = {
       database: process.env.CRMEB_DB_NAME || 'crmeb',
       prefix: process.env.CRMEB_DB_PREFIX || 'eb_',
       charset: process.env.CRMEB_DB_CHARSET || 'utf8mb4',
-      connectionLimit: Number(process.env.CRMEB_DB_CONNECTION_LIMIT || 5)
+      connectionLimit: Number(process.env.CRMEB_DB_CONNECTION_LIMIT || 10)
     }
   },
   admin: {
