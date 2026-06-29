@@ -144,27 +144,44 @@ class CashVoucherService {
       const now = Math.floor(Date.now() / 1000);
       const bizId = `CV${now}${uid}${Math.random().toString(36).slice(2, 6)}`;
 
+      let deductedTotal = 0;
+      let ledgerRows = 0;
       for (const batch of batches) {
         if (remaining <= 0) break;
         const batchRemain = roundMoney(batch.remain_amount);
         const deduct = roundMoney(Math.min(batchRemain, remaining));
 
-        const newRemain = batchRemain - deduct;
-        await connection.query(
+        const newRemain = roundMoney(batchRemain - deduct);
+        const [upd] = await connection.query(
           `UPDATE ${swTable('cash_voucher_batch')}
            SET remain_amount = ?, status = ?, updated_at = ?
-           WHERE id = ?`,
-          [newRemain, newRemain > 0 ? 1 : 0, now, batch.id]
+           WHERE id = ? AND remain_amount = ?`,
+          [newRemain, newRemain > 0 ? 1 : 0, now, batch.id, batchRemain]
         );
+        // 乐观锁：若该批次余额已被并发改动（affectedRows=0），中止整笔事务，避免“扣不到却记账”
+        if (!upd.affectedRows) {
+          const error = new Error('核销繁忙，请重试');
+          error.statusCode = 409;
+          throw error;
+        }
 
-        await connection.query(
+        const [ins] = await connection.query(
           `INSERT INTO ${swTable('cash_voucher_ledger')}
            (uid, direction, amount, batch_id, merchant_id, operator_uid, biz_id, remark, created_at)
            VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
           [uid, deduct, batch.id, merchantId, operatorUid, bizId, remark || '现金券核销', now]
         );
+        if (ins.affectedRows) ledgerRows += 1;
 
-        remaining -= deduct;
+        deductedTotal = roundMoney(deductedTotal + deduct);
+        remaining = roundMoney(remaining - deduct);
+      }
+
+      // 一致性自检：实际扣减必须等于核销金额，否则回滚（绝不允许“商家入账≠用户扣减”）
+      if (roundMoney(deductedTotal) !== verifyAmount) {
+        const error = new Error('核销扣减异常已自动取消，请重试');
+        error.statusCode = 500;
+        throw error;
       }
 
       if (merchantId > 0) {
@@ -177,9 +194,27 @@ class CashVoucherService {
       }
 
       await connection.commit();
+
+      // 核销审计日志：每笔成功核销都落日志，便于事后核对“商家成功是否=用户扣减”
+      try {
+        console.log('[cash-voucher.verify] OK', JSON.stringify({
+          bizId, uid, operatorUid, merchantId,
+          verifyAmount, deductedTotal, ledgerRows,
+          balanceBefore: totalAvailable,
+          balanceAfter: roundMoney(totalAvailable - verifyAmount),
+          at: now
+        }));
+      } catch (e) { /* ignore logging error */ }
+
       return { bizId, amount: verifyAmount, balanceAfter: roundMoney(totalAvailable - verifyAmount) };
     } catch (error) {
       await connection.rollback();
+      try {
+        console.error('[cash-voucher.verify] ROLLBACK', JSON.stringify({
+          uid, operatorUid, merchantId, verifyAmount,
+          reason: error.message
+        }));
+      } catch (e) { /* ignore */ }
       throw error;
     } finally {
       connection.release();
