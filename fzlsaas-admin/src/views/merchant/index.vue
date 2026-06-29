@@ -317,11 +317,8 @@
         <p class="field-hint">可选。用于小程序门店定位导航</p>
       </el-form-item>
       <el-form-item label="营业时间">
-        <div class="time-range-picker">
-          <el-time-select v-model="createTimeStart" start="00:00" end="23:30" step="00:30" placeholder="开始" style="width: 130px" @change="syncCreateBusinessHours" />
-          <span class="time-sep">至</span>
-          <el-time-select v-model="createTimeEnd" :start="createTimeStart || '00:00'" end="23:30" step="00:30" placeholder="结束" style="width: 130px" @change="syncCreateBusinessHours" />
-        </div>
+        <BusinessHoursEditor v-model="createForm.businessHours" />
+        <p class="field-hint">支持跨夜（如 13:00-次日01:30）与多时段（周一至四 / 周五至日）</p>
       </el-form-item>
     </el-form>
   </PageShell>
@@ -351,11 +348,8 @@
             <ImageListInput v-model="storeImages" :max="6" />
           </el-form-item>
           <el-form-item label="营业时间">
-            <div class="time-range-picker">
-              <el-time-select v-model="editTimeStart" start="00:00" end="23:30" step="00:30" placeholder="开始" style="width: 130px" @change="syncEditBusinessHours" />
-              <span class="time-sep">至</span>
-              <el-time-select v-model="editTimeEnd" :start="editTimeStart || '00:00'" end="23:30" step="00:30" placeholder="结束" style="width: 130px" @change="syncEditBusinessHours" />
-            </div>
+            <BusinessHoursEditor v-model="editForm.businessHours" />
+            <p class="field-hint">支持跨夜（如 13:00-次日01:30）与多时段（周一至四 / 周五至日）</p>
           </el-form-item>
 
           <el-divider content-position="left">权限与结算</el-divider>
@@ -479,6 +473,7 @@ import PageShell from '@/components/PageShell.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import StatCard from '@/components/StatCard.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
+import BusinessHoursEditor from '@/components/BusinessHoursEditor.vue'
 import UidLink from '@/components/UidLink.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
@@ -558,26 +553,6 @@ const staffStats = ref<any[]>([])
 const statsLoading = ref(false)
 const statsPeriod = ref<'day' | 'week' | 'month'>('day')
 const statsDateRange = ref<[string, string] | null>(null)
-
-const createTimeStart = ref('')
-const createTimeEnd = ref('')
-const editTimeStart = ref('')
-const editTimeEnd = ref('')
-
-function parseBusinessHours(val: string) {
-  const m = String(val || '').match(/^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$/)
-  return m ? [m[1], m[2]] : ['', '']
-}
-
-function syncCreateBusinessHours() {
-  createForm.value.businessHours = (createTimeStart.value && createTimeEnd.value)
-    ? `${createTimeStart.value}-${createTimeEnd.value}` : ''
-}
-
-function syncEditBusinessHours() {
-  editForm.value.businessHours = (editTimeStart.value && editTimeEnd.value)
-    ? `${editTimeStart.value}-${editTimeEnd.value}` : ''
-}
 
 onMounted(() => {
   loadList()
@@ -781,8 +756,6 @@ async function handleCreate() {
       storeAddress: '', province: '', city: '', district: '', latitude: 0, longitude: 0, businessHours: ''
     }
     createStoreImages.value = ['']
-    createTimeStart.value = ''
-    createTimeEnd.value = ''
     activeTab.value = 'list'
     loadList()
   } catch { /* handled */ }
@@ -798,9 +771,6 @@ async function openEdit(row: any) {
     editForm.value = { ...row }
   }
   storeImages.value = editForm.value.storeImages?.length ? [...editForm.value.storeImages] : ['']
-  const [es, ee] = parseBusinessHours(editForm.value.businessHours)
-  editTimeStart.value = es
-  editTimeEnd.value = ee
   canVerifyOriginal.value = Boolean(editForm.value.canVerify)
   logPage.value = 1
   logDateRange.value = null

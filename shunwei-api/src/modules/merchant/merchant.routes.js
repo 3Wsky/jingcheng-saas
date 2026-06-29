@@ -49,6 +49,7 @@ function registerMerchantRoutes(app) {
       return ok(rows.map((row) => {
         let images = [];
         try { images = JSON.parse(row.store_images || '[]'); } catch { images = []; }
+        images = (Array.isArray(images) ? images : []).filter(Boolean);
         return {
           id: Number(row.id),
           merchantName: row.merchant_name || '',
@@ -58,6 +59,7 @@ function registerMerchantRoutes(app) {
           latitude: Number(row.latitude || 0),
           longitude: Number(row.longitude || 0),
           cover: images[0] || '',
+          images,
           businessHours: row.business_hours || ''
         };
       }));
