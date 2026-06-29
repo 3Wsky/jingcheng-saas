@@ -25,10 +25,25 @@ export default defineConfig(({ mode }) => ({
     },
   },
   build: {
+    chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
+        // 按依赖拆分独立 vendor 包：主包变小 + vendor 独立长缓存（业务改动不影响 vendor hash）
         manualChunks(id) {
-          if (id.includes('@wangeditor')) return 'wangeditor'
+          if (!id.includes('node_modules')) return
+          if (id.includes('@wangeditor') || id.includes('wangeditor')) return 'wangeditor'
+          if (id.includes('echarts') || id.includes('zrender')) return 'echarts'
+          if (id.includes('@element-plus/icons-vue')) return 'el-icons'
+          if (id.includes('element-plus')) return 'element-plus'
+          if (
+            id.includes('/vue/') ||
+            id.includes('/@vue/') ||
+            id.includes('/vue-router/') ||
+            id.includes('/pinia/') ||
+            id.includes('/vue-demi/')
+          ) return 'vue-vendor'
+          if (id.includes('/axios/')) return 'axios'
+          return 'vendor'
         },
       },
     },
