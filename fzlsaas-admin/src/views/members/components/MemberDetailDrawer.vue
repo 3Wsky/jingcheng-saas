@@ -54,7 +54,9 @@
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="现金券" name="voucher">
-            <el-table :data="cashVoucherBatches" size="small" max-height="240">
+            <div class="sub-head">余额批次</div>
+            <el-table :data="cashVoucherBatches" size="small" max-height="200">
+              <template #empty><el-empty description="暂无现金券批次" :image-size="48" /></template>
               <el-table-column prop="remainAmount" label="余额" width="80" />
               <el-table-column prop="sourceType" label="来源" />
               <el-table-column label="操作" width="72" align="center">
@@ -67,6 +69,30 @@
                     @click="reclaimVoucher(row)"
                   >回收</el-button>
                 </template>
+              </el-table-column>
+            </el-table>
+
+            <div class="sub-head">
+              消费明细
+              <span class="sub-sum">累计消费 ¥{{ formatMoney(cashVoucherUsedTotal) }}</span>
+            </div>
+            <el-table :data="cashVoucherUsage" size="small" max-height="260">
+              <template #empty><el-empty description="暂无消费记录" :image-size="48" /></template>
+              <el-table-column label="金额" width="92">
+                <template #default="{ row }">
+                  <span class="amt-out">-¥{{ formatMoney(row.amount) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="核销商家" min-width="120">
+                <template #default="{ row }">{{ row.merchantName || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="核销员" min-width="100">
+                <template #default="{ row }">
+                  {{ row.operatorNickname || (row.operatorUid ? 'UID:' + row.operatorUid : '—') }}
+                </template>
+              </el-table-column>
+              <el-table-column label="时间" width="140">
+                <template #default="{ row }">{{ fmtDateTime(row.createdAt) }}</template>
               </el-table-column>
             </el-table>
           </el-tab-pane>
@@ -235,6 +261,8 @@ const profile = ref<any>(null)
 const integralSummary = ref<any>(null)
 const integralBatches = ref<any[]>([])
 const cashVoucherBatches = ref<any[]>([])
+const cashVoucherUsage = ref<any[]>([])
+const cashVoucherUsedTotal = ref(0)
 const membershipRecords = ref<any[]>([])
 const approvalHistory = ref<any[]>([])
 const activeTab = ref('batches')
@@ -264,6 +292,18 @@ function fmtTime(_row: any, _col: any, val: number) {
   return new Date(val * 1000).toLocaleDateString('zh-CN')
 }
 
+function fmtDateTime(val: number) {
+  if (!val) return '—'
+  const d = new Date(val * 1000)
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+function formatMoney(v: any) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n.toFixed(2) : '0.00'
+}
+
 async function loadDetail(uid: number) {
   loading.value = true
   try {
@@ -272,6 +312,8 @@ async function loadDetail(uid: number) {
     integralSummary.value = data.integralSummary
     integralBatches.value = data.integralBatches || []
     cashVoucherBatches.value = data.cashVoucherBatches || []
+    cashVoucherUsage.value = data.cashVoucherUsage || []
+    cashVoucherUsedTotal.value = Number(data.cashVoucherUsedTotal || 0)
     membershipRecords.value = data.membershipRecords || []
     approvalHistory.value = data.approvalHistory || []
     merchantRoles.value = data.merchantRoles || []
@@ -623,6 +665,10 @@ async function revokeMerchantRole(merchantId: number) {
 .mb-16 { margin-bottom: 16px; }
 .mt-16 { margin-top: 16px; }
 .hint { margin: 0 0 12px; font-size: 12px; color: #909399; line-height: 1.6; }
+.sub-head { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: #303133; }
+.sub-head:first-child { margin-top: 0; }
+.sub-sum { font-size: 12px; font-weight: 500; color: #e34d59; }
+.amt-out { color: #e34d59; font-weight: 600; }
 .current-roles { margin-top: 8px; padding-top: 12px; border-top: 1px solid #eee; }
 .current-title { font-size: 12px; color: #909399; margin-bottom: 8px; }
 .role-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }

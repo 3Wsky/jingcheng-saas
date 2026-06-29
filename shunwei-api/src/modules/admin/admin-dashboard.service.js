@@ -46,6 +46,24 @@ class AdminDashboardService {
       verifyToday += Number(v2?.cnt || 0);
     } catch { /* ignore */ }
 
+    // 已核销金额（现金券消费 direction=0 的金额合计）：累计 + 本期
+    let verifyAmountTotal = 0;
+    let verifyAmountInPeriod = 0;
+    try {
+      const [[totalRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 0`
+      );
+      verifyAmountTotal = Number(totalRow?.total || 0);
+
+      const [[periodRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 0 AND created_at >= ?`,
+        [bounds.dayStart]
+      );
+      verifyAmountInPeriod = Number(periodRow?.total || 0);
+    } catch { /* ignore */ }
+
     let pendingSettlement = 0;
     try {
       const [[settleRow]] = await pool.query(
@@ -145,6 +163,8 @@ class AdminDashboardService {
       cards: {
         memberTotal: Number(memberRow?.cnt || 0),
         verifyToday,
+        verifyAmountTotal,
+        verifyAmountInPeriod,
         pendingSettlement,
         pendingApproval,
         integralGrantedToday,

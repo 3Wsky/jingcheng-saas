@@ -175,6 +175,15 @@ const statCards = computed(() => [
   },
   { key: 'verify', type: 'verify', icon: 'Checked', title: '今日核销订单数', value: cards.value.verifyToday },
   {
+    key: 'verify-amount-total',
+    type: 'voucher',
+    icon: 'GoldMedal',
+    title: '已核销总金额',
+    value: cards.value.verifyAmountTotal,
+    prefix: '¥',
+    onClick: () => router.push('/finance-cash'),
+  },
+  {
     key: 'approval',
     type: 'approval',
     icon: 'Document',

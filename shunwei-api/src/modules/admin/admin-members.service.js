@@ -208,6 +208,41 @@ class AdminMembersService {
       cashVoucherBatches = cvRows;
     } catch { /* ignore */ }
 
+    // 现金券消费（核销）明细：direction=0 表示核销支出，含商家与核销员
+    let cashVoucherUsage = [];
+    let cashVoucherUsedTotal = 0;
+    try {
+      const [usageRows] = await pool.query(
+        `SELECT l.id, l.amount, l.merchant_id AS merchantId, l.operator_uid AS operatorUid,
+                l.biz_id AS bizId, l.remark, l.created_at AS createdAt,
+                m.merchant_name AS merchantName, u.nickname AS operatorNickname
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
+         WHERE l.uid = ? AND l.direction = 0
+         ORDER BY l.id DESC LIMIT 50`,
+        [uid]
+      );
+      cashVoucherUsage = usageRows.map((r) => ({
+        id: Number(r.id),
+        amount: Number(r.amount || 0),
+        merchantId: Number(r.merchantId || 0),
+        merchantName: r.merchantName || '',
+        operatorUid: Number(r.operatorUid || 0),
+        operatorNickname: r.operatorNickname || '',
+        bizId: r.bizId || '',
+        remark: r.remark || '',
+        createdAt: Number(r.createdAt || 0)
+      }));
+
+      const [[usedRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
+         WHERE uid = ? AND direction = 0`,
+        [uid]
+      );
+      cashVoucherUsedTotal = Number(usedRow?.total || 0);
+    } catch { /* ignore */ }
+
     let approvalHistory = [];
     try {
       const [apprRows] = await pool.query(
@@ -275,6 +310,8 @@ class AdminMembersService {
       integralSummary,
       integralBatches: batches,
       cashVoucherBatches,
+      cashVoucherUsage,
+      cashVoucherUsedTotal,
       membershipRecords: memberships.map((m) => ({
         id: m.id,
         tierCode: m.tier_code,
