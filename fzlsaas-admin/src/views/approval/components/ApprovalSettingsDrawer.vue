@@ -16,6 +16,17 @@
 
       <el-divider />
 
+      <el-form-item label="IMEI/SN 防重复台账">
+        <el-button :loading="backfilling" @click="runBackfill">回填历史已用码</el-button>
+        <p class="hint">
+          把<b>历史已通过</b>审批单的 IMEI/SN 登记为「已用」，防止老码被再次申请。
+          <b>首次启用免审前点一次即可</b>（可重复点，幂等）。
+        </p>
+        <p v-if="backfillResult" class="last-mod">{{ backfillResult }}</p>
+      </el-form-item>
+
+      <el-divider />
+
       <el-alert type="warning" :closable="false" show-icon title="危险区域">
         <template #default>
           <p class="hint">修改免审设置会影响全部门店，请谨慎操作</p>
@@ -42,6 +53,21 @@ const emit = defineEmits<{ saved: [] }>()
 const form = ref({ consumption: false, integralMall: false })
 const saving = ref(false)
 const lastModified = ref('')
+const backfilling = ref(false)
+const backfillResult = ref('')
+
+async function runBackfill() {
+  backfilling.value = true
+  try {
+    const r = await request.post('/api/admin/approval/code-usage/backfill', {})
+    backfillResult.value = `已登记历史已用码：扫描 ${r?.approvedScanned ?? 0} 张已通过单，新登记 ${r?.codesInserted ?? 0} 个码`
+    ElMessage.success('回填完成')
+  } catch {
+    /* handled by interceptor */
+  } finally {
+    backfilling.value = false
+  }
+}
 
 watch(visible, async (open) => {
   if (!open) return
