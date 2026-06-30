@@ -97,14 +97,17 @@ function registerSuperuserRoutes(app) {
     try {
       const pool = getPool();
       const configs = {};
+      // 消费免审统一用功能键 consumption_auto_pass_on_code_match（tryAutoPassByCode 实际读取）；
+      // 旧键 approval_auto_pass_consumption 仅向后兼容兜底。
       const [rows] = await pool.query(
         `SELECT config_key, config_value FROM ${swTable('system_config')}
-         WHERE config_key IN ('approval_auto_pass_consumption', 'integral_mall_skip_approval')`
+         WHERE config_key IN ('consumption_auto_pass_on_code_match', 'approval_auto_pass_consumption', 'integral_mall_skip_approval')`
       );
       rows.forEach(r => { configs[r.config_key] = r.config_value; });
+      const on = (v) => v === '1' || v === 'true';
 
       return ok({
-        consumption: configs['approval_auto_pass_consumption'] === '1',
+        consumption: on(configs['consumption_auto_pass_on_code_match']) || on(configs['approval_auto_pass_consumption']),
         integralMall: configs['integral_mall_skip_approval'] !== '0'
       });
     } catch (error) {
@@ -120,13 +123,27 @@ function registerSuperuserRoutes(app) {
     if (!['consumption', 'integralMall'].includes(type)) return fail(reply, 400, '类型无效');
 
     try {
-      const key = type === 'consumption' ? 'approval_auto_pass_consumption' : 'integral_mall_skip_approval';
       const val = enabled ? '1' : '0';
-      await getPool().query(
-        `INSERT INTO ${swTable('system_config')} (config_key, config_value) VALUES (?, ?)
-         ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
-        [key, val]
-      );
+      const pool = getPool();
+      if (type === 'consumption') {
+        // 写功能键（tryAutoPassByCode 读取）+ 同步旧键，保证后台/小程序两端一致
+        await pool.query(
+          `INSERT INTO ${swTable('system_config')} (config_key, config_value) VALUES ('consumption_auto_pass_on_code_match', ?)
+           ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+          [val]
+        );
+        await pool.query(
+          `INSERT INTO ${swTable('system_config')} (config_key, config_value) VALUES ('approval_auto_pass_consumption', ?)
+           ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+          [val]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO ${swTable('system_config')} (config_key, config_value) VALUES ('integral_mall_skip_approval', ?)
+           ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)`,
+          [val]
+        );
+      }
       return ok({ type, enabled: Boolean(enabled) }, enabled ? '免审已开启' : '免审已关闭');
     } catch (error) {
       return fail(reply, 500, error.message || '设置失败');
