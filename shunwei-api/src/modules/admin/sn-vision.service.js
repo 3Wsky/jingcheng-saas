@@ -3,7 +3,7 @@ const { AiImageService } = require('../ai-image/ai-image.service');
 const { isMiniappConfigured, printedTextOcr } = require('../wechat/wechat-mp.service');
 
 const VISION_PROMPT =
-  '请识别这张图片中手机包装/标签上的 IMEI 码（IMEI / IMEI1 / MEID，通常是 15 位纯数字），同时尽量识别 SN（序列号）。只返回 JSON，不要其他说明。格式：{"imei": "识别到的IMEI码", "sn": "识别到的SN码", "brand": "品牌", "model": "型号"}。识别不到就填空字符串。优先返回 IMEI。';
+  '请识别这张图片中数码产品包装/标签上的标识码。手机通常有 IMEI 码（IMEI/IMEI1/MEID，15 位纯数字），双卡手机还有第二个 IMEI（IMEI2）；平板/电脑/智能穿戴等可能只有 SN（序列号，常含字母）。请尽量识别：第一个 IMEI（imei）、第二个 IMEI（imei2，没有就留空）、SN（sn）。只返回 JSON，不要其他说明。格式：{"imei": "第一个IMEI", "imei2": "第二个IMEI(双卡才有)", "sn": "SN序列号", "brand": "品牌", "model": "型号"}。识别不到的字段填空字符串。手机优先返回 imei，无 IMEI 的产品返回 sn。';
 
 let aiImageService = null;
 
@@ -42,22 +42,48 @@ function buildChatCompletionsUrl(baseUrl) {
   return base.endsWith('/v1') ? `${base}/chat/completions` : `${base}/v1/chat/completions`;
 }
 
-function parseImeiFromText(raw) {
-  // IMEI 通常是 15 位纯数字（部分写法 14-17 位）。优先抓带 IMEI/MEID 标签的；否则抓孤立的 15 位数字。
+function normalizeImeiDigits(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  return digits.length >= 14 && digits.length <= 17 ? digits : '';
+}
+
+/** 解析文本中的 IMEI1/IMEI2：优先抓带标签的（IMEI1/IMEI2/MEID），否则取出现的 15 位数字（去重，第1个=imei，第2个=imei2）。 */
+function parseImeisFromText(raw) {
+  let imei = '';
+  let imei2 = '';
+
+  const imei2Match = raw.match(/IMEI\s*2[^0-9]{0,6}(\d[\d\s-]{12,18}\d)/i);
+  if (imei2Match) imei2 = normalizeImeiDigits(imei2Match[1]);
+
   const labeled = [
     /IMEI\s*1?[^0-9]{0,6}(\d[\d\s-]{12,18}\d)/i,
     /MEID[^0-9]{0,6}(\d[\d\s-]{12,18}\d)/i
   ];
   for (const pattern of labeled) {
     const match = raw.match(pattern);
-    if (match && match[1]) {
-      const digits = match[1].replace(/\D/g, '');
-      if (digits.length >= 14 && digits.length <= 17) return digits;
+    if (match) {
+      const digits = normalizeImeiDigits(match[1]);
+      if (digits && digits !== imei2) { imei = digits; break; }
     }
   }
-  const candidates = raw.match(/\b\d{15}\b/g) || [];
-  if (candidates.length) return candidates[0];
-  return '';
+
+  // 兜底：从所有孤立 15 位数字里按顺序取（去重），补齐 imei / imei2
+  if (!imei || !imei2) {
+    const seen = new Set();
+    const candidates = [];
+    for (const c of raw.match(/\b\d{15}\b/g) || []) {
+      if (!seen.has(c)) { seen.add(c); candidates.push(c); }
+    }
+    const pool = candidates.filter((c) => c !== imei && c !== imei2);
+    if (!imei && pool.length) imei = pool.shift();
+    if (!imei2 && pool.length) imei2 = pool.shift();
+  }
+
+  return { imei, imei2 };
+}
+
+function parseImeiFromText(raw) {
+  return parseImeisFromText(raw).imei;
 }
 
 function parseSnFromText(text) {
@@ -88,7 +114,8 @@ function parseSnFromText(text) {
     }
   }
 
-  return { sn, imei: parseImeiFromText(raw), brand: '', model: '' };
+  const imeis = parseImeisFromText(raw);
+  return { sn, imei: imeis.imei, imei2: imeis.imei2, brand: '', model: '' };
 }
 
 function parseVisionContent(content, model) {
@@ -97,10 +124,13 @@ function parseVisionContent(content, model) {
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      const imeiRaw = String(parsed.imei || '').replace(/\D/g, '');
+      const imei = normalizeImeiDigits(parsed.imei);
+      let imei2 = normalizeImeiDigits(parsed.imei2 || parsed.imei_2 || parsed.imeI2);
+      if (imei2 && imei2 === imei) imei2 = '';
       return {
         sn: String(parsed.sn || '').trim(),
-        imei: imeiRaw.length >= 14 && imeiRaw.length <= 17 ? imeiRaw : '',
+        imei,
+        imei2,
         brand: String(parsed.brand || '').trim(),
         model: String(parsed.model || '').trim(),
         raw: text,
