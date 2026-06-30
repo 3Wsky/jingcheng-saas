@@ -321,6 +321,18 @@ function registerAdminStaffRoutes(app) {
           );
         } catch { /* table may not exist */ }
 
+        // 撤销核销员身份：停用该用户在 sw_merchant_staff 里被分配的核销员/店长绑定。
+        // 注意：仅清被分配的核销员身份，不动「商家本人/登录账号」(sw_merchant.login_uid)。
+        let revokedVerifier = 0;
+        try {
+          const now = Math.floor(Date.now() / 1000);
+          const [vResult] = await conn.query(
+            `UPDATE ${swTable('merchant_staff')} SET is_active = 0, updated_at = ? WHERE staff_uid = ? AND is_active = 1`,
+            [now, uid]
+          );
+          revokedVerifier = vResult.affectedRows || 0;
+        } catch { /* table may not exist */ }
+
         const [result] = await conn.query(
           `UPDATE ${legacyTable('user')} SET spread_uid = 0 WHERE spread_uid = ? AND COALESCE(is_del,0) = 0`,
           [uid]
@@ -335,15 +347,17 @@ function registerAdminStaffRoutes(app) {
           action: 'staff_dismiss',
           targetType: 'staff',
           targetId: uid,
-          payload: { nickname: user.nickname, unboundMembers: unboundCount },
+          payload: { nickname: user.nickname, unboundMembers: unboundCount, revokedVerifier },
           ip: getClientIp(request)
         });
 
+        const verifierMsg = revokedVerifier > 0 ? `，撤销 ${revokedVerifier} 个核销员身份` : '';
         return ok({
           uid,
           nickname: user.nickname || '',
-          unboundMembers: unboundCount
-        }, `已离职，解除 ${unboundCount} 名会员的归属关系`);
+          unboundMembers: unboundCount,
+          revokedVerifier
+        }, `已离职，解除 ${unboundCount} 名会员的归属关系${verifierMsg}`);
       } catch (error) {
         await conn.rollback();
         throw error;
