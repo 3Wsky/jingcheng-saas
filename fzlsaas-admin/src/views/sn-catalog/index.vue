@@ -52,22 +52,22 @@
           <el-button text @click="downloadTemplate">下载 CSV 模板</el-button>
         </el-empty>
       </template>
-      <el-table-column prop="snCode" label="SN 码" min-width="160">
-        <template #default="{ row }"><span class="mono">{{ row.snCode }}</span></template>
+      <el-table-column prop="model" label="商品型号" min-width="240" fixed="left" show-overflow-tooltip>
+        <template #default="{ row }">{{ row.model || '—' }}</template>
       </el-table-column>
       <el-table-column prop="imei1" label="IMEI1（手机）" min-width="160">
         <template #default="{ row }"><span class="mono">{{ row.imei1 || '—' }}</span></template>
       </el-table-column>
-      <el-table-column prop="brand" label="品牌" width="120">
+      <el-table-column prop="snCode" label="SN 码" min-width="160">
+        <template #default="{ row }"><span class="mono">{{ row.snCode || '—' }}</span></template>
+      </el-table-column>
+      <el-table-column prop="brand" label="品牌" width="110">
         <template #default="{ row }">{{ row.brand || '—' }}</template>
       </el-table-column>
-      <el-table-column prop="model" label="型号" min-width="160">
-        <template #default="{ row }">{{ row.model || '—' }}</template>
-      </el-table-column>
-      <el-table-column prop="price" label="价格" width="110" align="right">
+      <el-table-column prop="price" label="价格" width="100" align="right">
         <template #default="{ row }">¥{{ formatMoney(row.price) }}</template>
       </el-table-column>
-      <el-table-column prop="remark" label="备注" min-width="140">
+      <el-table-column prop="remark" label="备注" min-width="120">
         <template #default="{ row }">{{ row.remark || '—' }}</template>
       </el-table-column>
       <el-table-column label="操作" width="130" align="center" fixed="right">
