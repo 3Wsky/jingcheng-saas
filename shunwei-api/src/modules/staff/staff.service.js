@@ -448,6 +448,11 @@ class StaffService {
   }
 
   async bindSpread(customerUid, staffUid) {
+    if (Number(customerUid) === Number(staffUid)) {
+      const error = new Error('不能绑定自己为客户经理');
+      error.statusCode = 400;
+      throw error;
+    }
     await this.assertStaff(staffUid);
     const [[customer]] = await getPool().query(
       `SELECT uid, spread_uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
@@ -461,10 +466,20 @@ class StaffService {
     if (Number(customer.spread_uid || 0) > 0) {
       return { uid: customerUid, spreadUid: Number(customer.spread_uid), bound: false, reason: 'already_bound' };
     }
-    await getPool().query(
-      `UPDATE ${legacyTable('user')} SET spread_uid = ? WHERE uid = ?`,
+    // 原子守卫：仅在仍无归属时落库；带 spread_uid=0/NULL 条件防止并发覆盖已有归属
+    const [upd] = await getPool().query(
+      `UPDATE ${legacyTable('user')} SET spread_uid = ?
+       WHERE uid = ? AND (spread_uid = 0 OR spread_uid IS NULL)`,
       [staffUid, customerUid]
     );
+    if (!upd.affectedRows) {
+      // 并发下被他人抢先绑定：重读真实归属返回，避免谎报成功
+      const [[fresh]] = await getPool().query(
+        `SELECT spread_uid FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+        [customerUid]
+      );
+      return { uid: customerUid, spreadUid: Number(fresh?.spread_uid || 0), bound: false, reason: 'already_bound' };
+    }
     return { uid: customerUid, spreadUid: staffUid, bound: true };
   }
 
