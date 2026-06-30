@@ -1,8 +1,13 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { SnCatalogService } = require('../admin/sn-catalog.service');
+const { ApprovalCodeUsageService } = require('./approval-code-usage.service');
 
 class ApprovalService {
+  constructor() {
+    this.codeUsage = new ApprovalCodeUsageService();
+  }
+
   fixedGiftIntegral(tierCode) {
     return tierCode === 'SW299' ? 299000 : tierCode === 'SW199' ? 199000 : 0;
   }
@@ -79,6 +84,17 @@ class ApprovalService {
         [customerUid, clerkUid]
       );
       if (pending) throw Object.assign(new Error('该会员已有待审批申请'), { statusCode: 409 });
+
+      // 防作弊①：收据里的 IMEI1/SN 不能是已被其它单用过的（一码一次，直接拦死）
+      const usage = await this.codeUsage.checkUsable(receiptNo || '', { conn: connection });
+      if (!usage.usable) {
+        const c = usage.conflicts[0];
+        const label = (c.type === 'imei1' ? 'IMEI' : 'SN') + '「' + (c.raw || c.norm) + '」';
+        throw Object.assign(
+          new Error(`该${label}已被使用过，不能重复申请权益`),
+          { statusCode: 409 }
+        );
+      }
 
       const requestNo = `AP${now}${clerkUid}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
       const [reqResult] = await connection.query(
@@ -249,6 +265,11 @@ class ApprovalService {
       const result = await catalog.verifyCodes({ receiptNo: req.receipt_no || '' });
       // 安全口径：必须「有码」且「全部码都命中」才自动通过（多产品时只命中一部分→转人工终审）
       matched = !!(result && result.hasCode && result.allMatched);
+      // 防作弊①：若任一码已被其它单用过 → 不自动通过（排除自身单），转人工终审
+      if (matched) {
+        const usage = await this.codeUsage.checkUsable(req.receipt_no || '', { excludeRequestId: Number(requestId), conn: connection });
+        if (!usage.usable) matched = false;
+      }
     } catch {
       // 产品库异常时不自动通过，安全降级为人工终审
       return false;
@@ -364,6 +385,14 @@ class ApprovalService {
         refId: `APR${req.id}`,
         integralAmount: Number(req.matched_integral || 0)
       });
+    }
+
+    // 防作弊①：发放成功后登记该单的 IMEI1/SN 为"已用"（唯一约束兜底，杜绝一码多领）
+    try {
+      await this.codeUsage.registerForRequest(connection, req);
+    } catch (err) {
+      // 唯一键冲突 = 该码已被登记（并发兜底）。发放已完成，这里不应回滚整单，仅记录。
+      if (!(err && (err.code === 'ER_DUP_ENTRY' || /duplicate/i.test(String(err.message))))) throw err;
     }
   }
 
@@ -547,18 +576,30 @@ class ApprovalService {
     }
     const steps = await this.getStepsForRequest(requestId);
     const detail = this.mapApprovalListItem(row, steps, true);
-    // 附带 IMEI/SN 码核对结果，便于超管在后台一眼判断
+    // 附带 IMEI/SN 码核对结果 + 是否已被其它单用过，便于超管在后台一眼判断
     try {
       const catalog = new SnCatalogService();
       const v = await catalog.verifyCodes({ receiptNo: row.receipt_no || '' });
+      let reused = false;
+      let reusedConflicts = [];
+      try {
+        const usage = await this.codeUsage.checkUsable(row.receipt_no || '', { excludeRequestId: Number(requestId) });
+        reused = !usage.usable;
+        reusedConflicts = usage.conflicts;
+      } catch { /* 台账异常不影响详情展示 */ }
       detail.codeVerify = {
         hasCode: v.hasCode,
         matched: v.matched,
         matchedBy: v.matchedBy,
-        hit: v.hit || null
+        hit: v.hit || null,
+        totalCodes: v.totalCodes,
+        matchedCount: v.matchedCount,
+        allMatched: v.allMatched,
+        reused,
+        reusedConflicts
       };
     } catch {
-      detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null };
+      detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null, reused: false, reusedConflicts: [] };
     }
     return detail;
   }

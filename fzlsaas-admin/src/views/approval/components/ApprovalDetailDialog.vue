@@ -45,6 +45,9 @@
             <template v-else>
               <el-tag size="small" type="danger">IMEI/SN 未在产品库匹配到</el-tag>
             </template>
+            <el-tag v-if="detail.codeVerify.reused" size="small" type="danger" effect="dark">
+              ⚠️ 此码已被使用过，疑似重复申请
+            </el-tag>
           </p>
           <div v-if="detail.receiptImages?.length" class="receipt-images">
             <el-image

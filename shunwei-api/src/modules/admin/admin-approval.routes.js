@@ -3,6 +3,7 @@ const { ok, fail } = require('../../shared/http');
 const { requireAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { ApprovalService } = require('../approval/approval.service');
+const { ApprovalCodeUsageService } = require('../approval/approval-code-usage.service');
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -87,6 +88,27 @@ function registerAdminApprovalRoutes(app) {
       return ok(data, '免审配置已更新');
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '配置更新失败');
+    }
+  });
+
+  // 一次性回填：把历史已通过审批单的 IMEI/SN 登记进"已用码"台账（幂等，可重复点）
+  app.post('/api/admin/approval/code-usage/backfill', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const session = getAdminSession(request);
+    try {
+      const usage = new ApprovalCodeUsageService();
+      const result = await usage.backfillFromApproved();
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'approval_code_usage_backfill',
+        targetType: 'config',
+        targetId: 0,
+        payload: result,
+        ip: getClientIp(request)
+      });
+      return ok(result, `回填完成：扫描已通过单 ${result.approvedScanned} 张，登记码 ${result.codesInserted} 个`);
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '回填失败');
     }
   });
 

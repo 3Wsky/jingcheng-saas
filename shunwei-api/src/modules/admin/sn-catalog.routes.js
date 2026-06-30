@@ -32,7 +32,7 @@ function registerSnCatalogRoutes(app) {
   const audit = new AdminAuditService();
 
   // ===== 小程序端：识别出 IMEI1/SN 后查询型号/价格（店员可调用）=====
-  // IMEI1 优先、SN 兜底；命中返回型号/价格用于自动回填
+  // IMEI1 优先、SN 兜底；命中返回型号/价格用于自动回填；并返回该码是否已被使用过（防重复）
   app.get('/api/staff/sn-lookup', async (request, reply) => {
     if (!request.auth || !request.auth.uid) return fail(reply, 401, '请先登录');
     const sn = String(request.query.sn || '').trim();
@@ -40,6 +40,14 @@ function registerSnCatalogRoutes(app) {
     if (!sn && !imei) return fail(reply, 400, '请提供 IMEI 或 SN');
     try {
       const result = await service.lookupByCode({ imei, sn });
+      // 附带"是否已用过"，店员录入时即时提示，避免重复申请
+      try {
+        const { ApprovalCodeUsageService } = require('../approval/approval-code-usage.service');
+        const usage = new ApprovalCodeUsageService();
+        const u = await usage.checkSingle({ imei, sn });
+        result.used = !!u.used;
+        if (u.used) result.usedAt = u.usedAt;
+      } catch { result.used = false; }
       return ok(result);
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '查询失败');
