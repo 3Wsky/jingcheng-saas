@@ -570,24 +570,42 @@ class AdminMembersService {
     };
   }
 
-  // 拉取全部在职客户经理及各自当前名下会员数（含 0 人的经理，用 LEFT JOIN）
-  async listActiveManagersWithLoad() {
+  // 拉取在职客户经理及各自当前名下会员数（含 0 人的经理，用 LEFT JOIN）
+  // managerUids 非空时，仅返回其中仍为在职经理的那些（用于"只分给勾选经理"）
+  async listActiveManagersWithLoad(managerUids = null) {
     const userTable = legacyTable('user');
+    const filterUids = Array.isArray(managerUids)
+      ? [...new Set(managerUids.map(Number).filter((n) => Number.isInteger(n) && n > 0))]
+      : null;
+    if (filterUids && !filterUids.length) return [];
+
+    const where = ['sp.is_staff = 1', 'COALESCE(sp.is_del, 0) = 0'];
+    const values = [];
+    if (filterUids) {
+      where.push(`sp.uid IN (${filterUids.map(() => '?').join(',')})`);
+      values.push(...filterUids);
+    }
     const [rows] = await getPool().query(
       `SELECT sp.uid, sp.nickname,
               COUNT(m.uid) AS member_count
        FROM ${userTable} sp
        LEFT JOIN ${userTable} m
          ON m.spread_uid = sp.uid AND COALESCE(m.is_del, 0) = 0
-       WHERE sp.is_staff = 1 AND COALESCE(sp.is_del, 0) = 0
+       WHERE ${where.join(' AND ')}
        GROUP BY sp.uid, sp.nickname
-       ORDER BY member_count ASC, sp.uid ASC`
+       ORDER BY member_count ASC, sp.uid ASC`,
+      values
     );
     return (rows || []).map((row) => ({
       uid: Number(row.uid),
       nickname: row.nickname || '',
       currentCount: Number(row.member_count || 0)
     }));
+  }
+
+  // 全部在职经理（用于前端勾选列表，与是否参与分配无关）
+  async listAllActiveManagers() {
+    return this.listActiveManagersWithLoad(null);
   }
 
   // 补齐式均衡：把无归属会员分给当前名下人数最少的经理，分完后总数最多相差 1
@@ -648,11 +666,13 @@ class AdminMembersService {
     return (rows || []).map((r) => Number(r.uid));
   }
 
-  // 预演：不落库，返回每位经理将 +多少、分配后总数
-  async autoSpreadPreview() {
-    const managers = await this.listActiveManagersWithLoad();
+  // 预演：不落库，返回每位经理将 +多少、分配后总数。managerUids 非空=只分给勾选经理
+  async autoSpreadPreview(managerUids = null) {
+    const managers = await this.listActiveManagersWithLoad(managerUids);
     if (!managers.length) {
-      const error = new Error('暂无在职客户经理，无法分配');
+      const error = new Error(
+        Array.isArray(managerUids) && managerUids.length ? '勾选的客户经理均非在职状态' : '暂无在职客户经理，无法分配'
+      );
       error.statusCode = 400;
       throw error;
     }
@@ -667,10 +687,12 @@ class AdminMembersService {
   }
 
   // 执行：按计划批量落库（带 spread_uid=0 守卫，绝不覆盖已有归属），返回每位经理实际分配数
-  async autoSpreadAssign() {
-    const managers = await this.listActiveManagersWithLoad();
+  async autoSpreadAssign(managerUids = null) {
+    const managers = await this.listActiveManagersWithLoad(managerUids);
     if (!managers.length) {
-      const error = new Error('暂无在职客户经理，无法分配');
+      const error = new Error(
+        Array.isArray(managerUids) && managerUids.length ? '勾选的客户经理均非在职状态' : '暂无在职客户经理，无法分配'
+      );
       error.statusCode = 400;
       throw error;
     }

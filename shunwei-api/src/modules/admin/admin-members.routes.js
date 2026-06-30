@@ -43,6 +43,11 @@ const batchSpreadSchema = z.object({
   onlyUnowned: z.boolean().optional().default(true)
 });
 
+const autoSpreadSchema = z.object({
+  // 空/缺省 = 全部在职经理；非空 = 只分给勾选的这些经理
+  managerUids: z.array(z.coerce.number().int().positive()).max(2000).optional()
+});
+
 const integralGrantSchema = z.object({
   uid: z.coerce.number().int().positive(),
   amount: z.coerce.number().int().positive(),
@@ -187,29 +192,47 @@ function registerAdminMembersRoutes(app) {
     }
   });
 
-  // 预演：把全部无归属会员按"补齐式均衡"分给全部在职客户经理（不落库）
-  app.get('/api/admin/members/auto-spread/preview', async (request, reply) => {
+  // 全部在职客户经理（供前端勾选列表）
+  app.get('/api/admin/members/active-managers', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     try {
-      const result = await membersService.autoSpreadPreview();
+      const managers = await membersService.listAllActiveManagers();
+      return ok({ managers });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '获取客户经理失败');
+    }
+  });
+
+  // 预演：把全部无归属会员按"补齐式均衡"分给（全部或勾选的）在职客户经理（不落库）
+  app.post('/api/admin/members/auto-spread/preview', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = autoSpreadSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      const result = await membersService.autoSpreadPreview(parsed.data.managerUids ?? null);
       return ok(result);
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '预演失败');
     }
   });
 
-  // 执行：一键均衡分配，落库 + 审计
+  // 执行：一键均衡分配（全部或勾选的经理），落库 + 审计
   app.post('/api/admin/members/auto-spread', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
+    const parsed = autoSpreadSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    const managerUids = parsed.data.managerUids ?? null;
     const session = getAdminSession(request);
     try {
-      const result = await membersService.autoSpreadAssign();
+      const result = await membersService.autoSpreadAssign(managerUids);
       await auditService.write({
         adminUsername: session?.username || '',
         action: 'member_spread_auto_assign',
         targetType: 'user',
         targetId: 'batch',
         payload: {
+          scope: managerUids ? 'selected' : 'all',
+          managerUids: managerUids || undefined,
           unownedTotal: result.unownedTotal,
           managerCount: result.managerCount,
           assignedTotal: result.assignedTotal,

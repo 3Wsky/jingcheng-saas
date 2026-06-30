@@ -253,8 +253,31 @@
 
   <el-dialog v-model="autoSpreadOpen" title="一键平均分配无归属会员" width="560px" destroy-on-close>
     <p class="batch-tip">
-      把<strong>全部无归属会员</strong>按"补齐式均衡"分给<strong>全部在职客户经理</strong>：客户少的经理先多分，分完后大家名下人数尽量拉平。带防覆盖守卫，不会改动已有归属。
+      把<strong>全部无归属会员</strong>按"补齐式均衡"分给客户经理：客户少的经理先多分，分完后大家名下人数尽量拉平。带防覆盖守卫，不会改动已有归属。
     </p>
+    <div class="auto-scope">
+      <el-radio-group v-model="autoSpreadScopeAll" @change="onAutoScopeChange">
+        <el-radio :value="true">全部在职客户经理</el-radio>
+        <el-radio :value="false">只分给勾选的经理</el-radio>
+      </el-radio-group>
+    </div>
+    <div v-if="!autoSpreadScopeAll" class="auto-picker">
+      <div class="auto-picker-head">
+        <span>选择参与的客户经理（{{ autoSpreadSelected.length }}/{{ autoSpreadManagers.length }}）</span>
+        <span>
+          <el-button link type="primary" size="small" @click="autoSpreadSelected = autoSpreadManagers.map(m => m.uid); refreshAutoPreview()">全选</el-button>
+          <el-button link type="primary" size="small" @click="autoSpreadSelected = []">清空</el-button>
+        </span>
+      </div>
+      <el-checkbox-group v-model="autoSpreadSelected" class="auto-picker-list" @change="refreshAutoPreview">
+        <el-checkbox
+          v-for="m in autoSpreadManagers"
+          :key="m.uid"
+          :value="m.uid"
+          class="auto-picker-item"
+        >{{ m.nickname || '—' }} <span class="muted">#{{ m.uid }} · 现有{{ m.currentCount }}</span></el-checkbox>
+      </el-checkbox-group>
+    </div>
     <div v-loading="autoSpreadLoading">
       <el-alert
         v-if="autoSpreadPreview"
@@ -262,7 +285,7 @@
         :closable="false"
         show-icon
         style="margin-bottom: 12px"
-        :title="`待分配无归属 ${autoSpreadPreview.assignableTotal} 人　·　在职客户经理 ${autoSpreadPreview.managerCount} 位`"
+        :title="`待分配无归属 ${autoSpreadPreview.assignableTotal} 人　·　参与经理 ${autoSpreadPreview.managerCount} 位`"
       />
       <el-table
         v-if="autoSpreadPreview && autoSpreadPreview.plan.length"
@@ -368,6 +391,9 @@ const spreadResults = ref<any[]>([])
 const autoSpreadOpen = ref(false)
 const autoSpreadLoading = ref(false)
 const autoSpreadRunning = ref(false)
+const autoSpreadManagers = ref<{ uid: number; nickname: string; currentCount: number }[]>([])
+const autoSpreadSelected = ref<number[]>([])
+const autoSpreadScopeAll = ref(true)
 const autoSpreadPreview = ref<{
   unownedTotal: number
   assignableTotal: number
@@ -495,29 +521,60 @@ async function runSpreadBatch() {
   finally { spreadRunning.value = false }
 }
 
-async function openAutoSpread() {
-  autoSpreadPreview.value = null
-  autoSpreadOpen.value = true
+function autoSpreadManagerUids(): number[] | undefined {
+  // 全部范围 → 不传（后端默认全部）；勾选范围 → 传选中的 UID
+  return autoSpreadScopeAll.value ? undefined : autoSpreadSelected.value.slice()
+}
+
+async function refreshAutoPreview() {
   autoSpreadLoading.value = true
   try {
-    autoSpreadPreview.value = await request.get('/api/admin/members/auto-spread/preview')
-  } catch { autoSpreadOpen.value = false }
+    const body = autoSpreadScopeAll.value ? {} : { managerUids: autoSpreadSelected.value.slice() }
+    autoSpreadPreview.value = await request.post('/api/admin/members/auto-spread/preview', body)
+  } catch { autoSpreadPreview.value = null }
   finally { autoSpreadLoading.value = false }
 }
 
+async function openAutoSpread() {
+  autoSpreadPreview.value = null
+  autoSpreadScopeAll.value = true
+  autoSpreadOpen.value = true
+  autoSpreadLoading.value = true
+  try {
+    const data = await request.get('/api/admin/members/active-managers')
+    autoSpreadManagers.value = data?.managers || []
+    autoSpreadSelected.value = autoSpreadManagers.value.map((m) => m.uid)
+    await refreshAutoPreview()
+  } catch { autoSpreadOpen.value = false; autoSpreadLoading.value = false }
+}
+
+function onAutoScopeChange() {
+  // 切到"仅勾选"时若一个都没选，默认全选
+  if (!autoSpreadScopeAll.value && !autoSpreadSelected.value.length) {
+    autoSpreadSelected.value = autoSpreadManagers.value.map((m) => m.uid)
+  }
+  refreshAutoPreview()
+}
+
 async function runAutoSpread() {
+  if (!autoSpreadScopeAll.value && !autoSpreadSelected.value.length) {
+    ElMessage.warning('请至少勾选一位客户经理')
+    return
+  }
   const n = autoSpreadPreview.value?.assignableTotal || 0
   const m = autoSpreadPreview.value?.managerCount || 0
+  const scopeText = autoSpreadScopeAll.value ? '全部在职' : '勾选的'
   try {
     await ElMessageBox.confirm(
-      `确认把 ${n} 名无归属会员平均分配给 ${m} 位在职客户经理？此操作会更新会员归属关系。`,
+      `确认把 ${n} 名无归属会员平均分配给 ${m} 位${scopeText}客户经理？此操作会更新会员归属关系。`,
       '一键平均分配',
       { type: 'warning', confirmButtonText: '确认分配' }
     )
   } catch { return }
   autoSpreadRunning.value = true
   try {
-    const data = await request.post('/api/admin/members/auto-spread')
+    const uids = autoSpreadManagerUids()
+    const data = await request.post('/api/admin/members/auto-spread', uids ? { managerUids: uids } : {})
     ElMessage.success(`已分配 ${data?.assignedTotal ?? 0} 名会员给 ${data?.managerCount ?? 0} 位客户经理`)
     autoSpreadOpen.value = false
     loadList()
@@ -710,6 +767,11 @@ async function exportData() {
 .batch-tip { margin: 0 0 12px; font-size: 13px; line-height: 1.6; color: rgba(0, 0, 0, 0.65); }
 .muted { color: rgba(0, 0, 0, 0.4); font-size: 12px; }
 .add-pos { color: #52c41a; font-weight: 600; }
+.auto-scope { margin-bottom: 12px; }
+.auto-picker { margin-bottom: 12px; border: 1px solid var(--el-border-color-light); border-radius: 4px; padding: 8px 10px; }
+.auto-picker-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: rgba(0, 0, 0, 0.55); margin-bottom: 6px; }
+.auto-picker-list { display: flex; flex-direction: column; max-height: 180px; overflow: auto; }
+.auto-picker-item { margin-right: 0; height: 28px; }
 .role-tags-cell {
   display: flex;
   flex-wrap: wrap;
