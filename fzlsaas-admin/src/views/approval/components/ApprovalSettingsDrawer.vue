@@ -1,9 +1,12 @@
 <template>
   <el-drawer v-model="visible" title="审批设置" size="400px" destroy-on-close>
     <el-form label-width="120px" label-position="top">
-      <el-form-item label="消费审批免审">
+      <el-form-item label="消费审批免审（按 IMEI/SN 码核对）">
         <el-switch v-model="form.consumption" />
-        <p class="hint">开启后客户经理提交将自动通过并发放权益，仍保留记录</p>
+        <p class="hint">
+          开启后：<b>店长初审通过</b> + 收据里的 <b>IMEI1 / SN 在产品库命中</b> → 系统<b>自动终审并发放权益</b>（免超管人工终审）。
+          码未命中的仍转人工终审。需先在「SN 产品库」导入设备库。
+        </p>
       </el-form-item>
 
       <el-form-item label="积分商城免审">

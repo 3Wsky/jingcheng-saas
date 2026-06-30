@@ -398,11 +398,12 @@ class SnCatalogService {
   /**
    * 校验一组标识码是否在产品库命中（IMEI1 优先、SN 兜底）。
    * 入参 { imeis?: string[], sns?: string[] } 或 { receiptNo }。
-   * 返回 { hasCode, matched, matchedBy, hit }：
+   * 返回 { hasCode, matched, matchedBy, hit, totalCodes, matchedCount, allMatched }：
    *  - hasCode：是否解析出任何码（没有码时无法核对）
-   *  - matched：是否至少命中一条产品库记录
-   *  - matchedBy：'imei1' | 'sn' | ''
-   *  - hit：命中的产品 { sn, imei1, model, price }（取第一条命中）
+   *  - matched：是否至少命中一条产品库记录（任一命中）
+   *  - matchedBy：第一条命中的方式 'imei1' | 'sn' | ''
+   *  - hit：第一条命中的产品 { sn, imei1, model, price }
+   *  - totalCodes：解析出的去重码总数；matchedCount：命中数；allMatched：是否全部命中
    */
   async verifyCodes(input = {}) {
     await this.ensureTable();
@@ -416,18 +417,37 @@ class SnCatalogService {
     imeis = [...new Set(imeis.map((x) => SnCatalogService.normalizeImei(x)).filter(Boolean))];
     sns = [...new Set(sns.map((x) => SnCatalogService.normalizeSn(x)).filter(Boolean))];
 
-    const hasCode = imeis.length > 0 || sns.length > 0;
-    if (!hasCode) return { hasCode: false, matched: false, matchedBy: '', hit: null };
+    const totalCodes = imeis.length + sns.length;
+    const empty = { hasCode: false, matched: false, matchedBy: '', hit: null, totalCodes: 0, matchedCount: 0, allMatched: false };
+    if (!totalCodes) return empty;
 
+    let matchedCount = 0;
+    let firstHit = null;
+    let firstBy = '';
     for (const imei of imeis) {
       const r = await this.lookupByCode({ imei });
-      if (r.found) return { hasCode: true, matched: true, matchedBy: 'imei1', hit: { sn: r.sn, imei1: r.imei1, model: r.model, price: r.price } };
+      if (r.found) {
+        matchedCount += 1;
+        if (!firstHit) { firstHit = { sn: r.sn, imei1: r.imei1, model: r.model, price: r.price }; firstBy = 'imei1'; }
+      }
     }
     for (const sn of sns) {
       const r = await this.lookupByCode({ sn });
-      if (r.found) return { hasCode: true, matched: true, matchedBy: 'sn', hit: { sn: r.sn, imei1: r.imei1, model: r.model, price: r.price } };
+      if (r.found) {
+        matchedCount += 1;
+        if (!firstHit) { firstHit = { sn: r.sn, imei1: r.imei1, model: r.model, price: r.price }; firstBy = 'sn'; }
+      }
     }
-    return { hasCode: true, matched: false, matchedBy: '', hit: null };
+
+    return {
+      hasCode: true,
+      matched: matchedCount > 0,
+      matchedBy: firstBy,
+      hit: firstHit,
+      totalCodes,
+      matchedCount,
+      allMatched: matchedCount === totalCodes
+    };
   }
 }
 

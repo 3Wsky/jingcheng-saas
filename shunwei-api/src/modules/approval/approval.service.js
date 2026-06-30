@@ -247,7 +247,8 @@ class ApprovalService {
     try {
       const catalog = new SnCatalogService();
       const result = await catalog.verifyCodes({ receiptNo: req.receipt_no || '' });
-      matched = !!(result && result.hasCode && result.matched);
+      // 安全口径：必须「有码」且「全部码都命中」才自动通过（多产品时只命中一部分→转人工终审）
+      matched = !!(result && result.hasCode && result.allMatched);
     } catch {
       // 产品库异常时不自动通过，安全降级为人工终审
       return false;
@@ -624,14 +625,18 @@ class ApprovalService {
   }
 
   async getApprovalAutoPassConfig() {
+    // 消费审批免审统一用 consumption_auto_pass_on_code_match（即 tryAutoPassByCode 读取的键），
+    // 语义：店长初审通过 + 收据 IMEI1/SN 在产品库命中 → 自动终审发放。
+    // 旧键 consumption_approval_auto_pass 已废弃（从未被审批流消费），仅向后兼容读取做兜底。
     const [rows] = await getPool().query(
       `SELECT config_key, config_value FROM ${swTable('system_config')}
-       WHERE config_key IN ('integral_mall_skip_approval', 'consumption_approval_auto_pass')`
+       WHERE config_key IN ('integral_mall_skip_approval', 'consumption_auto_pass_on_code_match', 'consumption_approval_auto_pass')`
     );
     const map = Object.fromEntries(rows.map((r) => [r.config_key, r.config_value]));
+    const on = (v) => v === '1' || v === 'true';
     return {
-      integralMall: map.integral_mall_skip_approval === '1' || map.integral_mall_skip_approval === 'true',
-      consumption: map.consumption_approval_auto_pass === '1' || map.consumption_approval_auto_pass === 'true'
+      integralMall: on(map.integral_mall_skip_approval),
+      consumption: on(map.consumption_auto_pass_on_code_match) || on(map.consumption_approval_auto_pass)
     };
   }
 
@@ -649,11 +654,19 @@ class ApprovalService {
     }
 
     if (input.scope === 'consumption' || input.scope === 'all') {
+      const val = input.enabled ? '1' : '0';
+      // 写入功能键（tryAutoPassByCode 读取）；旧键一并同步，避免历史 UI/数据不一致
+      await pool.query(
+        `INSERT INTO ${swTable('system_config')} (config_key, config_value, updated_at)
+         VALUES ('consumption_auto_pass_on_code_match', ?, ?)
+         ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = VALUES(updated_at)`,
+        [val, now]
+      );
       await pool.query(
         `INSERT INTO ${swTable('system_config')} (config_key, config_value, updated_at)
          VALUES ('consumption_approval_auto_pass', ?, ?)
          ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_at = VALUES(updated_at)`,
-        [input.enabled ? '1' : '0', now]
+        [val, now]
       );
     }
 
