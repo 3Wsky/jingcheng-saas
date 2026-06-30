@@ -330,7 +330,7 @@ function registerAdminStaffRoutes(app) {
         await conn.commit();
 
         const session = getAdminSession(request);
-        await audit.log({
+        await audit.write({
           adminUsername: session?.username || '',
           action: 'staff_dismiss',
           targetType: 'staff',

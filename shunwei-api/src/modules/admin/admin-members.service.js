@@ -391,6 +391,16 @@ class AdminMembersService {
       error.statusCode = 404;
       throw error;
     }
+
+    // spreadUid=0 表示清除归属，无需校验店员存在
+    if (Number(spreadUid) === 0) {
+      await pool.query(
+        `UPDATE ${legacyTable('user')} SET spread_uid = 0 WHERE uid = ?`,
+        [uid]
+      );
+      return { uid, spreadUid: 0, spreadNickname: '' };
+    }
+
     if (uid === spreadUid) {
       const error = new Error('不能将用户归属设为自己');
       error.statusCode = 400;

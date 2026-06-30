@@ -34,7 +34,7 @@ const staffRoleSchema = z.object({
 });
 
 const spreadUpdateSchema = z.object({
-  spreadUid: z.coerce.number().int().positive()
+  spreadUid: z.coerce.number().int().min(0)
 });
 
 const batchSpreadSchema = z.object({
