@@ -83,7 +83,7 @@ function registerSuperuserRoutes(app) {
     try {
       const { ApprovalService } = require('../approval/approval.service');
       const service = new ApprovalService();
-      const result = await service.reviewByAdmin(request.auth.uid, { requestId, action, reason: reason || '' });
+      const result = await service.reviewByAdmin(request.auth.uid, Number(requestId), action, reason || '');
       return ok(result, action === 'approve' ? '已通过' : '已驳回');
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '审批操作失败');
