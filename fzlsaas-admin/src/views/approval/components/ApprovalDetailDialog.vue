@@ -29,6 +29,23 @@
         <section class="detail-section">
           <h4>消费信息</h4>
           <p>消费金额 ¥{{ formatNum(detail.consumptionAmount) }} · 小票号 {{ detail.receiptNo || '—' }}</p>
+          <p v-if="detail.codeVerify" class="code-verify">
+            <template v-if="!detail.codeVerify.hasCode">
+              <el-tag size="small" type="info" effect="plain">无 IMEI/SN 码</el-tag>
+            </template>
+            <template v-else-if="detail.codeVerify.matched">
+              <el-tag size="small" type="success">
+                IMEI/SN 已核对（按 {{ detail.codeVerify.matchedBy === 'imei1' ? 'IMEI1' : 'SN' }} 命中产品库）
+              </el-tag>
+              <span v-if="detail.codeVerify.hit" class="code-hit">
+                匹配：{{ detail.codeVerify.hit.model || '—' }}
+                <template v-if="detail.codeVerify.hit.price"> · ¥{{ formatNum(detail.codeVerify.hit.price) }}</template>
+              </span>
+            </template>
+            <template v-else>
+              <el-tag size="small" type="danger">IMEI/SN 未在产品库匹配到</el-tag>
+            </template>
+          </p>
           <div v-if="detail.receiptImages?.length" class="receipt-images">
             <el-image
               v-for="(img, i) in detail.receiptImages"
@@ -211,6 +228,8 @@ function emitRevoke() {
   font-weight: 600;
   color: #1A1A2E;
 }
+.code-verify { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+.code-hit { font-size: 13px; color: #4B5563; }
 .receipt-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .receipt-thumb {
   width: 120px;

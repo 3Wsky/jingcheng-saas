@@ -1,5 +1,6 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
+const { SnCatalogService } = require('../admin/sn-catalog.service');
 
 class ApprovalService {
   fixedGiftIntegral(tierCode) {
@@ -179,6 +180,12 @@ class ApprovalService {
             [requestId, adminUid, now]
           );
         }
+
+        // 终审「按码自动通过」：店长初审通过后，若开启该开关且收据里的 IMEI1/SN 在产品库命中，
+        // 则系统自动完成超管终审并发放权益（免人工终审）。命中不到则维持人工终审。
+        const autoPassed = await this.tryAutoPassByCode(connection, requestId, admins[0] || 1, now);
+        await connection.commit();
+        return { requestId, action, newStatus: autoPassed ? 'approved' : 'admin_review', autoPassed };
       } else {
         await connection.query(
           `UPDATE ${swTable('approval_request')} SET status = 'rejected', reject_reason = ?, updated_at = ? WHERE id = ?`,
@@ -205,6 +212,68 @@ class ApprovalService {
     } finally {
       connection.release();
     }
+  }
+
+  /** 读取「按码自动终审」开关（system_config: consumption_auto_pass_on_code_match）。默认关闭。 */
+  async isAutoPassByCodeEnabled(connection) {
+    const db = connection || getPool();
+    try {
+      const [[row]] = await db.query(
+        `SELECT config_value FROM ${swTable('system_config')}
+         WHERE config_key = 'consumption_auto_pass_on_code_match' LIMIT 1`
+      );
+      const v = row && row.config_value;
+      return v === '1' || v === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 终审「按码自动通过」：在同一事务内调用（店长初审通过后）。
+   * 条件：开关开启 + 该单已处于 admin_review + 收据里的 IMEI1/SN 在产品库命中。
+   * 命中则系统自动完成超管终审（写 step、关 admin todo、发放权益），返回 true；否则返回 false（维持人工终审）。
+   */
+  async tryAutoPassByCode(connection, requestId, systemAdminUid, now) {
+    if (!(await this.isAutoPassByCodeEnabled(connection))) return false;
+
+    const [[req]] = await connection.query(
+      `SELECT * FROM ${swTable('approval_request')} WHERE id = ? FOR UPDATE`,
+      [requestId]
+    );
+    if (!req || req.status !== 'admin_review') return false;
+
+    let matched = false;
+    try {
+      const catalog = new SnCatalogService();
+      const result = await catalog.verifyCodes({ receiptNo: req.receipt_no || '' });
+      matched = !!(result && result.hasCode && result.matched);
+    } catch {
+      // 产品库异常时不自动通过，安全降级为人工终审
+      return false;
+    }
+    if (!matched) return false;
+
+    const revokeDeadline = now + 24 * 3600;
+    await connection.query(
+      `UPDATE ${swTable('approval_request')}
+       SET status = 'approved', approved_at = ?, revoke_deadline = ?, updated_at = ?
+       WHERE id = ?`,
+      [now, revokeDeadline, now, requestId]
+    );
+    await connection.query(
+      `INSERT INTO ${swTable('approval_step')}
+       (request_id, step_role, operator_uid, action, comment, created_at)
+       VALUES (?, 'admin', ?, 'approve', ?, ?)`,
+      [requestId, systemAdminUid, '系统按 IMEI/SN 码核对通过自动终审', now]
+    );
+    await connection.query(
+      `UPDATE ${swTable('approval_todo')} SET is_done = 1, done_at = ?
+       WHERE request_id = ? AND todo_type = 'admin_review'`,
+      [now, requestId]
+    );
+    await this.executeGrant(connection, req);
+    return true;
   }
 
   async reviewByAdmin(adminUid, requestId, action, reason = '') {
@@ -476,7 +545,21 @@ class ApprovalService {
       throw error;
     }
     const steps = await this.getStepsForRequest(requestId);
-    return this.mapApprovalListItem(row, steps, true);
+    const detail = this.mapApprovalListItem(row, steps, true);
+    // 附带 IMEI/SN 码核对结果，便于超管在后台一眼判断
+    try {
+      const catalog = new SnCatalogService();
+      const v = await catalog.verifyCodes({ receiptNo: row.receipt_no || '' });
+      detail.codeVerify = {
+        hasCode: v.hasCode,
+        matched: v.matched,
+        matchedBy: v.matchedBy,
+        hit: v.hit || null
+      };
+    } catch {
+      detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null };
+    }
+    return detail;
   }
 
   async getStepsForRequest(requestId) {

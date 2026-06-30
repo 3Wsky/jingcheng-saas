@@ -19,7 +19,8 @@
     "sortablejs": "^1.15.7",
     "vue": "^3.4.0",
     "vue-echarts": "^8.0.1",
-    "vue-router": "^4.4.0"
+    "vue-router": "^4.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
