@@ -187,6 +187,51 @@ function registerAdminMembersRoutes(app) {
     }
   });
 
+  // 预演：把全部无归属会员按"补齐式均衡"分给全部在职客户经理（不落库）
+  app.get('/api/admin/members/auto-spread/preview', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      const result = await membersService.autoSpreadPreview();
+      return ok(result);
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '预演失败');
+    }
+  });
+
+  // 执行：一键均衡分配，落库 + 审计
+  app.post('/api/admin/members/auto-spread', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const session = getAdminSession(request);
+    try {
+      const result = await membersService.autoSpreadAssign();
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'member_spread_auto_assign',
+        targetType: 'user',
+        targetId: 'batch',
+        payload: {
+          unownedTotal: result.unownedTotal,
+          managerCount: result.managerCount,
+          assignedTotal: result.assignedTotal,
+          perManager: result.results
+        },
+        ip: getClientIp(request)
+      });
+      return ok(result, `已自动分配 ${result.assignedTotal} 名会员给 ${result.managerCount} 位客户经理`);
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'member_spread_auto_assign',
+        targetType: 'user',
+        targetId: 'batch',
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '自动分配失败');
+    }
+  });
+
   app.put('/api/admin/members/:uid/staff-role', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const uid = Number(request.params.uid);

@@ -569,6 +569,147 @@ class AdminMembersService {
       storeName: resolvedStoreName || undefined
     };
   }
+
+  // 拉取全部在职客户经理及各自当前名下会员数（含 0 人的经理，用 LEFT JOIN）
+  async listActiveManagersWithLoad() {
+    const userTable = legacyTable('user');
+    const [rows] = await getPool().query(
+      `SELECT sp.uid, sp.nickname,
+              COUNT(m.uid) AS member_count
+       FROM ${userTable} sp
+       LEFT JOIN ${userTable} m
+         ON m.spread_uid = sp.uid AND COALESCE(m.is_del, 0) = 0
+       WHERE sp.is_staff = 1 AND COALESCE(sp.is_del, 0) = 0
+       GROUP BY sp.uid, sp.nickname
+       ORDER BY member_count ASC, sp.uid ASC`
+    );
+    return (rows || []).map((row) => ({
+      uid: Number(row.uid),
+      nickname: row.nickname || '',
+      currentCount: Number(row.member_count || 0)
+    }));
+  }
+
+  // 补齐式均衡：把无归属会员分给当前名下人数最少的经理，分完后总数最多相差 1
+  computeBalancedAllocation(managers, unownedUids) {
+    // 排除"经理本人就是无归属会员"的情况，避免把自己分给自己
+    const managerUidSet = new Set(managers.map((m) => m.uid));
+    const assignable = unownedUids.filter((uid) => !managerUidSet.has(uid));
+
+    // 用最小堆按 currentCount 取最少者；同分时按 uid 稳定
+    const heap = managers.map((m) => ({ uid: m.uid, nickname: m.nickname, count: m.currentCount, assigned: [] }));
+    const siftDown = (i) => {
+      const n = heap.length;
+      for (;;) {
+        let smallest = i;
+        const l = 2 * i + 1;
+        const r = 2 * i + 2;
+        if (l < n && lessThan(heap[l], heap[smallest])) smallest = l;
+        if (r < n && lessThan(heap[r], heap[smallest])) smallest = r;
+        if (smallest === i) break;
+        [heap[i], heap[smallest]] = [heap[smallest], heap[i]];
+        i = smallest;
+      }
+    };
+    function lessThan(a, b) {
+      if (a.count !== b.count) return a.count < b.count;
+      return a.uid < b.uid;
+    }
+    for (let i = (heap.length >> 1) - 1; i >= 0; i--) siftDown(i);
+
+    // count 只增不减，每次给堆顶（最少者）加 1 后 siftDown 即可维持最小堆
+    for (const memberUid of assignable) {
+      const top = heap[0];
+      top.assigned.push(memberUid);
+      top.count += 1;
+      siftDown(0);
+    }
+
+    const plan = heap
+      .map((h) => ({
+        uid: h.uid,
+        nickname: h.nickname,
+        currentCount: h.count - h.assigned.length,
+        addCount: h.assigned.length,
+        afterCount: h.count,
+        memberUids: h.assigned
+      }))
+      .sort((a, b) => b.addCount - a.addCount || a.uid - b.uid);
+
+    return { plan, assignableTotal: assignable.length };
+  }
+
+  async getUnownedMemberUids() {
+    const [rows] = await getPool().query(
+      `SELECT uid FROM ${legacyTable('user')}
+       WHERE COALESCE(spread_uid, 0) = 0 AND COALESCE(is_del, 0) = 0
+       ORDER BY uid ASC`
+    );
+    return (rows || []).map((r) => Number(r.uid));
+  }
+
+  // 预演：不落库，返回每位经理将 +多少、分配后总数
+  async autoSpreadPreview() {
+    const managers = await this.listActiveManagersWithLoad();
+    if (!managers.length) {
+      const error = new Error('暂无在职客户经理，无法分配');
+      error.statusCode = 400;
+      throw error;
+    }
+    const unownedUids = await this.getUnownedMemberUids();
+    const { plan, assignableTotal } = this.computeBalancedAllocation(managers, unownedUids);
+    return {
+      unownedTotal: unownedUids.length,
+      assignableTotal,
+      managerCount: managers.length,
+      plan: plan.map(({ memberUids, ...rest }) => rest)
+    };
+  }
+
+  // 执行：按计划批量落库（带 spread_uid=0 守卫，绝不覆盖已有归属），返回每位经理实际分配数
+  async autoSpreadAssign() {
+    const managers = await this.listActiveManagersWithLoad();
+    if (!managers.length) {
+      const error = new Error('暂无在职客户经理，无法分配');
+      error.statusCode = 400;
+      throw error;
+    }
+    const unownedUids = await this.getUnownedMemberUids();
+    if (!unownedUids.length) {
+      const error = new Error('当前没有无归属会员');
+      error.statusCode = 400;
+      throw error;
+    }
+    const { plan } = this.computeBalancedAllocation(managers, unownedUids);
+
+    const pool = getPool();
+    const results = [];
+    let assignedTotal = 0;
+    for (const item of plan) {
+      if (!item.memberUids.length) {
+        results.push({ uid: item.uid, nickname: item.nickname, assigned: 0 });
+        continue;
+      }
+      const placeholders = item.memberUids.map(() => '?').join(',');
+      const [res] = await pool.query(
+        `UPDATE ${legacyTable('user')} SET spread_uid = ?
+         WHERE uid IN (${placeholders})
+           AND COALESCE(spread_uid, 0) = 0
+           AND COALESCE(is_del, 0) = 0`,
+        [item.uid, ...item.memberUids]
+      );
+      const affected = res.affectedRows || 0;
+      assignedTotal += affected;
+      results.push({ uid: item.uid, nickname: item.nickname, assigned: affected });
+    }
+
+    return {
+      unownedTotal: unownedUids.length,
+      managerCount: managers.length,
+      assignedTotal,
+      results: results.sort((a, b) => b.assigned - a.assigned || a.uid - b.uid)
+    };
+  }
 }
 
 module.exports = { AdminMembersService, maskPhone };

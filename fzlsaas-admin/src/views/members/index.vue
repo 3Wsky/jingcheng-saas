@@ -88,6 +88,9 @@
         <el-button :disabled="!selectedRows.length" @click="openSpreadBatch">
           批量指定归属
         </el-button>
+        <el-button type="success" plain @click="openAutoSpread">
+          一键平均分配
+        </el-button>
         <el-button @click="downloadTemplate">查看导入模板</el-button>
         <el-upload
           :show-file-list="false"
@@ -248,6 +251,54 @@
     </template>
   </el-dialog>
 
+  <el-dialog v-model="autoSpreadOpen" title="一键平均分配无归属会员" width="560px" destroy-on-close>
+    <p class="batch-tip">
+      把<strong>全部无归属会员</strong>按"补齐式均衡"分给<strong>全部在职客户经理</strong>：客户少的经理先多分，分完后大家名下人数尽量拉平。带防覆盖守卫，不会改动已有归属。
+    </p>
+    <div v-loading="autoSpreadLoading">
+      <el-alert
+        v-if="autoSpreadPreview"
+        :type="autoSpreadPreview.assignableTotal ? 'success' : 'info'"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+        :title="`待分配无归属 ${autoSpreadPreview.assignableTotal} 人　·　在职客户经理 ${autoSpreadPreview.managerCount} 位`"
+      />
+      <el-table
+        v-if="autoSpreadPreview && autoSpreadPreview.plan.length"
+        :data="autoSpreadPreview.plan"
+        size="small"
+        max-height="320"
+        border
+      >
+        <el-table-column label="客户经理" min-width="140">
+          <template #default="{ row }">{{ row.nickname || '—' }} <span class="muted">#{{ row.uid }}</span></template>
+        </el-table-column>
+        <el-table-column label="现有" width="80" align="right">
+          <template #default="{ row }">{{ row.currentCount }}</template>
+        </el-table-column>
+        <el-table-column label="本次 +" width="90" align="right">
+          <template #default="{ row }">
+            <span :class="{ 'add-pos': row.addCount > 0 }">{{ row.addCount > 0 ? '+' + row.addCount : 0 }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="分配后" width="90" align="right">
+          <template #default="{ row }"><strong>{{ row.afterCount }}</strong></template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-else-if="autoSpreadPreview" description="当前没有可分配的无归属会员" :image-size="80" />
+    </div>
+    <template #footer>
+      <el-button @click="autoSpreadOpen = false">取消</el-button>
+      <el-button
+        type="primary"
+        :loading="autoSpreadRunning"
+        :disabled="!autoSpreadPreview || !autoSpreadPreview.assignableTotal"
+        @click="runAutoSpread"
+      >确认分配</el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="csvOpen" title="CSV 导入结果" width="480px" destroy-on-close>
     <el-alert
       v-if="csvSummary"
@@ -272,7 +323,7 @@
 import { ref, computed, onMounted } from 'vue'
 import type { TableInstance } from 'element-plus'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import MemberDetailDrawer from './components/MemberDetailDrawer.vue'
 import MemberTag from '@/components/MemberTag.vue'
@@ -314,6 +365,15 @@ const spreadTargetUid = ref<number | undefined>(undefined)
 const spreadOnlyUnowned = ref(true)
 const spreadRunning = ref(false)
 const spreadResults = ref<any[]>([])
+const autoSpreadOpen = ref(false)
+const autoSpreadLoading = ref(false)
+const autoSpreadRunning = ref(false)
+const autoSpreadPreview = ref<{
+  unownedTotal: number
+  assignableTotal: number
+  managerCount: number
+  plan: { uid: number; nickname: string; currentCount: number; addCount: number; afterCount: number }[]
+} | null>(null)
 const tableRef = ref<TableInstance>()
 
 const batchTitle = computed(() => ({
@@ -433,6 +493,36 @@ async function runSpreadBatch() {
     loadList()
   } catch { /* handled */ }
   finally { spreadRunning.value = false }
+}
+
+async function openAutoSpread() {
+  autoSpreadPreview.value = null
+  autoSpreadOpen.value = true
+  autoSpreadLoading.value = true
+  try {
+    autoSpreadPreview.value = await request.get('/api/admin/members/auto-spread/preview')
+  } catch { autoSpreadOpen.value = false }
+  finally { autoSpreadLoading.value = false }
+}
+
+async function runAutoSpread() {
+  const n = autoSpreadPreview.value?.assignableTotal || 0
+  const m = autoSpreadPreview.value?.managerCount || 0
+  try {
+    await ElMessageBox.confirm(
+      `确认把 ${n} 名无归属会员平均分配给 ${m} 位在职客户经理？此操作会更新会员归属关系。`,
+      '一键平均分配',
+      { type: 'warning', confirmButtonText: '确认分配' }
+    )
+  } catch { return }
+  autoSpreadRunning.value = true
+  try {
+    const data = await request.post('/api/admin/members/auto-spread')
+    ElMessage.success(`已分配 ${data?.assignedTotal ?? 0} 名会员给 ${data?.managerCount ?? 0} 位客户经理`)
+    autoSpreadOpen.value = false
+    loadList()
+  } catch { /* handled */ }
+  finally { autoSpreadRunning.value = false }
 }
 
 async function loadList() {
@@ -617,6 +707,9 @@ async function exportData() {
   border-radius: 2px;
 }
 .batch-results .fail { color: #ff4d4f; }
+.batch-tip { margin: 0 0 12px; font-size: 13px; line-height: 1.6; color: rgba(0, 0, 0, 0.65); }
+.muted { color: rgba(0, 0, 0, 0.4); font-size: 12px; }
+.add-pos { color: #52c41a; font-weight: 600; }
 .role-tags-cell {
   display: flex;
   flex-wrap: wrap;
