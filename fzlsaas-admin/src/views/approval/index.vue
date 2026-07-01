@@ -32,8 +32,8 @@
       </div>
       <div class="stat-reasons-body">
         <template v-for="(v, k) in autoStats.notAutoReasons" :key="k">
-          <el-tag v-if="v > 0" size="small" :type="k === 'other' ? 'success' : 'info'" effect="plain" class="reason-tag">
-            {{ REASON_LABELS[k] || k }}：{{ v }}
+          <el-tag v-if="Number(v) > 0" size="small" :type="String(k) === 'other' ? 'success' : 'info'" effect="plain" class="reason-tag">
+            {{ REASON_LABELS[String(k)] || k }}：{{ v }}
           </el-tag>
         </template>
         <span v-if="!hasAnyReason" class="stat-reasons-empty">今日暂无未自动的单</span>
