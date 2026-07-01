@@ -128,6 +128,49 @@ class StaffService {
     return `门店#${id}`;
   }
 
+  /**
+   * 取客户经理所属门店(division)的门店信息（供名片下发用，与名片自填字段解耦）。
+   * 返回 { name, address, phone, dayTime } 或 null（无门店/表异常）。address 拼「地址+详细地址」。
+   */
+  async resolveDivisionStore(divisionId) {
+    const id = Number(divisionId || 0);
+    if (!id) return null;
+    try {
+      const [[row]] = await getPool().query(
+        `SELECT name, phone, address, detailed_address, day_time
+         FROM ${legacyTable('system_store')}
+         WHERE id = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [id]
+      );
+      if (!row) return null;
+      const addr = [String(row.address || '').trim(), String(row.detailed_address || '').trim()]
+        .filter(Boolean).join(' ');
+      return {
+        name: String(row.name || '').trim(),
+        address: addr,
+        phone: String(row.phone || '').trim(),
+        dayTime: String(row.day_time || '').trim()
+      };
+    } catch {
+      // 老库可能无 detailed_address 列，降级只取基础字段
+      try {
+        const [[row]] = await getPool().query(
+          `SELECT name, phone, address, day_time FROM ${legacyTable('system_store')} WHERE id = ? LIMIT 1`,
+          [id]
+        );
+        if (!row) return null;
+        return {
+          name: String(row.name || '').trim(),
+          address: String(row.address || '').trim(),
+          phone: String(row.phone || '').trim(),
+          dayTime: String(row.day_time || '').trim()
+        };
+      } catch {
+        return null;
+      }
+    }
+  }
+
   async isManager(uid) {
     try {
       const [[row]] = await getPool().query(
@@ -352,7 +395,7 @@ class StaffService {
     await this.assertStaff(staffUid);
 
     const [[user]] = await getPool().query(
-      `SELECT uid, nickname, phone, avatar FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+      `SELECT uid, nickname, phone, avatar, division_id FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
       [staffUid]
     );
 
@@ -371,22 +414,32 @@ class StaffService {
       throw error;
     }
 
-    const configured = Boolean(card && (card.display_name || card.store_address));
+    // 门店信息（名称/地址/电话/营业时间）以【门店管理】里客户经理所属门店为准（超管在后台统一维护），
+    // 与名片自填字段解耦；门店表未设时回退用名片自填的老字段（兼容）。
+    const store = await this.resolveDivisionStore(user?.division_id);
+    const storeName = (store && store.name) || card?.store_name || '';
+    const storeAddress = (store && store.address) || card?.store_address || '';
+    const storePhone = (store && store.phone) || card?.store_phone || '';
+    const businessHours = (store && store.dayTime) || card?.business_hours || '';
+
+    const configured = Boolean(card && (card.display_name || storeAddress));
     return {
       staffUid,
       displayName: card?.display_name || user?.nickname || '',
       avatar: card?.avatar || user?.avatar || '',
       jobTitle: card?.job_title || '',
       bio: card?.bio || '',
-      storeName: card?.store_name || '',
-      storeAddress: card?.store_address || '',
-      storePhone: card?.store_phone || '',
-      businessHours: card?.business_hours || '',
+      storeName,
+      storeAddress,
+      storePhone,
+      businessHours,
+      // 门店坐标暂以名片自填为准（门店管理暂无坐标设置）
       latitude: Number(card?.latitude || 0),
       longitude: Number(card?.longitude || 0),
       wechatQrcode: card?.wechat_qrcode || '',
       isPublished: card ? Number(card.is_published) === 1 : false,
       configured,
+      storeSource: store ? 'division_store' : 'card',
       // 客户经理名片对外展示：手机号给完整号，方便客户直接联系专属经理（经理身份即公开联系人）
       contactPhone: user?.phone || ''
     };
