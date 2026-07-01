@@ -118,8 +118,11 @@ class SnCatalogService {
   }
 
   /**
-   * 按标识码查产品库：IMEI1 优先，SN 兜底。
+   * 按标识码查产品库：IMEI1 优先，SN 兜底，并做 SN↔IMEI 交叉兜底。
    * 入参 { imei, sn }（任一即可，二者都给则先 IMEI1 后 SN）。
+   * 交叉兜底：员工常把 IMEI 填进 SN 栏（或反之），故一个码在"本栏"查不到时，
+   * 用同一串码去"另一栏"再查一次（IMEI 列用去非数字后的值，SN 列用去空格大写后的值）。
+   * 只按精确相等匹配，不会命中库里不存在的设备，故不放松防作弊口径。
    * 返回 { found, matchedBy: 'imei1'|'sn'|'', sn, imei1, brand, model, price }。
    */
   async lookupByCode({ imei = '', sn = '' } = {}) {
@@ -130,22 +133,45 @@ class SnCatalogService {
     const empty = { found: false, matchedBy: '', sn: snNorm ? String(sn).trim() : '', imei1: imeiNorm, brand: '', model: '', price: 0 };
     if (!imeiNorm && !snNorm) return empty;
 
-    // 1) IMEI1 优先
-    if (imeiNorm) {
-      const [[row]] = await getPool().query(
+    const pool = getPool();
+    const byImei = async (val) => {
+      if (!val) return null;
+      const [[row]] = await pool.query(
         `SELECT sn_code, imei1, brand, model, price FROM ${swTable('sn_catalog')} WHERE imei1_norm = ? LIMIT 1`,
-        [imeiNorm]
+        [val]
       );
-      if (row) return SnCatalogService.toLookupHit(row, 'imei1', { imei: imeiNorm, sn });
+      return row || null;
+    };
+    const bySn = async (val) => {
+      if (!val) return null;
+      const [[row]] = await pool.query(
+        `SELECT sn_code, imei1, brand, model, price FROM ${swTable('sn_catalog')} WHERE sn_norm = ? LIMIT 1`,
+        [val]
+      );
+      return row || null;
+    };
+
+    // 1) IMEI 标签：先查 IMEI1 列，查不到再交叉查 SN 列（用 SN 归一化的同串）
+    if (imeiNorm) {
+      const hit = await byImei(imeiNorm);
+      if (hit) return SnCatalogService.toLookupHit(hit, 'imei1', { imei: imeiNorm, sn });
+      const crossSnNorm = SnCatalogService.normalizeSn(imei);
+      const cross = await bySn(crossSnNorm);
+      if (cross) return SnCatalogService.toLookupHit(cross, 'sn', { imei: imeiNorm, sn });
     }
 
-    // 2) SN 兜底
+    // 2) SN 标签：先查 SN 列，查不到再交叉查 IMEI1 列（用 IMEI 归一化的同串）
     if (snNorm) {
-      const [[row]] = await getPool().query(
-        `SELECT sn_code, imei1, brand, model, price FROM ${swTable('sn_catalog')} WHERE sn_norm = ? LIMIT 1`,
-        [snNorm]
-      );
-      if (row) return SnCatalogService.toLookupHit(row, 'sn', { imei: imeiNorm, sn });
+      const hit = await bySn(snNorm);
+      if (hit) return SnCatalogService.toLookupHit(hit, 'sn', { imei: imeiNorm, sn });
+      // 仅当"整串 SN 本身就是一个完整 15 位 IMEI"（纯数字、长度15）时才交叉查 IMEI 列，
+      // 避免把普通字母数字 SN 里抽出的一段数字误当 IMEI 造成误命中。
+      const snDigits = SnCatalogService.normalizeImei(sn);
+      const snIsPureImei = snDigits.length === 15 && snDigits === SnCatalogService.normalizeSn(sn);
+      if (snIsPureImei) {
+        const cross = await byImei(snDigits);
+        if (cross) return SnCatalogService.toLookupHit(cross, 'imei1', { imei: imeiNorm, sn });
+      }
     }
 
     return empty;
