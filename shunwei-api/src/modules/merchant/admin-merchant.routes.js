@@ -406,6 +406,7 @@ function registerAdminMerchantRoutes(app) {
 
   app.get('/api/admin/merchant/:id/staff-verify-stats', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
+    await staffService.ensureTable();
     const id = Number(request.params.id);
     const period = String(request.query.period || 'day');
     const dateFrom = request.query.dateFrom
@@ -444,6 +445,9 @@ function registerAdminMerchantRoutes(app) {
         staffMap.set(uid, {
           operatorUid: uid,
           operatorName: r.operator_name || `UID:${uid}`,
+          role: 'staff',
+          phone: '',
+          isOwner: false,
           totalCount: 0,
           totalAmount: 0,
           details: []
@@ -459,12 +463,77 @@ function registerAdminMerchantRoutes(app) {
       });
     }
 
+    // 合入完整核销员花名册（店长/店员 + 商家绑定账号）——即使本期无核销记录也要显示，
+    // 便于超管看清该商家共几名核销员、是否已设负责人。
+    const [[merchant]] = await getPool().query(
+      `SELECT id, login_uid FROM ${swTable('merchant')} WHERE id = ? LIMIT 1`,
+      [id]
+    );
+    const rosterRows = merchant
+      ? (await getPool().query(
+          `SELECT ms.staff_uid, ms.role, u.nickname, u.phone
+           FROM ${swTable('merchant_staff')} ms
+           LEFT JOIN ${legacyTable('user')} u ON u.uid = ms.staff_uid
+           WHERE ms.merchant_id = ? AND ms.is_active = 1`,
+          [id]
+        ))[0]
+      : [];
+    const ownerUid = Number(merchant?.login_uid || 0);
+    const applyRoster = (uid, role, nickname, phone, isOwner) => {
+      if (!uid) return;
+      if (staffMap.has(uid)) {
+        const s = staffMap.get(uid);
+        s.role = role === 'manager' ? 'manager' : s.role;
+        if (!s.phone && phone) s.phone = phone;
+        if (isOwner) s.isOwner = true;
+        if ((!s.operatorName || /^UID:/.test(s.operatorName)) && nickname) s.operatorName = nickname;
+        return;
+      }
+      staffMap.set(uid, {
+        operatorUid: uid,
+        operatorName: nickname || `UID:${uid}`,
+        role: role === 'manager' ? 'manager' : 'staff',
+        phone: phone || '',
+        isOwner: !!isOwner,
+        totalCount: 0,
+        totalAmount: 0,
+        details: []
+      });
+    };
+    for (const r of rosterRows) {
+      applyRoster(Number(r.staff_uid || 0), r.role, r.nickname, r.phone, false);
+    }
+    // 商家绑定账号（login_uid）视为负责人；若花名册没有则补进来
+    if (ownerUid) {
+      if (staffMap.has(ownerUid)) {
+        applyRoster(ownerUid, 'manager', '', '', true);
+      } else {
+        const [[ownerUser]] = await getPool().query(
+          `SELECT uid, nickname, phone FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1`,
+          [ownerUid]
+        );
+        applyRoster(ownerUid, 'manager', ownerUser?.nickname || '', ownerUser?.phone || '', true);
+      }
+    }
+
+    const staff = [...staffMap.values()].sort((a, b) => {
+      // 负责人置顶，其次按核销金额倒序
+      const am = a.role === 'manager' ? 1 : 0;
+      const bm = b.role === 'manager' ? 1 : 0;
+      if (am !== bm) return bm - am;
+      return b.totalAmount - a.totalAmount;
+    });
+    const managerCount = staff.filter((s) => s.role === 'manager').length;
+
     return ok({
       period,
       dateFrom: new Date(dateFrom * 1000).toISOString().slice(0, 10),
       dateTo: new Date(dateTo * 1000).toISOString().slice(0, 10),
       periods: [...periods].sort().reverse(),
-      staff: [...staffMap.values()].sort((a, b) => b.totalAmount - a.totalAmount)
+      staffCount: staff.length,
+      managerCount,
+      hasManager: managerCount > 0,
+      staff
     });
   });
 

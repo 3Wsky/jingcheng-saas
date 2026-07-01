@@ -342,6 +342,33 @@
     <el-tabs v-model="editTab">
       <el-tab-pane label="门店资料" name="base">
         <el-form :model="editForm" label-width="100px">
+          <el-divider content-position="left">门店团队</el-divider>
+          <div class="team-block" v-loading="teamLoading">
+            <div v-if="teamManagers.length" class="team-group">
+              <div class="team-group-label">负责人</div>
+              <div class="team-members">
+                <div v-for="m in teamManagers" :key="'mgr-' + m.uid" class="team-member is-manager">
+                  <span class="tm-role">店长</span>
+                  <span class="tm-name">{{ m.nickname }}</span>
+                  <span class="tm-phone">{{ m.phone || '未留手机号' }}</span>
+                  <span class="tm-uid">UID {{ m.uid }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="team-group">
+              <div class="team-group-label">核销员<span class="tm-count">（{{ teamStaff.length }} 名）</span></div>
+              <div v-if="teamStaff.length" class="team-members">
+                <div v-for="s in teamStaff" :key="'staff-' + s.uid" class="team-member">
+                  <span class="tm-role staff">核销员</span>
+                  <span class="tm-name">{{ s.nickname }}</span>
+                  <span class="tm-phone">{{ s.phone || '未留手机号' }}</span>
+                  <span class="tm-uid">UID {{ s.uid }}</span>
+                </div>
+              </div>
+              <el-empty v-else :image-size="48" description="暂无核销员，可在「会员管理 → 商家角色」开通" />
+            </div>
+          </div>
+
           <el-divider content-position="left">基础信息</el-divider>
           <el-form-item label="名称"><el-input v-model="editForm.merchantName" /></el-form-item>
           <el-form-item label="类目"><el-input v-model="editForm.category" /></el-form-item>
@@ -392,23 +419,32 @@
             @change="loadStaffStats"
           />
         </div>
+        <div class="stats-summary">
+          <el-tag type="info" effect="plain" round>共 {{ staffStatsCount }} 名核销员</el-tag>
+          <el-tag v-if="staffStatsManagerCount > 0" type="warning" effect="plain" round>负责人 {{ staffStatsManagerCount }} 名</el-tag>
+          <el-tag v-else type="danger" effect="plain" round>⚠️ 未设置负责人</el-tag>
+          <span class="stats-summary-hint">所选时间段内无核销记录的核销员也会列出（笔数/金额为 0）</span>
+        </div>
         <el-table :data="staffStats" size="small" v-loading="statsLoading" show-summary :summary-method="statsSummary">
           <template #empty>
-            <el-empty description="暂无核销数据" />
+            <el-empty description="该商家暂无核销员，请先在小程序端为其分配核销员/负责人" />
           </template>
-          <el-table-column prop="operatorName" label="核销员" min-width="100">
+          <el-table-column prop="operatorName" label="核销员" min-width="150">
             <template #default="{ row }">
+              <el-tag v-if="row.role === 'manager'" type="warning" size="small" effect="dark" style="margin-right: 6px">负责人</el-tag>
+              <el-tag v-else type="info" size="small" effect="plain" style="margin-right: 6px">核销员</el-tag>
               <span class="staff-name">{{ row.operatorName }}</span>
               <span class="staff-uid">（{{ row.operatorUid }}）</span>
+              <span v-if="row.phone" class="staff-uid">· {{ row.phone }}</span>
             </template>
           </el-table-column>
           <el-table-column prop="totalCount" label="核销笔数" width="100" align="right" />
           <el-table-column prop="totalAmount" label="核销总额" width="120" align="right">
-            <template #default="{ row }">¥{{ row.totalAmount.toFixed(2) }}</template>
+            <template #default="{ row }">¥{{ (row.totalAmount || 0).toFixed(2) }}</template>
           </el-table-column>
           <el-table-column label="各期明细" min-width="200">
             <template #default="{ row }">
-              <div class="period-chips">
+              <div v-if="row.details && row.details.length" class="period-chips">
                 <el-tag
                   v-for="d in row.details"
                   :key="d.period"
@@ -419,6 +455,7 @@
                   {{ d.period }}：{{ d.count }}笔 ¥{{ d.amount.toFixed(2) }}
                 </el-tag>
               </div>
+              <span v-else class="staff-uid">本期无核销</span>
             </template>
           </el-table-column>
         </el-table>
@@ -579,9 +616,17 @@ const logTotal = ref(0)
 const logDateRange = ref<[string, string] | null>(null)
 const canVerifyOriginal = ref(true)
 const staffStats = ref<any[]>([])
+const staffStatsCount = ref(0)
+const staffStatsManagerCount = ref(0)
 const statsLoading = ref(false)
 const statsPeriod = ref<'day' | 'week' | 'month'>('day')
 const statsDateRange = ref<[string, string] | null>(null)
+
+// 门店团队（负责人 + 核销员名单），复用手动核销的 verify-staff 接口
+const teamMembers = ref<{ uid: number; role: string; nickname: string; phone: string }[]>([])
+const teamLoading = ref(false)
+const teamManagers = computed(() => teamMembers.value.filter((m) => m.role === 'manager'))
+const teamStaff = computed(() => teamMembers.value.filter((m) => m.role !== 'manager'))
 
 onMounted(() => {
   loadList()
@@ -858,7 +903,26 @@ async function openEdit(row: any) {
   logDateRange.value = null
   statsDateRange.value = null
   statsPeriod.value = 'day'
-  await Promise.all([loadVerifyLogs(1), loadStaffStats()])
+  await Promise.all([loadVerifyLogs(1), loadStaffStats(), loadTeam()])
+}
+
+async function loadTeam() {
+  if (!editForm.value?.id) return
+  teamLoading.value = true
+  teamMembers.value = []
+  try {
+    const data = await request.get(`/api/admin/merchant/${editForm.value.id}/verify-staff`)
+    teamMembers.value = (data?.list || []).map((s: any) => ({
+      uid: Number(s.uid),
+      role: s.role === 'manager' ? 'manager' : 'staff',
+      nickname: s.nickname || `UID:${s.uid}`,
+      phone: s.phone || ''
+    }))
+  } catch {
+    teamMembers.value = []
+  } finally {
+    teamLoading.value = false
+  }
 }
 
 async function loadStaffStats() {
@@ -870,8 +934,12 @@ async function loadStaffStats() {
     if (statsDateRange.value?.[1]) params.dateTo = statsDateRange.value[1]
     const data = await request.get(`/api/admin/merchant/${editForm.value.id}/staff-verify-stats`, { params })
     staffStats.value = data?.staff || []
+    staffStatsCount.value = Number(data?.staffCount || staffStats.value.length)
+    staffStatsManagerCount.value = Number(data?.managerCount || 0)
   } catch {
     staffStats.value = []
+    staffStatsCount.value = 0
+    staffStatsManagerCount.value = 0
   } finally {
     statsLoading.value = false
   }
@@ -1011,8 +1079,42 @@ function fmtAmount(val?: number) {
 .mv-balance-low { color: #f56c6c; }
 .field-hint { margin: 4px 0 0; font-size: 12px; color: #9CA3AF; line-height: 1.4; }
 .stats-toolbar { display: flex; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.stats-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.stats-summary-hint { color: #909399; font-size: 12px; }
 .staff-name { font-weight: 600; }
 .staff-uid { color: #909399; font-size: 12px; }
+
+/* 门店团队（详情页负责人 + 核销员名单） */
+.team-block { margin-bottom: 8px; }
+.team-group { margin-bottom: 12px; }
+.team-group:last-child { margin-bottom: 0; }
+.team-group-label { font-size: 13px; font-weight: 600; color: #606266; margin-bottom: 8px; }
+.tm-count { color: #909399; font-weight: 400; font-size: 12px; }
+.team-members { display: flex; flex-direction: column; gap: 6px; }
+.team-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f7f9fc;
+  border: 1px solid #e6ebf2;
+  border-radius: 8px;
+  font-size: 13px;
+}
+.team-member.is-manager { background: #fdf6ec; border-color: #f5dab1; }
+.tm-role {
+  flex: none;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 4px;
+  background: #ecf5ff;
+  color: #409eff;
+}
+.tm-role.staff { background: #eef1f6; color: #606266; }
+.team-member.is-manager .tm-role { background: #faecd8; color: #e6a23c; }
+.tm-name { font-weight: 600; color: #1f2733; }
+.tm-phone { color: #606266; font-variant-numeric: tabular-nums; }
+.tm-uid { margin-left: auto; color: #909399; font-size: 12px; }
 .period-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .period-chip { font-size: 11px; }
 .log-filter { margin-bottom: 12px; }
