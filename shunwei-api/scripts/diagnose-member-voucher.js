@@ -118,6 +118,32 @@ async function diagnoseUid(conn, dbName, uid, prefix) {
     `付费会员标记 is_money_level=${u.is_money_level} | 到期=${fmtTime(u.overdue_time)} | 归属客户经理uid=${u.spread_uid || 0}`
   );
 
+  // 0) 会员开通记录（source_channel 是判断"怎么来的"的关键）
+  console.log('\n--- ⓪ 会员开通记录 sw_user_membership（来源渠道！）---');
+  const [memberships] = await conn.query(
+    `SELECT id, tier_code, source_channel, source_ref, granted_integral,
+            start_at, expire_at, status, created_at
+     FROM ${SW('user_membership')}
+     WHERE uid = ? ORDER BY id ASC`,
+    [uid]
+  );
+  if (!memberships.length) {
+    console.log('（无 sw_user_membership 记录 → 未通过本系统开通过会员；若小程序仍显示会员，可能仅靠 CRMEB eb_user.is_money_level 标志）');
+  }
+  for (const m of memberships) {
+    const chLabel = {
+      legacy_import: '历史回填(老会员迁移，本就不含现金券)',
+      offline_approval: '线下消费权益审批(这条才送券)',
+      wechat_purchase: '微信买卡(设计上只送积分不送券)',
+      admin_grant: '后台开卡(设计上只送积分不送券)'
+    }[m.source_channel] || m.source_channel;
+    console.log(
+      `会员#${m.id} | ${fmtTime(m.created_at)} | 档位=${m.tier_code} | 来源=${m.source_channel}【${chLabel}】 | ` +
+      `单号=${m.source_ref} | 记录赠积分=${Number(m.granted_integral).toLocaleString()} | ` +
+      `到期=${fmtTime(m.expire_at)} | ${Number(m.status) === 1 ? '有效' : '失效'}`
+    );
+  }
+
   // 1) 审批单
   console.log('\n--- ① 审批单 sw_approval_request（消费权益申请）---');
   const [reqs] = await conn.query(
@@ -185,8 +211,14 @@ async function diagnoseUid(conn, dbName, uid, prefix) {
   console.log('\n--- ④ 裁决 ---');
   const approved = reqs.filter((r) => r.status === 'approved');
   const grantBatches = batches.filter((b) => b.source_type === 'approval_grant');
-  if (!reqs.length) {
-    console.log('结论：无审批单。若他确实有积分/199会员，多半是"直接开卡/后台开卡"渠道 —— 那条渠道按设计只发积分不发券。');
+  const isLegacy = memberships.some((m) => m.source_channel === 'legacy_import');
+  if (!reqs.length && isLegacy) {
+    console.log('结论：🟦 该会员是「历史回填(legacy_import)」——即本系统上线前就在 CRMEB 买过199/299的老会员。');
+    console.log('     回填只迁移了「历史积分」和「会员档位」，==现金券是新功能、老会员本就没有==；');
+    console.log('     也因此他没有"消费审批单"和"核销记录"。这不是漏发，是历史边界。');
+    console.log('     → 是否给老会员补发¥100券，属产品决策；要补我可写按 legacy 会员批量补发的脚本。');
+  } else if (!reqs.length) {
+    console.log('结论：无审批单，也非 legacy 回填。若他确实有积分/199会员，需看⓪的来源渠道判断（微信买卡/后台开卡按设计只发积分不发券）。');
   } else if (approved.length && approved.every((r) => Number(r.matched_voucher_amount) === 0)) {
     console.log('结论：❌ 已通过的审批单「匹配券额=0」→ 审批当时命中的档位规则券额就是 0（或那时规则没配券额），所以只发了积分没发券。');
     console.log('     → 属"配置/数据"问题：需 (1) 把档位规则券额改对；(2) 对这些历史单回填补发现金券。');
