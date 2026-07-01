@@ -43,6 +43,13 @@
 
   <PageShell title="审批管理">
     <template #actions>
+      <el-button
+        v-if="activeTab === 'all'"
+        type="primary"
+        plain
+        :loading="exporting"
+        @click="exportApprovals"
+      >一键导出 CSV</el-button>
       <el-button link type="primary" @click="$router.push('/system-settings')">系统设置</el-button>
     </template>
 
@@ -193,6 +200,7 @@ import UidLink from '@/components/UidLink.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
 import { useUserStore } from '@/store/user'
+import { downloadCsv } from '@/utils/csvExport'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -218,6 +226,7 @@ const filters = ref({
 const dateRange = ref<[string, string] | null>(null)
 const detailOpen = ref(false)
 const detailRequestId = ref<number | null>(null)
+const exporting = ref(false)
 const autoPassStatus = ref({ consumption: false, integralMall: false })
 const autoStats = ref<any>(null)
 
@@ -339,6 +348,72 @@ function resetFilters() {
   dateRange.value = null
   page.value = 1
   loadAll()
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending_store: '待客户主管',
+  pending_admin: '待超管终审',
+  approved: '已通过',
+  rejected: '已驳回',
+  revoked: '已撤销'
+}
+
+// 一键导出：按当前「全部记录」筛选条件，翻页拉全后生成 CSV（UTF-8 BOM，Excel 友好）
+async function exportApprovals() {
+  exporting.value = true
+  const rows: any[] = []
+  try {
+    let p = 1
+    const size = 100
+    let totalCount = 0
+    do {
+      const params: Record<string, unknown> = { page: p, pageSize: size, status: filters.value.status || 'all' }
+      if (filters.value.staffUid) params.staffUid = filters.value.staffUid
+      if (filters.value.tierCode) params.tierCode = filters.value.tierCode
+      if (filters.value.amountMin != null) params.amountMin = filters.value.amountMin
+      if (filters.value.amountMax != null) params.amountMax = filters.value.amountMax
+      if (filters.value.receiptNo) params.receiptNo = filters.value.receiptNo
+      if (filters.value.autoPass) params.autoPass = filters.value.autoPass
+      if (dateRange.value?.[0]) params.dateFrom = dateRange.value[0]
+      if (dateRange.value?.[1]) params.dateTo = dateRange.value[1]
+      const data = await request.get('/api/admin/approval/list', { params })
+      rows.push(...(data?.list || []))
+      totalCount = data?.total || rows.length
+      p += 1
+    } while (rows.length < totalCount && p <= 100)
+  } catch {
+    exporting.value = false
+    return
+  }
+  exporting.value = false
+
+  if (!rows.length) {
+    ElMessage.info('暂无数据可导出')
+    return
+  }
+  const stamp = new Date().toISOString().slice(0, 10)
+  downloadCsv(
+    `审批记录-${stamp}.csv`,
+    ['ID', '单号', '客户昵称', '客户UID', '提交人', '提交人UID', '门店ID', '消费金额', '档位', '赠现金券', '赠积分', '小票号', '状态', '提交时间', '通过时间'],
+    rows.map((r) => [
+      r.requestId,
+      r.requestNo || '',
+      r.customerNickname || '',
+      r.customerUid,
+      r.staffNickname || '',
+      r.staffUid ?? '',
+      r.divisionId || '',
+      r.consumptionAmount ?? 0,
+      formatTier(r.matchedTierCode),
+      r.matchedVoucherAmount ?? 0,
+      r.matchedIntegral ?? 0,
+      r.receiptNo || '',
+      STATUS_LABEL[r.status] || r.status || '',
+      formatTime(r.createdAt),
+      r.approvedAt ? formatTime(r.approvedAt) : ''
+    ])
+  )
+  ElMessage.success(`已导出 ${rows.length} 条`)
 }
 
 function formatTier(code?: string) {
