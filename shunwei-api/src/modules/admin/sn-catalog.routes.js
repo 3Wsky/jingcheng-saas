@@ -61,10 +61,22 @@ function registerSnCatalogRoutes(app) {
       return ok(await service.list({
         page: request.query.page,
         pageSize: request.query.pageSize,
-        keyword: request.query.keyword
+        keyword: request.query.keyword,
+        category: request.query.category,
+        brand: request.query.brand
       }));
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '加载失败');
+    }
+  });
+
+  // 分类分面：各品类条数 + 品牌列表（供前端品类 Tab / 品牌下拉）
+  app.get('/api/admin/sn-catalog/facets', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      return ok(await service.facets());
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '统计失败');
     }
   });
 

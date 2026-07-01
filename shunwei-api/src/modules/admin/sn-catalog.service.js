@@ -189,7 +189,61 @@ class SnCatalogService {
     };
   }
 
-  async list({ page = 1, pageSize = 20, keyword = '' } = {}) {
+  /** 可用品类（前端 Tab 用；顺序即展示顺序，'all' 由前端自加） */
+  static CATEGORIES = ['手机', '平板', '电脑', '智能穿戴', '无人机', '其他'];
+
+  /**
+   * 由型号/品牌/有无 IMEI1 推断品类（库里无 category 字段，靠启发式）。
+   *  - 有 IMEI1 → 手机（手机才有 IMEI）
+   *  - 型号/品牌含无人机/大疆/相机/云台/运动相机 → 无人机
+   *  - 含 平板/pad → 平板；含 笔记本/电脑/matebook/book/pro 16 等 → 电脑
+   *  - 含 手表/watch/手环/band/耳机/buds/耳机 → 智能穿戴
+   *  - 其余 → 其他
+   */
+  static inferCategory({ imei1 = '', model = '', brand = '' } = {}) {
+    if (String(imei1 || '').trim()) return '手机';
+    const t = `${String(model || '')} ${String(brand || '')}`.toLowerCase();
+    if (/无人机|大疆|dji|云台|运动相机|osmo|pocket|action|mavic|air\s?\d|mini\s?\d|flip|neo/.test(t)) return '无人机';
+    if (/平板|pad/.test(t)) return '平板';
+    if (/笔记本|电脑|matebook|notebook|book|拯救者|thinkpad|游戏本|台式/.test(t)) return '电脑';
+    if (/手表|watch|手环|band|耳机|buds|freebuds|gt\s?\d|穿戴|耳夹/.test(t)) return '智能穿戴';
+    return '其他';
+  }
+
+  /**
+   * 品类 → SQL WHERE 片段（用于分页正确的按品类筛选）。返回 { sql, params } 或 null（不筛）。
+   * 与 inferCategory 保持一致的口径：手机=有imei1；其它=无imei1且型号/品牌命中该类关键词；
+   * 其他=无imei1且不命中任何已知品类。
+   */
+  static categoryWhere(category) {
+    const cat = String(category || '').trim();
+    if (!cat || cat === 'all') return null;
+    if (cat === '手机') return { sql: "imei1_norm <> ''", params: [] };
+
+    const like = (kws) => ({
+      sql: '(' + kws.map(() => '(model LIKE ? OR brand LIKE ?)').join(' OR ') + ')',
+      params: kws.flatMap((k) => [`%${k}%`, `%${k}%`])
+    });
+    const droneKw = ['无人机', '大疆', 'DJI', '云台', 'Osmo', 'Pocket', 'Action', 'Mavic', 'Flip', 'Neo'];
+    const padKw = ['平板', 'Pad'];
+    const pcKw = ['笔记本', '电脑', 'MateBook', 'Book', '拯救者', 'ThinkPad'];
+    const wearKw = ['手表', 'Watch', '手环', 'Band', '耳机', 'Buds', '穿戴'];
+
+    const noImei = "imei1_norm = ''";
+    if (cat === '无人机') { const l = like(droneKw); return { sql: `${noImei} AND ${l.sql}`, params: l.params }; }
+    if (cat === '平板') { const l = like(padKw); return { sql: `${noImei} AND ${l.sql}`, params: l.params }; }
+    if (cat === '电脑') { const l = like(pcKw); return { sql: `${noImei} AND ${l.sql}`, params: l.params }; }
+    if (cat === '智能穿戴') { const l = like(wearKw); return { sql: `${noImei} AND ${l.sql}`, params: l.params }; }
+    if (cat === '其他') {
+      // 其他 = 无 imei1 且不命中 无人机/平板/电脑/穿戴 任一关键词
+      const all = [...droneKw, ...padKw, ...pcKw, ...wearKw];
+      const notLike = all.map(() => '(model NOT LIKE ? AND brand NOT LIKE ?)').join(' AND ');
+      return { sql: `${noImei} AND ${notLike}`, params: all.flatMap((k) => [`%${k}%`, `%${k}%`]) };
+    }
+    return null;
+  }
+
+  async list({ page = 1, pageSize = 20, keyword = '', category = '', brand = '' } = {}) {
     await this.ensureTable();
     const safePage = Math.max(1, Number(page) || 1);
     const safeSize = Math.min(200, Math.max(1, Number(pageSize) || 20));
@@ -201,6 +255,16 @@ class SnCatalogService {
     if (kw) {
       conditions.push('(sn_code LIKE ? OR imei1 LIKE ? OR model LIKE ? OR brand LIKE ?)');
       values.push(`%${kw}%`, `%${kw}%`, `%${kw}%`, `%${kw}%`);
+    }
+    const br = String(brand || '').trim();
+    if (br) {
+      conditions.push('brand = ?');
+      values.push(br);
+    }
+    const catWhere = SnCatalogService.categoryWhere(category);
+    if (catWhere) {
+      conditions.push(`(${catWhere.sql})`);
+      values.push(...catWhere.params);
     }
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -225,12 +289,43 @@ class SnCatalogService {
         imei1: r.imei1 || '',
         brand: r.brand || '',
         model: r.model || '',
+        category: SnCatalogService.inferCategory({ imei1: r.imei1, model: r.model, brand: r.brand }),
         price: Number(r.price || 0),
         remark: r.remark || '',
         createdAt: Number(r.created_at || 0),
         updatedAt: Number(r.updated_at || 0)
       }))
     };
+  }
+
+  /**
+   * 分类分面统计：返回各品类条数 + 品牌列表（含条数），供前端做 Tab 与品牌下拉。
+   * 品类计数用与 categoryWhere 一致的口径逐类 COUNT，保证与筛选结果对得上。
+   */
+  async facets() {
+    await this.ensureTable();
+    const pool = getPool();
+    const [[totalRow]] = await pool.query(`SELECT COUNT(*) AS c FROM ${swTable('sn_catalog')}`);
+    const total = Number(totalRow?.c || 0);
+
+    const categories = [];
+    for (const cat of SnCatalogService.CATEGORIES) {
+      const w = SnCatalogService.categoryWhere(cat);
+      // eslint-disable-next-line no-await-in-loop
+      const [[row]] = await pool.query(
+        `SELECT COUNT(*) AS c FROM ${swTable('sn_catalog')} WHERE ${w.sql}`,
+        w.params
+      );
+      categories.push({ category: cat, count: Number(row?.c || 0) });
+    }
+
+    const [brandRows] = await pool.query(
+      `SELECT COALESCE(NULLIF(TRIM(brand), ''), '未填品牌') AS brand, COUNT(*) AS c
+       FROM ${swTable('sn_catalog')} GROUP BY brand ORDER BY c DESC LIMIT 100`
+    );
+    const brands = brandRows.map((r) => ({ brand: r.brand, count: Number(r.c || 0) }));
+
+    return { total, categories, brands };
   }
 
   async upsertOne({ snCode = '', imei1 = '', brand = '', model = '', price = 0, remark = '' }) {

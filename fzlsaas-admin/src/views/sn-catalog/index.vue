@@ -34,10 +34,28 @@
             v-model="keyword"
             placeholder="SN / 型号 / 品牌"
             clearable
-            style="width: 260px"
+            style="width: 240px"
             @keyup.enter="reload(1)"
             @clear="reload(1)"
           />
+        </el-form-item>
+        <el-form-item label="品牌">
+          <el-select
+            v-model="brand"
+            placeholder="全部品牌"
+            clearable
+            filterable
+            style="width: 180px"
+            @change="reload(1)"
+            @clear="reload(1)"
+          >
+            <el-option
+              v-for="b in brandOptions"
+              :key="b.brand"
+              :label="`${b.brand} (${b.count})`"
+              :value="b.brand"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" @click="reload(1)">查询</el-button>
@@ -45,6 +63,15 @@
         </el-form-item>
       </el-form>
     </template>
+
+    <el-tabs v-model="category" class="cat-tabs" @tab-change="reload(1)">
+      <el-tab-pane name="all">
+        <template #label>全部 <span class="cat-count">{{ facetTotal }}</span></template>
+      </el-tab-pane>
+      <el-tab-pane v-for="c in categoryFacets" :key="c.category" :name="c.category">
+        <template #label>{{ c.category }} <span class="cat-count">{{ c.count }}</span></template>
+      </el-tab-pane>
+    </el-tabs>
 
     <el-table :data="list" v-loading="loading" size="small">
       <template #empty>
@@ -54,6 +81,11 @@
       </template>
       <el-table-column prop="model" label="商品型号" min-width="240" fixed="left" show-overflow-tooltip>
         <template #default="{ row }">{{ row.model || '—' }}</template>
+      </el-table-column>
+      <el-table-column prop="category" label="品类" width="96">
+        <template #default="{ row }">
+          <el-tag :type="catTagType(row.category)" size="small" effect="light">{{ row.category || '其他' }}</el-tag>
+        </template>
       </el-table-column>
       <el-table-column prop="imei1" label="IMEI1（手机）" min-width="160">
         <template #default="{ row }"><span class="mono">{{ row.imei1 || '—' }}</span></template>
@@ -141,6 +173,7 @@ interface SnRow {
   imei1: string
   brand: string
   model: string
+  category?: string
   price: number
   remark: string
 }
@@ -151,6 +184,19 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = 20
 const keyword = ref('')
+const category = ref('all')
+const brand = ref('')
+const facetTotal = ref(0)
+const categoryFacets = ref<Array<{ category: string; count: number }>>([])
+const brandOptions = ref<Array<{ brand: string; count: number }>>([])
+
+type TagType = 'primary' | 'success' | 'info' | 'warning' | 'danger'
+const CAT_TAG: Record<string, TagType> = {
+  手机: 'primary', 平板: 'success', 电脑: 'warning', 智能穿戴: 'info', 无人机: 'danger'
+}
+function catTagType(cat?: string): TagType {
+  return CAT_TAG[cat || '其他'] ?? 'info'
+}
 
 const formOpen = ref(false)
 const editing = ref(false)
@@ -164,11 +210,27 @@ const importing = ref(false)
 const replaceMode = ref(true)
 const importResult = ref<{ processed?: number; total?: number; skipped?: number; mode?: string }>({})
 
-onMounted(() => reload(1))
+onMounted(() => {
+  loadFacets()
+  reload(1)
+})
 
 function formatMoney(v: any) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toFixed(2) : '0.00'
+}
+
+async function loadFacets() {
+  try {
+    const data = await request.get('/api/admin/sn-catalog/facets')
+    facetTotal.value = data?.total || 0
+    categoryFacets.value = data?.categories || []
+    brandOptions.value = data?.brands || []
+  } catch {
+    facetTotal.value = 0
+    categoryFacets.value = []
+    brandOptions.value = []
+  }
 }
 
 async function reload(p = 1) {
@@ -176,7 +238,13 @@ async function reload(p = 1) {
   loading.value = true
   try {
     const data = await request.get('/api/admin/sn-catalog', {
-      params: { page: p, pageSize, keyword: keyword.value.trim() || undefined }
+      params: {
+        page: p,
+        pageSize,
+        keyword: keyword.value.trim() || undefined,
+        category: category.value !== 'all' ? category.value : undefined,
+        brand: brand.value || undefined
+      }
     })
     list.value = data?.list || []
     total.value = data?.total || 0
@@ -190,6 +258,8 @@ async function reload(p = 1) {
 
 function resetSearch() {
   keyword.value = ''
+  brand.value = ''
+  category.value = 'all'
   reload(1)
 }
 
@@ -216,6 +286,7 @@ async function save() {
     ElMessage.success('已保存')
     formOpen.value = false
     reload(page.value)
+    loadFacets()
   } catch { /* handled */ } finally {
     saving.value = false
   }
@@ -227,6 +298,7 @@ async function removeRow(row: SnRow) {
     await request.delete(`/api/admin/sn-catalog/${row.id}`)
     ElMessage.success('已删除')
     reload(page.value)
+    loadFacets()
   } catch { /* cancel */ }
 }
 
@@ -417,6 +489,7 @@ async function handleFileImport(file: File) {
     importResult.value = { ...data, total: data?.total ?? items.length }
     importOpen.value = true
     reload(1)
+    loadFacets()
   } catch (e: any) {
     if (e !== 'cancel') ElMessage.error(e?.message || '导入失败')
   } finally {
@@ -428,4 +501,7 @@ async function handleFileImport(file: File) {
 
 <style scoped>
 .mono { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 12px; }
+.cat-tabs { margin-bottom: 4px; }
+.cat-tabs :deep(.el-tabs__header) { margin-bottom: 8px; }
+.cat-count { color: #909399; font-size: 12px; margin-left: 2px; }
 </style>
