@@ -41,6 +41,8 @@ function parseReceiptProducts(receiptNo) {
         item.model = seg;
       }
     });
+    // 隐藏品类：型号含大疆/DJI/无人机 → 类型显示「大疆」（前台不放大疆选项，按型号自动归类）
+    if (/大疆|DJI|无人机/i.test(item.model)) item.type = '大疆';
     items.push(item);
   });
   return items;
@@ -97,6 +99,12 @@ async function enrichApprovals(rows) {
           : await catalog.lookupByCode({ sn: p.code });
         p.matched = !!(hit && hit.found);
         p.catalogModel = (hit && hit.model) || '';
+        // 隐藏品类：命中产品库后，若该型号/品牌判定为无人机（大疆），则把产品类型显示为「大疆」。
+        // 小程序前台只放 4 类不含大疆，这里按库中命中的型号自动归类，店长/终审都看到「大疆」。
+        if (p.matched) {
+          const cat = SnCatalogService.inferCategory({ model: (hit && hit.model) || '', brand: (hit && hit.brand) || '' });
+          if (cat === '无人机') p.type = '大疆';
+        }
       } catch { p.matched = null; }
       try {
         const u = p.codeType === 'imei1'

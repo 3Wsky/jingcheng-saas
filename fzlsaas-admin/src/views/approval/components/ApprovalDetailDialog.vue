@@ -41,6 +41,7 @@
                 匹配：{{ detail.codeVerify.hit.model || '—' }}
                 <template v-if="detail.codeVerify.hit.price"> · ¥{{ formatNum(detail.codeVerify.hit.price) }}</template>
               </span>
+              <el-tag v-if="detail.codeVerify.category === '无人机'" size="small" type="warning" effect="dark">大疆</el-tag>
             </template>
             <template v-else>
               <el-tag size="small" type="danger">IMEI/SN 未在产品库匹配到</el-tag>

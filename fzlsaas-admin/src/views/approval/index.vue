@@ -12,6 +12,35 @@
     <span v-if="autoPassStatus.integralMall">积分商城</span>
   </el-alert>
 
+  <div v-if="autoStats" class="auto-stats">
+    <div class="stat-card">
+      <div class="stat-num auto">{{ autoStats.autoApproved }}</div>
+      <div class="stat-label">今日自动终审</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num manual">{{ autoStats.manualApproved }}</div>
+      <div class="stat-label">今日人工终审</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num pending">{{ autoStats.pending }}</div>
+      <div class="stat-label">当前待终审</div>
+    </div>
+    <div class="stat-reasons">
+      <div class="stat-reasons-title">
+        未自动原因
+        <el-tag v-if="!autoStats.autoPassEnabled" type="warning" size="small" effect="dark">免审开关未开</el-tag>
+      </div>
+      <div class="stat-reasons-body">
+        <template v-for="(v, k) in autoStats.notAutoReasons" :key="k">
+          <el-tag v-if="v > 0" size="small" :type="k === 'other' ? 'success' : 'info'" effect="plain" class="reason-tag">
+            {{ REASON_LABELS[k] || k }}：{{ v }}
+          </el-tag>
+        </template>
+        <span v-if="!hasAnyReason" class="stat-reasons-empty">今日暂无未自动的单</span>
+      </div>
+    </div>
+  </div>
+
   <PageShell title="审批管理">
     <template #actions>
       <el-button link type="primary" @click="$router.push('/system-settings')">系统设置</el-button>
@@ -152,7 +181,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -186,13 +215,36 @@ const dateRange = ref<[string, string] | null>(null)
 const detailOpen = ref(false)
 const detailRequestId = ref<number | null>(null)
 const autoPassStatus = ref({ consumption: false, integralMall: false })
+const autoStats = ref<any>(null)
 
 onMounted(async () => {
   await loadAutoPassConfig()
+  loadAutoStats()
   activeTab.value = isPendingEntry ? 'pending' : 'all'
   if (activeTab.value === 'pending') loadPending()
   else loadAll()
 })
+
+async function loadAutoStats() {
+  try {
+    autoStats.value = await request.get('/api/admin/approval/auto-pass-stats')
+  } catch { autoStats.value = null }
+}
+
+const REASON_LABELS: Record<string, string> = {
+  switchOff: '免审未开',
+  noCode: '收据无 IMEI/SN 码',
+  notAllMatched: '码未全部命中产品库',
+  reused: '码已被占用',
+  other: '条件满足待复核'
+}
+
+const hasAnyReason = computed(() => {
+  const r = autoStats.value?.notAutoReasons
+  if (!r) return false
+  return Object.values(r).some((v) => Number(v) > 0)
+})
+
 
 function onTabChange(name: string | number) {
   if (name === 'pending') loadPending()
@@ -399,6 +451,38 @@ async function loadAutoPassConfig() {
 <style scoped>
 .empty { text-align: center; padding: 40px; color: #999; }
 .status-bar { margin-bottom: 16px; }
+.auto-stats {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.stat-card {
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 10px;
+  padding: 12px 20px;
+  min-width: 110px;
+  text-align: center;
+}
+.stat-num { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.stat-num.auto { color: #16a34a; }
+.stat-num.manual { color: #2563eb; }
+.stat-num.pending { color: #e6a23c; }
+.stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.stat-reasons {
+  flex: 1;
+  min-width: 240px;
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 10px;
+  padding: 10px 16px;
+}
+.stat-reasons-title { font-size: 13px; font-weight: 600; color: #303133; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+.stat-reasons-body { display: flex; flex-wrap: wrap; gap: 6px; }
+.reason-tag { margin: 0; }
+.stat-reasons-empty { font-size: 12px; color: #c0c4cc; }
 .range-sep { margin: 0 6px; color: #9CA3AF; }
 .tab-badge { margin-left: 6px; vertical-align: middle; }
 .cell-name { font-weight: 600; color: #1A1A2E; line-height: 1.4; }

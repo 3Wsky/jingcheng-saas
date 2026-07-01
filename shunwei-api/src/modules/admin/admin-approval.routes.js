@@ -69,6 +69,16 @@ function registerAdminApprovalRoutes(app) {
     }
   });
 
+  // 当日自动审批统计：今日自动/人工/挂起笔数 + 未自动原因分类（供终审页顶部展示）
+  app.get('/api/admin/approval/auto-pass-stats', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      return ok(await approvalService.getAutoPassStatsToday());
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '统计失败');
+    }
+  });
+
   app.put('/api/admin/config/approval-auto-pass', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const parsed = autoPassSchema.safeParse(request.body || {});

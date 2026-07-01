@@ -441,6 +441,94 @@ class ApprovalService {
     }
   }
 
+  /**
+   * 管理员终审页「当日自动审批」统计（自然日，今天 00:00 起）。
+   * 返回：
+   *  - autoApproved：今日系统自动终审笔数（admin approve 步骤带"自动终审"备注）
+   *  - manualApproved：今日人工终审笔数
+   *  - pending：当前仍挂在待终审(admin_review)的笔数（今日到达终审环节的）
+   *  - notAutoReasons：今日"本可评估却未自动"的原因分类汇总（免审关/码未全命中/码被占用/无码/异常）
+   *  - autoPassEnabled：当前免审开关是否开启
+   */
+  async getAutoPassStatsToday() {
+    const pool = getPool();
+    const now = new Date();
+    const todayStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).getTime() / 1000);
+    const AUTO_MARK = '%自动终审%';
+
+    // 今日 admin 通过步骤（区分自动/人工）
+    const [[autoRow]] = await pool.query(
+      `SELECT COUNT(DISTINCT request_id) AS c FROM ${swTable('approval_step')}
+       WHERE step_role = 'admin' AND action = 'approve' AND created_at >= ? AND comment LIKE ?`,
+      [todayStart, AUTO_MARK]
+    );
+    const [[manualRow]] = await pool.query(
+      `SELECT COUNT(DISTINCT request_id) AS c FROM ${swTable('approval_step')}
+       WHERE step_role = 'admin' AND action = 'approve' AND created_at >= ? AND (comment IS NULL OR comment NOT LIKE ?)`,
+      [todayStart, AUTO_MARK]
+    );
+    const autoApproved = Number(autoRow?.c || 0);
+    const manualApproved = Number(manualRow?.c || 0);
+
+    // 今日到达/仍在"待终审"的单（用于统计挂起 + 归因未自动）
+    const [pendingRows] = await pool.query(
+      `SELECT r.id, r.receipt_no FROM ${swTable('approval_request')} r
+       WHERE r.status = 'admin_review'
+         AND EXISTS (
+           SELECT 1 FROM ${swTable('approval_step')} s
+           WHERE s.request_id = r.id AND s.step_role = 'manager' AND s.action = 'approve' AND s.created_at >= ?
+         )`,
+      [todayStart]
+    );
+    const pending = pendingRows.length;
+
+    // 归因：今日"人工通过"的单 + 今日仍挂起的单，为什么没自动？逐单用同一套口径判定
+    const autoPassEnabled = await this.isAutoPassByCodeEnabled();
+    const reasons = { switchOff: 0, noCode: 0, notAllMatched: 0, reused: 0, other: 0 };
+
+    // 今日人工通过的单号
+    const [manualIdRows] = await pool.query(
+      `SELECT DISTINCT s.request_id AS id, r.receipt_no AS receipt_no
+       FROM ${swTable('approval_step')} s
+       JOIN ${swTable('approval_request')} r ON r.id = s.request_id
+       WHERE s.step_role = 'admin' AND s.action = 'approve' AND s.created_at >= ? AND (s.comment IS NULL OR s.comment NOT LIKE ?)`,
+      [todayStart, AUTO_MARK]
+    );
+    const toDiagnose = [...manualIdRows, ...pendingRows];
+
+    if (toDiagnose.length) {
+      const catalog = new SnCatalogService();
+      for (const r of toDiagnose) {
+        if (!autoPassEnabled) { reasons.switchOff += 1; continue; }
+        let v = null;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          v = await catalog.verifyCodes({ receiptNo: r.receipt_no || '' });
+        } catch { v = null; }
+        if (!v || !v.hasCode) { reasons.noCode += 1; continue; }
+        if (!v.allMatched) { reasons.notAllMatched += 1; continue; }
+        let reused = false;
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const usage = await this.codeUsage.checkUsable(r.receipt_no || '', { excludeRequestId: Number(r.id) });
+          reused = !usage.usable;
+        } catch { reused = false; }
+        if (reused) { reasons.reused += 1; continue; }
+        reasons.other += 1;
+      }
+    }
+
+    return {
+      date: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
+      autoPassEnabled,
+      autoApproved,
+      manualApproved,
+      pending,
+      notAutoTotal: manualApproved + pending,
+      notAutoReasons: reasons
+    };
+  }
+
   /** Admin-R1: 全量审批记录列表 */
   async listApprovals(params) {
     const page = Math.max(1, Number(params.page || 1));
@@ -587,11 +675,16 @@ class ApprovalService {
         reused = !usage.usable;
         reusedConflicts = usage.conflicts;
       } catch { /* 台账异常不影响详情展示 */ }
+      // 隐藏品类：命中大疆型号时给出 category='大疆'，供后台终审显示产品类型
+      const hitCategory = v.hit
+        ? SnCatalogService.inferCategory({ model: v.hit.model || '', brand: v.hit.brand || '' })
+        : '';
       detail.codeVerify = {
         hasCode: v.hasCode,
         matched: v.matched,
         matchedBy: v.matchedBy,
         hit: v.hit || null,
+        category: hitCategory,
         totalCodes: v.totalCodes,
         matchedCount: v.matchedCount,
         allMatched: v.allMatched,
@@ -599,7 +692,7 @@ class ApprovalService {
         reusedConflicts
       };
     } catch {
-      detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null, reused: false, reusedConflicts: [] };
+      detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null, category: '', reused: false, reusedConflicts: [] };
     }
     return detail;
   }
