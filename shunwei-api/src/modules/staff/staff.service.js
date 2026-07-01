@@ -387,7 +387,8 @@ class StaffService {
       wechatQrcode: card?.wechat_qrcode || '',
       isPublished: card ? Number(card.is_published) === 1 : false,
       configured,
-      contactPhone: publicView ? maskPhone(user?.phone) : (user?.phone || '')
+      // 客户经理名片对外展示：手机号给完整号，方便客户直接联系专属经理（经理身份即公开联系人）
+      contactPhone: user?.phone || ''
     };
   }
 
