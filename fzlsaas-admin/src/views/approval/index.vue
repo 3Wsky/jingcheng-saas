@@ -13,17 +13,17 @@
   </el-alert>
 
   <div v-if="autoStats" class="auto-stats">
-    <div class="stat-card">
+    <div class="stat-card clickable" @click="goStat('auto')">
       <div class="stat-num auto">{{ autoStats.autoApproved }}</div>
-      <div class="stat-label">今日自动终审</div>
+      <div class="stat-label">今日自动终审 <span class="stat-go">查看 →</span></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card clickable" @click="goStat('manual')">
       <div class="stat-num manual">{{ autoStats.manualApproved }}</div>
-      <div class="stat-label">今日人工终审</div>
+      <div class="stat-label">今日人工终审 <span class="stat-go">查看 →</span></div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card clickable" @click="goStat('pending')">
       <div class="stat-num pending">{{ autoStats.pending }}</div>
-      <div class="stat-label">当前待终审</div>
+      <div class="stat-label">当前待终审 <span class="stat-go">查看 →</span></div>
     </div>
     <div class="stat-reasons">
       <div class="stat-reasons-title">
@@ -209,7 +209,8 @@ const filters = ref({
   tierCode: '',
   amountMin: undefined as number | undefined,
   amountMax: undefined as number | undefined,
-  receiptNo: ''
+  receiptNo: '',
+  autoPass: '' as '' | '0' | '1'
 })
 const dateRange = ref<[string, string] | null>(null)
 const detailOpen = ref(false)
@@ -229,6 +230,34 @@ async function loadAutoStats() {
   try {
     autoStats.value = await request.get('/api/admin/approval/auto-pass-stats')
   } catch { autoStats.value = null }
+}
+
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// 统计卡片点击跳转：待终审→待终审Tab；自动/人工→全部记录+已通过+今日+对应 autoPass 过滤
+function goStat(kind: 'auto' | 'manual' | 'pending') {
+  if (kind === 'pending') {
+    activeTab.value = 'pending'
+    loadPending()
+    return
+  }
+  const t = todayStr()
+  filters.value = {
+    status: 'approved',
+    staffUid: undefined,
+    tierCode: '',
+    amountMin: undefined,
+    amountMax: undefined,
+    receiptNo: '',
+    autoPass: kind === 'auto' ? '1' : '0'
+  }
+  dateRange.value = [t, t]
+  activeTab.value = 'all'
+  page.value = 1
+  loadAll()
 }
 
 const REASON_LABELS: Record<string, string> = {
@@ -279,6 +308,7 @@ async function loadAll() {
     if (filters.value.amountMin != null) params.amountMin = filters.value.amountMin
     if (filters.value.amountMax != null) params.amountMax = filters.value.amountMax
     if (filters.value.receiptNo) params.receiptNo = filters.value.receiptNo
+    if (filters.value.autoPass) params.autoPass = filters.value.autoPass
     if (dateRange.value?.[0]) params.dateFrom = dateRange.value[0]
     if (dateRange.value?.[1]) params.dateTo = dateRange.value[1]
 
@@ -300,7 +330,8 @@ function resetFilters() {
     tierCode: '',
     amountMin: undefined,
     amountMax: undefined,
-    receiptNo: ''
+    receiptNo: '',
+    autoPass: ''
   }
   dateRange.value = null
   page.value = 1
@@ -471,6 +502,10 @@ async function loadAutoPassConfig() {
 .stat-num.manual { color: #2563eb; }
 .stat-num.pending { color: #e6a23c; }
 .stat-label { font-size: 12px; color: #909399; margin-top: 4px; }
+.stat-card.clickable { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+.stat-card.clickable:hover { border-color: #c6d4ff; box-shadow: 0 2px 10px rgba(64,120,255,.12); }
+.stat-go { color: #c0c4cc; font-size: 11px; margin-left: 2px; }
+.stat-card.clickable:hover .stat-go { color: #4078ff; }
 .stat-reasons {
   flex: 1;
   min-width: 240px;

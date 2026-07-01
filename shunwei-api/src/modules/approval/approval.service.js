@@ -584,6 +584,14 @@ class ApprovalService {
       conditions.push('r.created_at <= :dateTo');
       values.dateTo = end;
     }
+    // autoPass 过滤：'1'=系统自动终审的单，'0'=人工终审的单（按 admin approve 步骤的备注区分）
+    if (params.autoPass === '1' || params.autoPass === 1 || params.autoPass === true) {
+      conditions.push(`EXISTS (SELECT 1 FROM ${swTable('approval_step')} s
+        WHERE s.request_id = r.id AND s.step_role = 'admin' AND s.action = 'approve' AND s.comment LIKE '%自动终审%')`);
+    } else if (params.autoPass === '0' || params.autoPass === 0 || params.autoPass === false) {
+      conditions.push(`EXISTS (SELECT 1 FROM ${swTable('approval_step')} s
+        WHERE s.request_id = r.id AND s.step_role = 'admin' AND s.action = 'approve' AND (s.comment IS NULL OR s.comment NOT LIKE '%自动终审%'))`);
+    }
 
     const where = conditions.join(' AND ');
 

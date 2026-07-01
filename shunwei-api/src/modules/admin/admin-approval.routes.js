@@ -16,7 +16,8 @@ const listQuerySchema = z.object({
   tierCode: z.string().trim().optional(),
   dateFrom: z.string().trim().optional(),
   dateTo: z.string().trim().optional(),
-  receiptNo: z.string().trim().optional()
+  receiptNo: z.string().trim().optional(),
+  autoPass: z.enum(['0', '1']).optional()
 });
 
 const autoPassSchema = z.object({
