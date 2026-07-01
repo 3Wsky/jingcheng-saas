@@ -11,6 +11,16 @@
             <el-option label="核销" :value="0" />
           </el-select>
         </el-form-item>
+        <el-form-item label="按月">
+          <el-date-picker
+            v-model="month"
+            type="month"
+            value-format="YYYY-MM"
+            placeholder="选择整月"
+            style="width: 130px"
+            @change="onMonthPick"
+          />
+        </el-form-item>
         <el-form-item label="日期">
           <el-date-picker
             v-model="dateRange"
@@ -19,6 +29,7 @@
             start-placeholder="开始"
             end-placeholder="结束"
             style="width: 240px"
+            @change="month = ''"
           />
         </el-form-item>
         <el-form-item label="关键词">
@@ -27,6 +38,7 @@
         <el-form-item>
           <el-button type="primary" @click="search">查询</el-button>
           <el-button @click="reset">重置</el-button>
+          <el-button type="success" plain :loading="exporting" @click="exportCsv">导出 CSV</el-button>
         </el-form-item>
       </el-form>
     </template>
@@ -82,8 +94,10 @@ import PageShell from '@/components/PageShell.vue'
 import UidLink from '@/components/UidLink.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
+import { ElMessage } from 'element-plus'
 import { fmtUnixTime, fmtMoney } from '@/utils/format'
-import { lastNDaysRange, dateRangeToUnix } from '@/utils/dateDefaults'
+import { lastNDaysRange, dateRangeToUnix, monthRange } from '@/utils/dateDefaults'
+import { downloadCsv } from '@/utils/csvExport'
 
 const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const loading = ref(false)
@@ -92,9 +106,70 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const dateRange = ref<[string, string] | null>(lastNDaysRange(7))
+const month = ref('')
+const exporting = ref(false)
 const filters = ref<{ uid?: number; direction?: number; keyword: string }>({ keyword: '' })
 
 onMounted(() => load())
+
+function onMonthPick(m: string) {
+  if (m) {
+    dateRange.value = monthRange(m)
+    search()
+  }
+}
+
+async function exportCsv() {
+  exporting.value = true
+  const rows: any[] = []
+  try {
+    const { startAt, endAt } = dateRangeToUnix(dateRange.value)
+    let p = 1
+    const size = 100
+    let totalCount = 0
+    do {
+      const data = await request.get('/api/admin/finance/cash-voucher-ledger', {
+        params: {
+          page: p, pageSize: size,
+          uid: filters.value.uid || undefined,
+          direction: filters.value.direction ?? undefined,
+          keyword: filters.value.keyword || undefined,
+          startAt, endAt,
+        },
+      })
+      rows.push(...(data?.list || []))
+      totalCount = data?.total || rows.length
+      p += 1
+    } while (rows.length < totalCount && p <= 200)
+  } catch {
+    exporting.value = false
+    return
+  }
+  exporting.value = false
+  if (!rows.length) { ElMessage.info('暂无数据可导出'); return }
+  const dirLabel = filters.value.direction === 1 ? '发放记录' : filters.value.direction === 0 ? '核销记录' : '现金券流水'
+  const stamp = (month.value || new Date().toISOString().slice(0, 10))
+  downloadCsv(
+    `${dirLabel}-${stamp}.csv`,
+    ['ID', '类型', '用户昵称', '用户手机号', 'UID', '金额', '批次ID', '商户', '操作人', '操作人UID', '业务单号', '备注', '时间'],
+    rows.map((r) => [
+      r.id,
+      r.direction === 1 ? '发放' : '核销',
+      r.userNickname || '',
+      r.userPhone || '',
+      r.uid,
+      (r.direction === 1 ? '+' : '-') + fmtMoney(r.amount),
+      r.batchId || '',
+      r.merchantName || '',
+      r.operatorNickname || (r.operatorUid ? 'UID:' + r.operatorUid : ''),
+      r.operatorUid || '',
+      r.bizId || '',
+      r.remark || '',
+      fmtUnixTime(r.createdAt),
+    ])
+  )
+  ElMessage.success(`已导出 ${rows.length} 条`)
+}
 
 async function load() {
   loading.value = true
@@ -129,6 +204,7 @@ function search() {
 function reset() {
   filters.value = { keyword: '' }
   dateRange.value = lastNDaysRange(7)
+  month.value = ''
   search()
 }
 </script>

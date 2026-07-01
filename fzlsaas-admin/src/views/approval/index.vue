@@ -93,6 +93,16 @@
         <el-form-item label="小票号">
           <el-input v-model="filters.receiptNo" clearable placeholder="模糊搜索" style="width: 140px" />
         </el-form-item>
+        <el-form-item label="按月">
+          <el-date-picker
+            v-model="month"
+            type="month"
+            value-format="YYYY-MM"
+            placeholder="选择整月"
+            style="width: 130px"
+            @change="onMonthPick"
+          />
+        </el-form-item>
         <el-form-item label="日期">
           <el-date-picker
             v-model="dateRange"
@@ -101,6 +111,7 @@
             start-placeholder="开始"
             end-placeholder="结束"
             style="width: 240px"
+            @change="month = ''"
           />
         </el-form-item>
         <el-form-item>
@@ -201,6 +212,7 @@ import TableSkeleton from '@/components/TableSkeleton.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
 import { useUserStore } from '@/store/user'
 import { downloadCsv } from '@/utils/csvExport'
+import { monthRange } from '@/utils/dateDefaults'
 
 const route = useRoute()
 const userStore = useUserStore()
@@ -224,6 +236,7 @@ const filters = ref({
   autoPass: '' as '' | '0' | '1'
 })
 const dateRange = ref<[string, string] | null>(null)
+const month = ref('')
 const detailOpen = ref(false)
 const detailRequestId = ref<number | null>(null)
 const exporting = ref(false)
@@ -346,8 +359,17 @@ function resetFilters() {
     autoPass: ''
   }
   dateRange.value = null
+  month.value = ''
   page.value = 1
   loadAll()
+}
+
+function onMonthPick(m: string) {
+  if (m) {
+    dateRange.value = monthRange(m)
+    page.value = 1
+    loadAll()
+  }
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -356,6 +378,15 @@ const STATUS_LABEL: Record<string, string> = {
   approved: '已通过',
   rejected: '已驳回',
   revoked: '已撤销'
+}
+
+/** 从审批步骤里取某角色最后一次操作（人+时间+备注），用于 CSV 详情 */
+function stepOf(row: any, role: string) {
+  const steps = Array.isArray(row.steps) ? row.steps : []
+  const hit = [...steps].reverse().find((s: any) => s.stepRole === role && (s.action === 'approve' || s.action === 'reject'))
+  if (!hit) return { who: '', at: '' }
+  const who = hit.operatorNickname || (hit.operatorUid ? 'UID:' + hit.operatorUid : '')
+  return { who, at: hit.createdAt ? formatTime(hit.createdAt) : '' }
 }
 
 // 一键导出：按当前「全部记录」筛选条件，翻页拉全后生成 CSV（UTF-8 BOM，Excel 友好）
@@ -391,27 +422,39 @@ async function exportApprovals() {
     ElMessage.info('暂无数据可导出')
     return
   }
-  const stamp = new Date().toISOString().slice(0, 10)
+  const stamp = month.value || new Date().toISOString().slice(0, 10)
   downloadCsv(
     `审批记录-${stamp}.csv`,
-    ['ID', '单号', '客户昵称', '客户UID', '提交人', '提交人UID', '门店ID', '消费金额', '档位', '赠现金券', '赠积分', '小票号', '状态', '提交时间', '通过时间'],
-    rows.map((r) => [
-      r.requestId,
-      r.requestNo || '',
-      r.customerNickname || '',
-      r.customerUid,
-      r.staffNickname || '',
-      r.staffUid ?? '',
-      r.divisionId || '',
-      r.consumptionAmount ?? 0,
-      formatTier(r.matchedTierCode),
-      r.matchedVoucherAmount ?? 0,
-      r.matchedIntegral ?? 0,
-      r.receiptNo || '',
-      STATUS_LABEL[r.status] || r.status || '',
-      formatTime(r.createdAt),
-      r.approvedAt ? formatTime(r.approvedAt) : ''
-    ])
+    ['ID', '单号', '客户昵称', '客户手机号', '客户UID', '提交人', '提交人手机号', '提交人UID', '门店ID',
+      '消费金额', '档位', '赠现金券', '赠积分', '小票号', '状态',
+      '店长审批人', '店长审批时间', '超管审批人', '超管审批时间', '提交时间', '通过时间'],
+    rows.map((r) => {
+      const mgr = stepOf(r, 'manager')
+      const adm = stepOf(r, 'admin')
+      return [
+        r.requestId,
+        r.requestNo || '',
+        r.customerNickname || '',
+        r.customerPhone || '',
+        r.customerUid,
+        r.staffNickname || '',
+        r.staffPhone || '',
+        r.staffUid ?? '',
+        r.divisionId || '',
+        r.consumptionAmount ?? 0,
+        formatTier(r.matchedTierCode),
+        r.matchedVoucherAmount ?? 0,
+        r.matchedIntegral ?? 0,
+        r.receiptNo || '',
+        STATUS_LABEL[r.status] || r.status || '',
+        mgr.who,
+        mgr.at,
+        adm.who,
+        adm.at,
+        formatTime(r.createdAt),
+        r.approvedAt ? formatTime(r.approvedAt) : ''
+      ]
+    })
   )
   ElMessage.success(`已导出 ${rows.length} 条`)
 }

@@ -142,10 +142,12 @@ function registerAdminFinanceRoutes(app) {
       `SELECT l.id, l.uid, l.direction, l.amount, l.batch_id AS batchId, l.merchant_id AS merchantId,
               l.operator_uid AS operatorUid, l.biz_id AS bizId, l.remark, l.created_at AS createdAt,
               m.merchant_name AS merchantName,
-              u.nickname AS userNickname
+              u.nickname AS userNickname, u.phone AS userPhone,
+              op.nickname AS operatorNickname
        FROM ${swTable('cash_voucher_ledger')} l
        LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
        LEFT JOIN ${legacyTable('user')} u ON u.uid = l.uid
+       LEFT JOIN ${legacyTable('user')} op ON op.uid = l.operator_uid
        WHERE ${where}
        ORDER BY l.id DESC
        LIMIT ? OFFSET ?`,
@@ -160,12 +162,14 @@ function registerAdminFinanceRoutes(app) {
         id: r.id,
         uid: r.uid,
         userNickname: r.userNickname || '',
+        userPhone: r.userPhone || '',
         direction: Number(r.direction),
         amount: Number(r.amount),
         batchId: r.batchId,
         merchantId: Number(r.merchantId || 0),
         merchantName: r.merchantName || (Number(r.merchantId) > 0 ? '' : '本店'),
         operatorUid: Number(r.operatorUid || 0),
+        operatorNickname: r.operatorNickname || '',
         bizId: r.bizId || '',
         remark: r.remark || '',
         createdAt: fmtTs(r.createdAt)
@@ -218,9 +222,11 @@ function registerAdminFinanceRoutes(app) {
       `SELECT l.id, l.uid, l.direction, l.amount, l.balance_after AS balanceAfter,
               l.batch_id AS batchId, l.biz_type AS bizType, l.biz_id AS bizId,
               l.operator_uid AS operatorUid, l.remark, l.created_at AS createdAt,
-              u.nickname AS userNickname
+              u.nickname AS userNickname, u.phone AS userPhone,
+              op.nickname AS operatorNickname
        FROM ${swTable('integral_ledger')} l
        LEFT JOIN ${legacyTable('user')} u ON u.uid = l.uid
+       LEFT JOIN ${legacyTable('user')} op ON op.uid = l.operator_uid
        WHERE ${where}
        ORDER BY l.id DESC
        LIMIT ? OFFSET ?`,
@@ -235,6 +241,7 @@ function registerAdminFinanceRoutes(app) {
         id: r.id,
         uid: r.uid,
         userNickname: r.userNickname || '',
+        userPhone: r.userPhone || '',
         direction: Number(r.direction),
         amount: Number(r.amount),
         balanceAfter: Number(r.balanceAfter || 0),
@@ -242,6 +249,7 @@ function registerAdminFinanceRoutes(app) {
         bizType: r.bizType || '',
         bizId: r.bizId || '',
         operatorUid: Number(r.operatorUid || 0),
+        operatorNickname: r.operatorNickname || '',
         remark: r.remark || '',
         createdAt: fmtTs(r.createdAt)
       }))

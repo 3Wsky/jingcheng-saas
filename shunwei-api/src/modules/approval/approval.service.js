@@ -601,7 +601,8 @@ class ApprovalService {
     );
 
     const [rows] = await getPool().query(
-      `SELECT r.*, cu.nickname AS customer_nickname, su.nickname AS staff_nickname
+      `SELECT r.*, cu.nickname AS customer_nickname, cu.phone AS customer_phone,
+              su.nickname AS staff_nickname, su.phone AS staff_phone
        FROM ${swTable('approval_request')} r
        LEFT JOIN ${legacyTable('user')} cu ON cu.uid = r.customer_uid
        LEFT JOIN ${legacyTable('user')} su ON su.uid = r.staff_uid
@@ -746,8 +747,10 @@ class ApprovalService {
       requestNo: row.request_no || '',
       customerUid: row.customer_uid,
       customerNickname: row.customer_nickname || '',
+      customerPhone: row.customer_phone || '',
       staffUid: row.staff_uid,
       staffNickname: row.staff_nickname || '',
+      staffPhone: row.staff_phone || '',
       divisionId: Number(row.division_id || 0),
       consumptionAmount: Number(row.consumption_amount ?? row.consume_amount ?? 0),
       matchedTierCode: row.matched_tier_code || '',
