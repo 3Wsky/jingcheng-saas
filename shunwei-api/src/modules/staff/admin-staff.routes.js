@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
+const { requireAdmin, requireSuperAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { StaffService } = require('./staff.service');
 const { AdminStoresService } = require('../admin/admin-stores.service');
@@ -127,7 +127,7 @@ function registerAdminStaffRoutes(app) {
   });
 
   app.delete('/api/admin/stores/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const id = Number(request.params.id);
     if (!id) return fail(reply, 400, '门店 ID 无效');
     const session = getAdminSession(request);

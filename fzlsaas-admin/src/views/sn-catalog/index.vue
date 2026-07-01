@@ -105,7 +105,7 @@
       <el-table-column label="操作" width="130" align="center" fixed="right">
         <template #default="{ row }">
           <el-button link type="primary" size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button link type="danger" size="small" @click="removeRow(row)">删除</el-button>
+          <el-button v-if="isSuperAdmin" link type="danger" size="small" @click="removeRow(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -161,11 +161,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import * as XLSX from 'xlsx'
 import request from '@/utils/request'
 import PageShell from '@/components/PageShell.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 
 interface SnRow {
   id: number

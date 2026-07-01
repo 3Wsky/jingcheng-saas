@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
+const { requireAdmin, requireSuperAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { SnCatalogService } = require('./sn-catalog.service');
 
@@ -125,7 +125,7 @@ function registerSnCatalogRoutes(app) {
   });
 
   app.delete('/api/admin/sn-catalog/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     try {
       const result = await service.remove(request.params.id);
       const session = getAdminSession(request);

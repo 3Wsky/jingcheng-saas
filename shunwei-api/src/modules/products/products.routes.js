@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { requireAdmin } = require('../admin/admin.auth');
+const { requireAdmin, requireSuperAdmin } = require('../admin/admin.auth');
 const { ProductsService } = require('./products.service');
 
 const listQuerySchema = z.object({
@@ -332,7 +332,7 @@ function registerProductRoutes(app) {
   });
 
   app.delete('/api/admin/products/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return reply;
+    if (!requireSuperAdmin(request, reply)) return reply;
     const parsedParams = idParamsSchema.safeParse(request.params || {});
     if (!parsedParams.success) return fail(reply, 400, '商品参数错误', parsedParams.error.flatten());
     try {
@@ -377,7 +377,7 @@ function registerProductRoutes(app) {
   });
 
   app.delete('/api/admin/product-categories/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return reply;
+    if (!requireSuperAdmin(request, reply)) return reply;
     const parsedParams = categoryIdParamsSchema.safeParse(request.params || {});
     if (!parsedParams.success) return fail(reply, 400, '分类参数错误', parsedParams.error.flatten());
     try {

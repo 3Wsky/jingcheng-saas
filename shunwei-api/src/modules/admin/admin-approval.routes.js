@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { requireAdmin, getAdminSession } = require('./admin.auth');
+const { requireAdmin, requireSuperAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { ApprovalService } = require('../approval/approval.service');
 const { ApprovalCodeUsageService } = require('../approval/approval-code-usage.service');
@@ -214,7 +214,7 @@ function registerAdminApprovalRoutes(app) {
   });
 
   app.delete('/api/admin/tier-rules/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const id = Number(request.params.id);
     if (!id) return fail(reply, 400, 'id 无效');
 
@@ -242,7 +242,7 @@ function registerAdminApprovalRoutes(app) {
   });
 
   app.post('/api/admin/approval/:id/revoke', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const requestId = Number(request.params.id);
     if (!requestId) return fail(reply, 400, 'id 无效');
 

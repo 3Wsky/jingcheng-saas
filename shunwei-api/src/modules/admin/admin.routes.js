@@ -13,6 +13,7 @@ const {
 } = require('./admin.auth');
 const { renderAdminLoginPage } = require('./admin.login.page');
 const { renderAdminPage } = require('./admin.page');
+const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 
 const activitySchema = z.object({
   name: z.string().trim().min(1).max(40),
@@ -87,13 +88,30 @@ function registerAdminRoutes(app) {
 
     const body = parseFormBody(request.body);
     const parsed = loginSchema.safeParse(body);
-    if (!parsed.success || !verifyAdminCredentials(parsed.data.username, parsed.data.password)) {
+    if (!parsed.success) {
+      adminLoginThrottle.recordFailure(clientKey);
+      return reply.type('text/html; charset=utf-8').code(401).send(renderAdminLoginPage('账号或密码错误'));
+    }
+
+    // 双通道：先验超级管理员(env)，不匹配再验子管理员(DB，仅启用的可登录)
+    let loginKind = null;
+    if (verifyAdminCredentials(parsed.data.username, parsed.data.password)) {
+      loginKind = 'super';
+    } else {
+      try {
+        const { AdminUserService } = require('./admin-user.service');
+        const sub = await new AdminUserService().verifyLogin(parsed.data.username, parsed.data.password);
+        if (sub.ok) loginKind = 'sub';
+      } catch { /* DB 异常时按登录失败处理 */ }
+    }
+
+    if (!loginKind) {
       adminLoginThrottle.recordFailure(clientKey);
       return reply.type('text/html; charset=utf-8').code(401).send(renderAdminLoginPage('账号或密码错误'));
     }
 
     adminLoginThrottle.recordSuccess(clientKey);
-    setAdminSessionCookie(reply, parsed.data.username);
+    setAdminSessionCookie(reply, parsed.data.username, loginKind);
     return reply.redirect('/admin');
   });
 
@@ -104,7 +122,9 @@ function registerAdminRoutes(app) {
 
   app.get('/api/admin/me', async (request, reply) => {
     if (!requireAdmin(request, reply)) return reply;
-    return ok(reply, { username: getAdminSession(request)?.username || 'admin' });
+    const s = getAdminSession(request);
+    const role = (s?.kind || 'super') === 'super' ? 'super' : 'sub';
+    return ok(reply, { username: s?.username || 'admin', role, isSuperAdmin: role === 'super' });
   });
 
   app.get('/admin', async (request, reply) => {
@@ -518,8 +538,11 @@ function registerAdminManagementRoutes(app) {
     const { getAdminSession } = require('./admin.auth');
     const session = getAdminSession(request);
     const { config } = require('../../shared/config');
+    const role = (session?.kind || 'super') === 'super' ? 'super' : 'sub';
     return ok({
       username: session?.username || config.admin.username,
+      role,
+      isSuperAdmin: role === 'super',
       loginAt: session?.issuedAt ? new Date(session.issuedAt).toISOString() : null,
       expiresAt: session?.expiresAt ? new Date(session.expiresAt).toISOString() : null,
       sessionMaxAge: config.admin.sessionMaxAgeSeconds
@@ -543,7 +566,21 @@ function registerAdminManagementRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     const { config } = require('../../shared/config');
-    const { verifyAdminCredentials } = require('./admin.auth');
+    const { getAdminSession, verifyAdminCredentials } = require('./admin.auth');
+    const session = getAdminSession(request);
+
+    // 子管理员：改自己在 DB 里的密码（校验旧密码），不碰 env
+    if (session && (session.kind || 'super') === 'sub') {
+      try {
+        const { AdminUserService } = require('./admin-user.service');
+        await new AdminUserService().changeOwnPassword(session.username, parsed.data.currentPassword, parsed.data.newPassword);
+        return ok(null, '密码已修改');
+      } catch (error) {
+        return fail(reply, error.statusCode || 500, error.message || '密码修改失败');
+      }
+    }
+
+    // 超级管理员：改 env 密码（原逻辑）
     if (!verifyAdminCredentials(config.admin.username, parsed.data.currentPassword)) {
       return fail(reply, 403, '当前密码错误');
     }
@@ -566,6 +603,122 @@ function registerAdminManagementRoutes(app) {
     }
 
     return ok(null, '密码已修改（当前进程立即生效）');
+  });
+
+  // ===== 子管理员账号管理（仅超级管理员）=====
+  const subAdminCreateSchema = z.object({
+    username: z.string().trim().min(3).max(64),
+    password: z.string().min(8).max(64).refine((v) => !/[\r\n\0]/.test(v), { message: '密码不能包含换行符' }),
+    remark: z.string().trim().max(255).optional().default('')
+  });
+  const subAdminPwdSchema = z.object({
+    password: z.string().min(8).max(64).refine((v) => !/[\r\n\0]/.test(v), { message: '密码不能包含换行符' })
+  });
+
+  app.get('/api/admin/sub-admins', async (request, reply) => {
+    const { requireSuperAdmin } = require('./admin.auth');
+    if (!requireSuperAdmin(request, reply)) return;
+    try {
+      const { AdminUserService } = require('./admin-user.service');
+      return ok(await new AdminUserService().list());
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '加载失败');
+    }
+  });
+
+  app.post('/api/admin/sub-admins', async (request, reply) => {
+    const { requireSuperAdmin, getAdminSession } = require('./admin.auth');
+    if (!requireSuperAdmin(request, reply)) return;
+    const parsed = subAdminCreateSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      const { config } = require('../../shared/config');
+      const { AdminUserService } = require('./admin-user.service');
+      const result = await new AdminUserService().create({
+        username: parsed.data.username,
+        password: parsed.data.password,
+        remark: parsed.data.remark,
+        superUsername: config.admin.username
+      });
+      const session = getAdminSession(request);
+      await new AdminAuditService().write({
+        adminUsername: session?.username || '',
+        action: 'sub_admin_create',
+        targetType: 'admin_user',
+        targetId: String(result.id),
+        payload: { username: result.username },
+        ip: getClientIp(request)
+      });
+      return ok(result, '子管理员已创建');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '创建失败');
+    }
+  });
+
+  app.put('/api/admin/sub-admins/:id/password', async (request, reply) => {
+    const { requireSuperAdmin, getAdminSession } = require('./admin.auth');
+    if (!requireSuperAdmin(request, reply)) return;
+    const parsed = subAdminPwdSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      const { AdminUserService } = require('./admin-user.service');
+      const result = await new AdminUserService().resetPassword(Number(request.params.id), parsed.data.password);
+      const session = getAdminSession(request);
+      await new AdminAuditService().write({
+        adminUsername: session?.username || '',
+        action: 'sub_admin_reset_password',
+        targetType: 'admin_user',
+        targetId: String(request.params.id),
+        payload: {},
+        ip: getClientIp(request)
+      });
+      return ok(result, '密码已重置');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '重置失败');
+    }
+  });
+
+  app.put('/api/admin/sub-admins/:id/status', async (request, reply) => {
+    const { requireSuperAdmin, getAdminSession } = require('./admin.auth');
+    if (!requireSuperAdmin(request, reply)) return;
+    const status = request.body && (request.body.status === 1 || request.body.status === true || request.body.status === '1');
+    try {
+      const { AdminUserService } = require('./admin-user.service');
+      const result = await new AdminUserService().setStatus(Number(request.params.id), status);
+      const session = getAdminSession(request);
+      await new AdminAuditService().write({
+        adminUsername: session?.username || '',
+        action: 'sub_admin_set_status',
+        targetType: 'admin_user',
+        targetId: String(request.params.id),
+        payload: { status: status ? 1 : 0 },
+        ip: getClientIp(request)
+      });
+      return ok(result, status ? '已启用' : '已停用');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '操作失败');
+    }
+  });
+
+  app.delete('/api/admin/sub-admins/:id', async (request, reply) => {
+    const { requireSuperAdmin, getAdminSession } = require('./admin.auth');
+    if (!requireSuperAdmin(request, reply)) return;
+    try {
+      const { AdminUserService } = require('./admin-user.service');
+      const result = await new AdminUserService().remove(Number(request.params.id));
+      const session = getAdminSession(request);
+      await new AdminAuditService().write({
+        adminUsername: session?.username || '',
+        action: 'sub_admin_delete',
+        targetType: 'admin_user',
+        targetId: String(request.params.id),
+        payload: {},
+        ip: getClientIp(request)
+      });
+      return ok(result, '已删除');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '删除失败');
+    }
   });
 
   app.post('/api/admin/approval/review', async (request, reply) => {

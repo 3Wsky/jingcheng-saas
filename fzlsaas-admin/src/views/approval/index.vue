@@ -145,7 +145,7 @@
             <el-button link type="danger" @click="handleReject(row)">驳回</el-button>
           </template>
           <el-button
-            v-else-if="row.canRevoke"
+            v-else-if="row.canRevoke && isSuperAdmin"
             link
             type="danger"
             @click="handleRevoke(row)"
@@ -192,8 +192,11 @@ import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vu
 import UidLink from '@/components/UidLink.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import { useMemberDrawer } from '@/composables/useMemberDrawer'
+import { useUserStore } from '@/store/user'
 
 const route = useRoute()
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const pendingCount = ref(0)
 // 「待审批」二级菜单(/approval/pending) 或 ?tab=pending 进入时默认待终审 Tab

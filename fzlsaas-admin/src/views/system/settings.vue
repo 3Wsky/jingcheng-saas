@@ -122,6 +122,60 @@
       </el-col>
     </el-row>
 
+    <el-row v-if="isSuperAdmin" :gutter="20" style="margin-top: 20px">
+      <el-col :span="24">
+        <el-card shadow="never">
+          <template #header>
+            <span>子管理员账号（仅网站端）</span>
+            <el-button type="primary" size="small" style="margin-left: 12px" @click="openCreateSubAdmin">新增子管理员</el-button>
+            <span class="hint" style="margin-left: 12px">子管理员可登录后台，但==回收 / 删除 / 撤销终批==等危险操作仅超级管理员可执行。</span>
+          </template>
+          <el-table :data="subAdmins" size="small" v-loading="subAdminLoading">
+            <template #empty><el-empty description="暂无子管理员，点右上角「新增子管理员」" :image-size="56" /></template>
+            <el-table-column prop="username" label="账号" min-width="140" />
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '启用' : '停用' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="140">
+              <template #default="{ row }">{{ row.remark || '—' }}</template>
+            </el-table-column>
+            <el-table-column label="创建时间" width="170">
+              <template #default="{ row }">{{ fmtSubTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="220" align="center">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="resetSubAdminPassword(row)">重置密码</el-button>
+                <el-button link :type="row.status === 1 ? 'warning' : 'success'" size="small" @click="toggleSubAdminStatus(row)">
+                  {{ row.status === 1 ? '停用' : '启用' }}
+                </el-button>
+                <el-button link type="danger" size="small" @click="removeSubAdmin(row)">删除</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <el-dialog v-model="showCreateSubAdmin" title="新增子管理员" width="420px" append-to-body>
+      <el-form :model="subAdminForm" label-width="72px">
+        <el-form-item label="账号" required>
+          <el-input v-model="subAdminForm.username" placeholder="3-64 位，字母/数字/._-" />
+        </el-form-item>
+        <el-form-item label="密码" required>
+          <el-input v-model="subAdminForm.password" type="password" show-password placeholder="至少 8 位" />
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="subAdminForm.remark" placeholder="选填，如姓名/岗位" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showCreateSubAdmin = false">取消</el-button>
+        <el-button type="primary" :loading="subAdminSaving" @click="confirmCreateSubAdmin">确认创建</el-button>
+      </template>
+    </el-dialog>
+
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :span="24">
         <el-card shadow="never">
@@ -236,8 +290,91 @@ import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
+import { useUserStore } from '@/store/user'
 
 const router = useRouter()
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.isSuperAdmin)
+
+// ===== 子管理员账号（仅超级管理员可见/可管）=====
+const subAdmins = ref<any[]>([])
+const subAdminLoading = ref(false)
+const subAdminSaving = ref(false)
+const showCreateSubAdmin = ref(false)
+const subAdminForm = ref({ username: '', password: '', remark: '' })
+
+async function loadSubAdmins() {
+  if (!isSuperAdmin.value) return
+  subAdminLoading.value = true
+  try {
+    subAdmins.value = await request.get('/api/admin/sub-admins')
+  } catch {
+    subAdmins.value = []
+  } finally {
+    subAdminLoading.value = false
+  }
+}
+
+function openCreateSubAdmin() {
+  subAdminForm.value = { username: '', password: '', remark: '' }
+  showCreateSubAdmin.value = true
+}
+
+async function confirmCreateSubAdmin() {
+  const u = subAdminForm.value.username.trim()
+  if (u.length < 3) { ElMessage.warning('账号至少 3 位'); return }
+  if (subAdminForm.value.password.length < 8) { ElMessage.warning('密码至少 8 位'); return }
+  subAdminSaving.value = true
+  try {
+    await request.post('/api/admin/sub-admins', {
+      username: u,
+      password: subAdminForm.value.password,
+      remark: subAdminForm.value.remark.trim()
+    })
+    ElMessage.success('子管理员已创建')
+    showCreateSubAdmin.value = false
+    loadSubAdmins()
+  } catch { /* handled */ } finally {
+    subAdminSaving.value = false
+  }
+}
+
+async function resetSubAdminPassword(row: any) {
+  try {
+    const { value } = await ElMessageBox.prompt(`为「${row.username}」设置新密码（至少 8 位）`, '重置密码', {
+      inputType: 'password',
+      inputValidator: (v: string) => (v && v.length >= 8) || '密码至少 8 位',
+      confirmButtonText: '确认重置'
+    })
+    await request.put(`/api/admin/sub-admins/${row.id}/password`, { password: value })
+    ElMessage.success('密码已重置')
+  } catch { /* cancel */ }
+}
+
+async function toggleSubAdminStatus(row: any) {
+  const next = Number(row.status) === 1 ? 0 : 1
+  try {
+    await request.put(`/api/admin/sub-admins/${row.id}/status`, { status: next })
+    ElMessage.success(next ? '已启用' : '已停用')
+    loadSubAdmins()
+  } catch { /* handled */ }
+}
+
+async function removeSubAdmin(row: any) {
+  try {
+    await ElMessageBox.confirm(`确认删除子管理员「${row.username}」？删除后该账号无法登录。`, '删除子管理员', {
+      type: 'warning', confirmButtonText: '确认删除', confirmButtonClass: 'el-button--danger'
+    })
+    await request.delete(`/api/admin/sub-admins/${row.id}`)
+    ElMessage.success('已删除')
+    loadSubAdmins()
+  } catch { /* cancel */ }
+}
+
+function fmtSubTime(ts: number) {
+  if (!ts) return '—'
+  return new Date(ts * 1000).toLocaleString('zh-CN')
+}
 const loading = ref(false)
 const saving = ref(false)
 const entryLoading = ref(false)
@@ -268,6 +405,7 @@ onMounted(() => {
   loadAccountInfo()
   loadAiConfig()
   loadWeworkConfig()
+  loadSubAdmins()
 })
 
 async function loadConfig() {

@@ -56,11 +56,11 @@ function getClientKey(request) {
   return xff || (request.ip || 'unknown');
 }
 
-function createAdminSession(username) {
+function createAdminSession(username, kind = 'super') {
   const issuedAt = Date.now();
   const maxAgeMs = config.admin.sessionMaxAgeSeconds * 1000;
   const expiresAt = issuedAt + maxAgeMs;
-  const payload = Buffer.from(JSON.stringify({ username, issuedAt, expiresAt })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({ username, kind, issuedAt, expiresAt })).toString('base64url');
   const signature = sign(payload);
   return `${payload}.${signature}`;
 }
@@ -75,19 +75,31 @@ function getAdminSession(request) {
   try {
     const session = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
     if (!session || session.expiresAt < Date.now()) return null;
-    if (session.username !== config.admin.username) return null;
-    return session;
+    const kind = session.kind || 'super';
+    // 超管：用户名必须与 env 配置一致；子管理员：签名可信即认（存在性/停用在登录时校验）
+    if (kind === 'super') {
+      if (session.username !== config.admin.username) return null;
+    } else if (kind !== 'sub') {
+      return null;
+    }
+    return { ...session, kind };
   } catch {
     return null;
   }
+}
+
+/** 是否超级管理员会话（子管理员为 false）。用于危险操作(回收/删除/撤销/账号管理)的额外闸门。 */
+function isSuperAdminSession(request) {
+  const session = getAdminSession(request);
+  return Boolean(session && (session.kind || 'super') === 'super');
 }
 
 function isAdminAuthenticated(request) {
   return Boolean(getAdminSession(request));
 }
 
-function setAdminSessionCookie(reply, username) {
-  const token = createAdminSession(username);
+function setAdminSessionCookie(reply, username, kind = 'super') {
+  const token = createAdminSession(username, kind);
   const isProduction = config.env === 'production';
   reply.header('Set-Cookie', serializeCookie(COOKIE_NAME, token, {
     httpOnly: true,
@@ -120,6 +132,20 @@ function requireAdmin(request, reply) {
 
   reply.redirect('/admin/login');
   return false;
+}
+
+/** 危险操作闸门：必须登录且为超级管理员。子管理员会收到 403。 */
+function requireSuperAdmin(request, reply) {
+  if (!requireAdmin(request, reply)) return false;
+  if (!isSuperAdminSession(request)) {
+    reply.code(403).send({
+      status: 403,
+      msg: '此操作仅超级管理员可执行',
+      data: null
+    });
+    return false;
+  }
+  return true;
 }
 
 function sign(value) {
@@ -160,8 +186,10 @@ module.exports = {
   getAdminSession,
   getClientKey,
   isAdminAuthenticated,
+  isSuperAdminSession,
   LoginThrottle,
   requireAdmin,
+  requireSuperAdmin,
   setAdminSessionCookie,
   verifyAdminCredentials
 };

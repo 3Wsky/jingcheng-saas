@@ -2,7 +2,7 @@ const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
-const { requireAdmin, getAdminSession } = require('./admin.auth');
+const { requireAdmin, requireSuperAdmin, getAdminSession } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 
 const recallVoucherSchema = z.object({
@@ -26,7 +26,7 @@ function registerAdminRecallRoutes(app) {
   const audit = new AdminAuditService();
 
   app.post('/api/admin/members/:uid/recall-voucher', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const uid = Number(request.params.uid);
     if (!uid) return fail(reply, 400, 'uid 无效');
 
@@ -112,7 +112,7 @@ function registerAdminRecallRoutes(app) {
   });
 
   app.post('/api/admin/members/:uid/recall-membership', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const uid = Number(request.params.uid);
     if (!uid) return fail(reply, 400, 'uid 无效');
 
@@ -218,7 +218,7 @@ function registerAdminRecallRoutes(app) {
   });
 
   app.post('/api/admin/members/:uid/recall-integral', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const uid = Number(request.params.uid);
     if (!uid) return fail(reply, 400, 'uid 无效');
 

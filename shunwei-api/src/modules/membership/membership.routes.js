@@ -1,7 +1,7 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { isDatabaseConnectionError } = require('../../shared/mysql');
-const { requireAdmin } = require('../admin/admin.auth');
+const { requireAdmin, requireSuperAdmin } = require('../admin/admin.auth');
 const { MembershipService } = require('./membership.service');
 
 // 公开接口只允许 wechat_pay 渠道自助领取（且服务层会用真实已支付订单核验金额倒推档位，
@@ -202,7 +202,7 @@ function registerMembershipRoutes(app) {
   });
 
   app.delete('/api/admin/membership/plans/:id', async (request, reply) => {
-    if (!requireAdmin(request, reply)) return;
+    if (!requireSuperAdmin(request, reply)) return;
     const parsedParams = planIdParamsSchema.safeParse(request.params || {});
     if (!parsedParams.success) return fail(reply, 400, '参数错误', parsedParams.error.flatten());
     try {

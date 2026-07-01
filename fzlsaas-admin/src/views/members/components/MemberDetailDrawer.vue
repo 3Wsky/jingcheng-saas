@@ -52,14 +52,16 @@
           <el-button size="small" @click="openMerchantRole">商家角色</el-button>
         </el-space>
 
-        <el-divider content-position="left">
-          <span style="color: #F56C6C">回收操作（仅超管）</span>
-        </el-divider>
-        <el-space wrap>
-          <el-button type="danger" size="small" plain @click="recallVoucher">回收现金券</el-button>
-          <el-button type="danger" size="small" plain @click="recallMembership">回收会员</el-button>
-          <el-button type="danger" size="small" plain @click="showRecallIntegral = true">回收积分</el-button>
-        </el-space>
+        <template v-if="isSuperAdmin">
+          <el-divider content-position="left">
+            <span style="color: #F56C6C">回收操作（仅超管）</span>
+          </el-divider>
+          <el-space wrap>
+            <el-button type="danger" size="small" plain @click="recallVoucher">回收现金券</el-button>
+            <el-button type="danger" size="small" plain @click="recallMembership">回收会员</el-button>
+            <el-button type="danger" size="small" plain @click="showRecallIntegral = true">回收积分</el-button>
+          </el-space>
+        </template>
 
         <el-tabs v-model="activeTab" class="mt-16">
           <el-tab-pane name="voucher">
@@ -103,7 +105,7 @@
               <el-table-column label="操作" width="72" align="center">
                 <template #default="{ row }">
                   <el-button
-                    v-if="Number(row.remainAmount) > 0"
+                    v-if="isSuperAdmin && Number(row.remainAmount) > 0"
                     link
                     type="danger"
                     size="small"
@@ -133,7 +135,7 @@
               <el-table-column label="操作" width="72" align="center">
                 <template #default="{ row }">
                   <el-button
-                    v-if="row.status === 1"
+                    v-if="isSuperAdmin && row.status === 1"
                     link
                     type="danger"
                     size="small"
@@ -276,6 +278,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MemberTag from '@/components/MemberTag.vue'
 import StoreNameSelect from '@/components/StoreNameSelect.vue'
 import { rememberStoreName } from '@/utils/recentStores'
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 
 const props = defineProps<{ uid: number | null }>()
 const visible = defineModel<boolean>({ default: false })

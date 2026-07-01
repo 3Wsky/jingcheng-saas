@@ -108,7 +108,7 @@
           <el-input v-model="comment" placeholder="审批意见（选填）" />
         </section>
 
-        <section v-else-if="detail.canRevoke" class="detail-section">
+        <section v-else-if="detail.canRevoke && isSuperAdmin" class="detail-section">
           <h4>撤销终批</h4>
           <p class="text-muted">终批通过后 24 小时内可撤销，将回滚已发放的权益。</p>
           <el-button type="danger" plain @click="emitRevoke">撤销终批</el-button>
@@ -129,6 +129,10 @@ import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import ApprovalStatusTag from './ApprovalStatusTag.vue'
+import { useUserStore } from '@/store/user'
+
+const userStore = useUserStore()
+const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 
 const props = defineProps<{ requestId: number | null; showActions?: boolean }>()
 const visible = defineModel<boolean>({ default: false })
