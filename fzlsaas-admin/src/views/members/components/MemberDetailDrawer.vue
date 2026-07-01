@@ -1,5 +1,5 @@
 <template>
-  <el-drawer v-model="visible" :title="`会员详情 · UID ${profile?.uid || ''}`" size="560px" destroy-on-close>
+  <el-drawer v-model="visible" :title="`会员详情 · UID ${profile?.uid || ''}`" size="720px" destroy-on-close>
     <div v-loading="loading">
       <template v-if="profile">
         <el-descriptions :column="1" border size="small" class="mb-16">
@@ -24,6 +24,22 @@
           <el-descriptions-item label="积分">{{ integralSummary?.totalIntegral ?? 0 }}</el-descriptions-item>
         </el-descriptions>
 
+        <div class="asset-overview">
+          <div class="asset-card">
+            <div class="asset-label">积分余额</div>
+            <div class="asset-value">{{ (integralSummary?.totalIntegral ?? 0).toLocaleString() }}</div>
+          </div>
+          <div class="asset-card">
+            <div class="asset-label">现金券余额</div>
+            <div class="asset-value money">¥{{ formatMoney(voucherBalance) }}</div>
+          </div>
+          <div class="asset-card">
+            <div class="asset-label">累计核销消费</div>
+            <div class="asset-value out">¥{{ formatMoney(cashVoucherUsedTotal) }}</div>
+            <div class="asset-sub">{{ cashVoucherUsage.length }} 笔核销</div>
+          </div>
+        </div>
+
         <el-divider content-position="left">快捷操作</el-divider>
         <el-space wrap>
           <el-button type="primary" size="small" @click="showGrantIntegral = true">发放积分</el-button>
@@ -46,19 +62,44 @@
         </el-space>
 
         <el-tabs v-model="activeTab" class="mt-16">
-          <el-tab-pane label="积分批次" name="batches">
-            <el-table :data="integralBatches" size="small" max-height="240">
-              <el-table-column prop="batchType" label="类型" width="70" />
-              <el-table-column prop="remainAmount" label="剩余" width="80" />
-              <el-table-column prop="expireAt" label="过期" :formatter="fmtTime" />
+          <el-tab-pane name="voucher">
+            <template #label>
+              <span>核销记录<el-badge v-if="cashVoucherUsage.length" :value="cashVoucherUsage.length" class="tab-badge" type="danger" /></span>
+            </template>
+            <div class="sub-head">
+              消费明细（现金券核销）
+              <span class="sub-sum">累计消费 ¥{{ formatMoney(cashVoucherUsedTotal) }}</span>
+            </div>
+            <el-table :data="cashVoucherUsage" size="small" max-height="320" stripe>
+              <template #empty><el-empty description="该会员暂无现金券核销记录" :image-size="56" /></template>
+              <el-table-column label="金额" width="92">
+                <template #default="{ row }">
+                  <span class="amt-out">-¥{{ formatMoney(row.amount) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="核销商家" min-width="130">
+                <template #default="{ row }">{{ row.merchantName || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="核销员" min-width="110">
+                <template #default="{ row }">
+                  {{ row.operatorNickname || (row.operatorUid ? 'UID:' + row.operatorUid : '—') }}
+                </template>
+              </el-table-column>
+              <el-table-column label="核销时间" width="150">
+                <template #default="{ row }">{{ fmtDateTime(row.createdAt) }}</template>
+              </el-table-column>
             </el-table>
-          </el-tab-pane>
-          <el-tab-pane label="现金券" name="voucher">
-            <div class="sub-head">余额批次</div>
-            <el-table :data="cashVoucherBatches" size="small" max-height="200">
+
+            <div class="sub-head">
+              现金券余额批次
+              <span class="sub-sum money">当前余额 ¥{{ formatMoney(voucherBalance) }}</span>
+            </div>
+            <el-table :data="cashVoucherBatches" size="small" max-height="180">
               <template #empty><el-empty description="暂无现金券批次" :image-size="48" /></template>
-              <el-table-column prop="remainAmount" label="余额" width="80" />
-              <el-table-column prop="sourceType" label="来源" />
+              <el-table-column label="余额" width="90">
+                <template #default="{ row }">¥{{ formatMoney(row.remainAmount) }}</template>
+              </el-table-column>
+              <el-table-column prop="sourceType" label="来源" min-width="120" />
               <el-table-column label="操作" width="72" align="center">
                 <template #default="{ row }">
                   <el-button
@@ -71,29 +112,12 @@
                 </template>
               </el-table-column>
             </el-table>
-
-            <div class="sub-head">
-              消费明细
-              <span class="sub-sum">累计消费 ¥{{ formatMoney(cashVoucherUsedTotal) }}</span>
-            </div>
-            <el-table :data="cashVoucherUsage" size="small" max-height="260">
-              <template #empty><el-empty description="暂无消费记录" :image-size="48" /></template>
-              <el-table-column label="金额" width="92">
-                <template #default="{ row }">
-                  <span class="amt-out">-¥{{ formatMoney(row.amount) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="核销商家" min-width="120">
-                <template #default="{ row }">{{ row.merchantName || '—' }}</template>
-              </el-table-column>
-              <el-table-column label="核销员" min-width="100">
-                <template #default="{ row }">
-                  {{ row.operatorNickname || (row.operatorUid ? 'UID:' + row.operatorUid : '—') }}
-                </template>
-              </el-table-column>
-              <el-table-column label="时间" width="140">
-                <template #default="{ row }">{{ fmtDateTime(row.createdAt) }}</template>
-              </el-table-column>
+          </el-tab-pane>
+          <el-tab-pane label="积分批次" name="batches">
+            <el-table :data="integralBatches" size="small" max-height="320">
+              <el-table-column prop="batchType" label="类型" width="70" />
+              <el-table-column prop="remainAmount" label="剩余" width="80" />
+              <el-table-column prop="expireAt" label="过期" :formatter="fmtTime" />
             </el-table>
           </el-tab-pane>
           <el-tab-pane label="会员记录" name="membership">
@@ -246,7 +270,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MemberTag from '@/components/MemberTag.vue'
@@ -265,7 +289,7 @@ const cashVoucherUsage = ref<any[]>([])
 const cashVoucherUsedTotal = ref(0)
 const membershipRecords = ref<any[]>([])
 const approvalHistory = ref<any[]>([])
-const activeTab = ref('batches')
+const activeTab = ref('voucher')
 const showGrantIntegral = ref(false)
 const showGrantVoucher = ref(false)
 const showGrantStaff = ref(false)
@@ -282,6 +306,10 @@ const showMerchantRole = ref(false)
 const merchantForm = ref({ merchantId: undefined as number | undefined, role: 'staff' as 'staff' | 'manager' })
 const showRecallIntegral = ref(false)
 const recallIntegralForm = ref({ amount: 1000, reason: '超管回收积分' })
+
+const voucherBalance = computed(() =>
+  cashVoucherBatches.value.reduce((sum: number, b: any) => sum + Number(b.remainAmount || 0), 0)
+)
 
 watch(() => [props.uid, visible.value], ([uid, open]) => {
   if (open && uid) loadDetail(uid as number)
@@ -306,6 +334,7 @@ function formatMoney(v: any) {
 
 async function loadDetail(uid: number) {
   loading.value = true
+  activeTab.value = 'voucher'
   try {
     const data = await request.get(`/api/admin/members/${uid}/detail`)
     profile.value = data.profile
@@ -668,7 +697,17 @@ async function revokeMerchantRole(merchantId: number) {
 .sub-head { display: flex; align-items: center; justify-content: space-between; margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: #303133; }
 .sub-head:first-child { margin-top: 0; }
 .sub-sum { font-size: 12px; font-weight: 500; color: #e34d59; }
+.sub-sum.money { color: #0d9488; }
 .amt-out { color: #e34d59; font-weight: 600; }
+.asset-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.asset-card { background: #f7f8fa; border: 1px solid #ebeef5; border-radius: 8px; padding: 10px 12px; }
+.asset-label { font-size: 12px; color: #909399; margin-bottom: 4px; }
+.asset-value { font-size: 20px; font-weight: 700; color: #303133; line-height: 1.2; }
+.asset-value.money { color: #0d9488; }
+.asset-value.out { color: #e34d59; }
+.asset-sub { font-size: 11px; color: #c0c4cc; margin-top: 2px; }
+.tab-badge { margin-left: 4px; }
+.tab-badge :deep(.el-badge__content) { transform: translateY(-2px); }
 .current-roles { margin-top: 8px; padding-top: 12px; border-top: 1px solid #eee; }
 .current-title { font-size: 12px; color: #909399; margin-bottom: 8px; }
 .role-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
