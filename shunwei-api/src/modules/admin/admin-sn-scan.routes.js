@@ -7,6 +7,31 @@ const {
 } = require('./sn-vision.service');
 const { getMiniappStatus, probeAccessToken } = require('../wechat/wechat-mp.service');
 
+// SN 码绑定记录表（admin-r7 迁移）。生产若未手动执行该迁移，
+// 绑定/查询接口一调用就会 Table doesn't exist 报错。这里在运行时幂等建表，
+// 让接口自愈（与 merchant.routes.js 的 ensureSettlementColumns 同思路），无需手动 SSH 跑 SQL。
+let _snBindingTableEnsured = false;
+async function ensureSnBindingTable() {
+  if (_snBindingTableEnsured) return;
+  await getPool().query(`
+    CREATE TABLE IF NOT EXISTS ${swTable('sn_binding')} (
+      id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      sn_code    VARCHAR(64) NOT NULL COMMENT 'SN 序列号',
+      imei       VARCHAR(32) NOT NULL DEFAULT '' COMMENT 'IMEI 号（如有）',
+      brand      VARCHAR(32) NOT NULL DEFAULT '' COMMENT '品牌',
+      model      VARCHAR(64) NOT NULL DEFAULT '' COMMENT '型号',
+      order_id   VARCHAR(64) NOT NULL DEFAULT '' COMMENT '关联订单号',
+      uid        INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '操作人 UID',
+      source     ENUM('scan','manual') NOT NULL DEFAULT 'scan' COMMENT '来源：扫码识别/手动输入',
+      created_at INT UNSIGNED NOT NULL DEFAULT 0 COMMENT '创建时间戳',
+      UNIQUE KEY uk_sn (sn_code),
+      KEY idx_order (order_id),
+      KEY idx_uid (uid)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='SN 码绑定记录'
+  `);
+  _snBindingTableEnsured = true;
+}
+
 function registerSnScanRoutes(app) {
   app.get('/api/staff/scan-sn/status', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
@@ -64,6 +89,7 @@ function registerSnScanRoutes(app) {
     if (!snCode) return fail(reply, 400, '请提供 SN 码');
 
     try {
+      await ensureSnBindingTable();
       const now = Math.floor(Date.now() / 1000);
       await getPool().query(
         `INSERT INTO ${swTable('sn_binding')} (sn_code, imei, brand, model, order_id, uid, source, created_at)
@@ -93,6 +119,7 @@ function registerSnScanRoutes(app) {
     const offset = (page - 1) * limit;
 
     try {
+      await ensureSnBindingTable();
       const [rows] = await getPool().query(
         `SELECT id, sn_code, imei, brand, model, order_id, uid, source, created_at
          FROM ${swTable('sn_binding')}
