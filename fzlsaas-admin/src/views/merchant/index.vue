@@ -34,8 +34,9 @@
           <el-select v-model="filterCategory" placeholder="全部类目" clearable style="width: 130px" @change="reloadList(1)">
             <el-option v-for="c in categories" :key="c" :label="c" :value="c" />
           </el-select>
-          <el-select v-model="sortBy" style="width: 150px" @change="reloadList(1)">
-            <el-option label="默认排序" value="id" />
+          <el-select v-if="!sortMode" v-model="sortBy" style="width: 150px" @change="reloadList(1)">
+            <el-option label="自定义排序" value="sort" />
+            <el-option label="按ID" value="id" />
             <el-option label="今日核销额" value="todayAmount" />
             <el-option label="本月核销额" value="monthAmount" />
             <el-option label="活跃核销员" value="staffActive" />
@@ -43,23 +44,37 @@
             <el-option label="待结算金额" value="pending" />
             <el-option label="最近核销" value="lastVerify" />
           </el-select>
-          <el-button :icon="sortOrder === 'desc' ? 'SortDown' : 'SortUp'" @click="toggleSortOrder">
+          <el-button v-if="!sortMode" :icon="sortOrder === 'desc' ? 'SortDown' : 'SortUp'" @click="toggleSortOrder">
             {{ sortOrder === 'desc' ? '降序' : '升序' }}
           </el-button>
-          <el-button type="primary" @click="reloadList(1)">查询</el-button>
+          <el-button v-if="!sortMode" type="primary" @click="reloadList(1)">查询</el-button>
         </div>
         <div class="toolbar-right">
-          <el-button @click="activeTab = 'create'">开通商家</el-button>
+          <el-button
+            :type="sortMode ? 'primary' : 'default'"
+            :disabled="!canSort"
+            @click="toggleSortMode"
+          >
+            {{ sortMode ? '完成排序' : '拖拽排序' }}
+          </el-button>
+          <el-button v-if="!sortMode" @click="activeTab = 'create'">开通商家</el-button>
         </div>
       </div>
 
+      <p v-if="sortMode" class="sort-hint">拖动每行左侧的 <el-icon><Rank /></el-icon> 图标调整顺序，松手即保存。排序影响小程序「可核销商家」列表的展示顺序（靠前的在前）。</p>
+
       <TableSkeleton v-if="loading && !list.length" :cols="8" />
-      <el-table v-else :data="list" v-loading="loading && list.length > 0">
+      <el-table v-else ref="tableRef" :data="list" v-loading="loading && list.length > 0" row-key="id">
         <template #empty>
           <el-empty description="暂无商家">
             <el-button type="primary" @click="activeTab = 'create'">开通商家</el-button>
           </el-empty>
         </template>
+        <el-table-column v-if="sortMode" label="" width="48" align="center">
+          <template #default>
+            <el-icon class="drag-handle" style="cursor: grab"><Rank /></el-icon>
+          </template>
+        </el-table-column>
         <el-table-column prop="id" label="ID" width="64" />
         <el-table-column prop="merchantName" label="名称" min-width="140" show-overflow-tooltip />
         <el-table-column prop="category" label="类目" width="90">
@@ -110,7 +125,7 @@
         </el-table-column>
       </el-table>
       <el-pagination
-        v-if="listTotal > 0"
+        v-if="listTotal > 0 && !sortMode"
         v-model:current-page="listPage"
         :page-size="listPageSize"
         :total="listTotal"
@@ -465,10 +480,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Rank } from '@element-plus/icons-vue'
+import Sortable from 'sortablejs'
 import PageShell from '@/components/PageShell.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import StatCard from '@/components/StatCard.vue'
@@ -488,9 +505,21 @@ const listPageSize = 20
 const listTotal = ref(0)
 const searchKeyword = ref('')
 const filterCategory = ref('')
-const sortBy = ref('id')
+const sortBy = ref('sort')
 const sortOrder = ref<'asc' | 'desc'>('desc')
 const categories = ref<string[]>([])
+
+// 拖拽排序
+const sortMode = ref(false)
+const tableRef = ref<any>(null)
+let sortable: Sortable | null = null
+// 仅在「默认(排序权重)+ 无筛选」时可拖拽，避免筛选态下拖动导致顺序错乱
+const canSort = computed(() =>
+  sortBy.value === 'sort' &&
+  sortOrder.value === 'desc' &&
+  !searchKeyword.value.trim() &&
+  !filterCategory.value
+)
 
 const overviewLoading = ref(false)
 const overview = ref<Record<string, number>>({})
@@ -576,8 +605,9 @@ async function loadList() {
   loading.value = true
   try {
     const params: Record<string, unknown> = {
-      page: listPage.value,
-      pageSize: listPageSize,
+      page: sortMode.value ? 1 : listPage.value,
+      // 拖拽排序时一次性拉全量（上限 500），保证跨页顺序正确
+      pageSize: sortMode.value ? 500 : listPageSize,
       sortBy: sortBy.value,
       sortOrder: sortOrder.value
     }
@@ -599,6 +629,58 @@ function toggleSortOrder() {
   sortOrder.value = sortOrder.value === 'desc' ? 'asc' : 'desc'
   reloadList(1)
 }
+
+function destroySortable() {
+  sortable?.destroy()
+  sortable = null
+}
+
+async function initSortable() {
+  await nextTick()
+  destroySortable()
+  if (!sortMode.value || !canSort.value) return
+  const tbody = tableRef.value?.$el?.querySelector('.el-table__body-wrapper tbody')
+  if (!tbody) return
+  sortable = Sortable.create(tbody, {
+    handle: '.drag-handle',
+    animation: 150,
+    onEnd: async (evt: any) => {
+      const { oldIndex, newIndex } = evt
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return
+      const ids = list.value.map((r) => r.id)
+      const [moved] = ids.splice(oldIndex, 1)
+      ids.splice(newIndex, 0, moved)
+      try {
+        await request.patch('/api/admin/merchant/reorder', { ids })
+        ElMessage.success('排序已保存')
+        await loadList()
+        if (sortMode.value) initSortable()
+      } catch { /* handled */ }
+    }
+  })
+}
+
+async function toggleSortMode() {
+  if (sortMode.value) {
+    sortMode.value = false
+    destroySortable()
+    await loadList()
+    return
+  }
+  if (!canSort.value) {
+    ElMessage.warning('请先将排序切回「自定义排序·降序」并清空搜索/类目筛选')
+    return
+  }
+  sortMode.value = true
+  await loadList()
+  initSortable()
+}
+
+watch([sortMode, () => list.value.length], () => {
+  if (sortMode.value) initSortable()
+})
+
+onBeforeUnmount(() => destroySortable())
 
 async function loadMerchantOptions() {
   if (merchantOptions.value.length) return
@@ -939,6 +1021,8 @@ function fmtAmount(val?: number) {
 .time-sep { color: #606266; font-size: 13px; padding: 0 4px; }
 
 .overview-row { margin-bottom: 8px; }
+.sort-hint { font-size: 13px; color: rgba(0,0,0,0.55); margin: 0 0 12px; display: flex; align-items: center; gap: 4px; }
+.drag-handle { color: #999; }
 .list-toolbar {
   display: flex;
   align-items: center;

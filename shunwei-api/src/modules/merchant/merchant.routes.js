@@ -5,22 +5,26 @@ const { swTable } = require('../../shared/sw-mysql');
 const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
 const { getVerifyTokenService } = require('../cash-voucher/verify-token.service');
+const { ensureMerchantSortColumn } = require('./admin-merchant.routes');
 
 const verifySchema = z.object({
   verifyToken: z.string().trim().min(1),
   amount: z.coerce.number().positive(),
-  remark: z.string().trim().max(200).optional().default('')
+  remark: z.string().trim().max(200).optional().default(''),
+  merchantId: z.coerce.number().int().nonnegative().optional().default(0)
 });
 
 const suspendSchema = z.object({
   action: z.enum(['suspend', 'resume']),
-  resumeHour: z.coerce.number().int().min(0).max(23).optional().default(8)
+  resumeHour: z.coerce.number().int().min(0).max(23).optional().default(8),
+  merchantId: z.coerce.number().int().nonnegative().optional().default(0)
 });
 
 const withdrawSchema = z.object({
   amount: z.coerce.number().positive().optional(),
   withdrawAll: z.boolean().optional().default(false),
-  remark: z.string().trim().max(200).optional().default('')
+  remark: z.string().trim().max(200).optional().default(''),
+  merchantId: z.coerce.number().int().nonnegative().optional().default(0)
 });
 
 function registerMerchantRoutes(app) {
@@ -29,8 +33,29 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/access', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       return ok(mapAccess(access));
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
+  // 一人多店：返回当前账号可操作的全部门店（供工作台顶部切换）。
+  app.get('/api/merchant/my-stores', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      const list = await listMerchantAccess(request.auth.uid);
+      return ok({
+        total: list.length,
+        stores: list.map((x) => ({
+          merchantId: Number(x.merchant.id),
+          merchantName: x.merchant.merchant_name || '',
+          category: x.merchant.category || '',
+          canVerify: Number(x.merchant.can_verify) === 1,
+          isManager: !!x.isManager,
+          role: x.isManager ? 'manager' : 'staff'
+        }))
+      });
     } catch (error) {
       return failMerchant(reply, error);
     }
@@ -39,12 +64,13 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchants/available', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
+      try { await ensureMerchantSortColumn(); } catch { /* 列已存在或权限问题不阻断查询 */ }
       const [rows] = await getPool().query(
         `SELECT id, merchant_name, category, contact_phone, store_address,
                 latitude, longitude, store_images, business_hours
          FROM ${swTable('merchant')}
          WHERE is_active = 1 AND can_verify = 1
-         ORDER BY id DESC`
+         ORDER BY sort DESC, id DESC`
       );
       return ok(rows.map((row) => {
         let images = [];
@@ -71,7 +97,7 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/me', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       return ok(mapAccess(access));
     } catch (error) {
       return failMerchant(reply, error);
@@ -84,7 +110,7 @@ function registerMerchantRoutes(app) {
     if (!token) return fail(reply, 400, '请提供核销码');
 
     try {
-      await resolveMerchantAccess(request.auth.uid);
+      await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.body?.merchantId || 0));
       const tokenResult = getVerifyTokenService().peek(token);
       if (!tokenResult.valid) return fail(reply, 403, tokenResult.reason);
 
@@ -116,7 +142,7 @@ function registerMerchantRoutes(app) {
       const tokenResult = getVerifyTokenService().validate(parsed.data.verifyToken);
       if (!tokenResult.valid) return fail(reply, 403, tokenResult.reason);
 
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(parsed.data.merchantId || 0));
       const merchant = access.merchant;
       if (!merchant.can_verify) return fail(reply, 403, '商家核销权限未开通');
 
@@ -151,7 +177,7 @@ function registerMerchantRoutes(app) {
     const token = String(request.body?.verifyToken || '').trim();
     if (!token) return fail(reply, 400, '请提供核销码');
     try {
-      await resolveMerchantAccess(request.auth.uid);
+      await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.body?.merchantId || 0));
       const parsedToken = getVerifyTokenService().extractNonce(token);
       if (!parsedToken.valid) return fail(reply, 400, parsedToken.reason || '核销码无法识别');
       const status = await cvService.lookupVerifyByNonce(parsedToken.nonce);
@@ -164,7 +190,7 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/staff', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       if (!access.isManager) return fail(reply, 403, '仅商家负责人可查看员工列表');
       await ensureSuspendedColumn();
       const [rows] = await getPool().query(
@@ -197,7 +223,7 @@ function registerMerchantRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(parsed.data.merchantId || 0));
       if (!access.isManager) return fail(reply, 403, '仅商家负责人可操作');
       if (targetUid === request.auth.uid) return fail(reply, 400, '不能暂停自己的权限');
       await ensureSuspendedColumn();
@@ -242,7 +268,7 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/dashboard', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       const merchant = access.merchant;
       const scope = String(request.query?.scope || '').trim().toLowerCase();
       const personalScope = ['mine', 'self', 'personal'].includes(scope);
@@ -356,7 +382,7 @@ function registerMerchantRoutes(app) {
     const connection = await getPool().getConnection();
     try {
       await connection.beginTransaction();
-      const access = await resolveMerchantAccess(request.auth.uid, connection);
+      const access = await resolveMerchantAccess(request.auth.uid, connection, Number(parsed.data.merchantId || 0));
       if (!access.isManager) throw Object.assign(new Error('仅店长可申请提现'), { statusCode: 403 });
       const [[merchant]] = await connection.query(
         `SELECT id, pending_settlement FROM ${swTable('merchant')}
@@ -400,7 +426,7 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/withdrawals', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       if (!access.isManager) return fail(reply, 403, '仅店长可查看提现记录');
       await ensureSettlementColumns();
       const [rows] = await getPool().query(
@@ -422,7 +448,7 @@ function registerMerchantRoutes(app) {
   app.get('/api/merchant/settlement', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
     try {
-      const access = await resolveMerchantAccess(request.auth.uid);
+      const access = await resolveMerchantAccess(request.auth.uid, getPool(), Number(request.query?.merchantId || 0));
       const merchant = access.merchant;
       const [records] = await getPool().query(
         `SELECT id, amount, status, settled_by, settled_at, remark, created_at
@@ -508,73 +534,104 @@ function pickMerchantFields(row) {
   };
 }
 
-async function resolveMerchantAccess(uid, db = getPool()) {
+/**
+ * 汇总某人可访问的所有商家（支持一人负责多店）。
+ * 来源：merchant_staff(role) + 该人作为 login_uid 的商家 + 门店 division 兜底。
+ * 返回按角色(负责人优先)+排序权重降序的列表：[{ merchant, isManager, isStaff, source }]。
+ */
+async function listMerchantAccess(uid, db = getPool()) {
+  const byId = new Map(); // merchantId -> { merchant(pick), isManager, isStaff, source }
+  const put = (row, { isManager, source }) => {
+    const id = Number(row.id);
+    if (!id) return;
+    const existing = byId.get(id);
+    if (existing) {
+      // 已存在则取"更高"权限（负责人 > 员工）
+      existing.isManager = existing.isManager || isManager;
+      existing.isStaff = true;
+      return;
+    }
+    byId.set(id, { merchant: pickMerchantFields(row), isManager, isStaff: true, source, sort: Number(row.sort || 0) });
+  };
+
+  // 1) merchant_staff 明细（可多店）
   try {
     const [staffRows] = await db.query(
       `SELECT ms.role, m.id, m.merchant_name, m.category, m.contact_name, m.contact_phone,
-              m.login_uid, m.can_verify, m.pending_settlement, m.settled_total, m.is_active
+              m.login_uid, m.can_verify, m.pending_settlement, m.settled_total, m.is_active, m.sort
        FROM ${swTable('merchant_staff')} ms
        JOIN ${swTable('merchant')} m ON m.id = ms.merchant_id
-       WHERE ms.staff_uid = ? AND ms.is_active = 1 AND m.is_active = 1
-       ORDER BY CASE ms.role WHEN 'manager' THEN 0 ELSE 1 END, ms.id DESC
-       LIMIT 1`,
+       WHERE ms.staff_uid = ? AND ms.is_active = 1 AND m.is_active = 1`,
       [uid]
     );
-    if (staffRows[0]) {
-      const row = staffRows[0];
-      return {
-        merchant: pickMerchantFields(row),
-        isStaff: true,
-        isManager: row.role === 'manager',
-        divisionId: 0
-      };
-    }
-  } catch { /* table may not exist yet */ }
+    for (const row of staffRows) put(row, { isManager: row.role === 'manager', source: 'assigned' });
+  } catch { /* merchant_staff 表可能不存在 */ }
 
-  let merchant = await getMerchantByUidWithDb(uid, db);
-  if (merchant) {
-    return {
-      merchant: pickMerchantFields(merchant),
-      isStaff: true,
-      isManager: true,
-      divisionId: 0
-    };
-  }
-
-  const [[actor]] = await db.query(
-    `SELECT uid, is_staff, division_id FROM ${legacyTable('user')}
-     WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
-    [uid]
-  );
-  if (!actor) throw Object.assign(new Error('用户不存在'), { statusCode: 404 });
-  const divisionId = Number(actor.division_id || 0);
-  const [[manager]] = await db.query(
-    `SELECT 1 AS v FROM ${swTable('store_manager')}
-     WHERE manager_uid = ? AND is_active = 1 AND (division_id = ? OR division_id = 0) LIMIT 1`,
-    [uid, divisionId]
-  );
-  if (divisionId > 0) {
-    const [rows] = await db.query(
-      `SELECT m.id, m.merchant_name, m.category, m.contact_name, m.contact_phone,
-              m.login_uid, m.can_verify, m.pending_settlement, m.settled_total, m.is_active
-       FROM ${swTable('merchant')} m
-       JOIN ${legacyTable('user')} owner ON owner.uid = m.login_uid
-       WHERE owner.division_id = ? AND m.is_active = 1 ORDER BY m.id DESC LIMIT 1`,
-      [divisionId]
+  // 2) 作为 login_uid 的商家（负责人，可多店）
+  try {
+    const [ownerRows] = await db.query(
+      `SELECT id, merchant_name, category, contact_name, contact_phone,
+              login_uid, can_verify, pending_settlement, settled_total, is_active, sort
+       FROM ${swTable('merchant')} WHERE login_uid = ? AND is_active = 1`,
+      [uid]
     );
-    merchant = rows[0] || null;
+    for (const row of ownerRows) put(row, { isManager: true, source: 'owner' });
+  } catch { /* ignore */ }
+
+  // 3) 若上面都没有，走门店 division 兜底（老逻辑）
+  if (byId.size === 0) {
+    const [[actor]] = await db.query(
+      `SELECT uid, is_staff, division_id FROM ${legacyTable('user')}
+       WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+      [uid]
+    );
+    if (actor) {
+      const divisionId = Number(actor.division_id || 0);
+      if (divisionId > 0) {
+        const [[manager]] = await db.query(
+          `SELECT 1 AS v FROM ${swTable('store_manager')}
+           WHERE manager_uid = ? AND is_active = 1 AND (division_id = ? OR division_id = 0) LIMIT 1`,
+          [uid, divisionId]
+        );
+        const [rows] = await db.query(
+          `SELECT m.id, m.merchant_name, m.category, m.contact_name, m.contact_phone,
+                  m.login_uid, m.can_verify, m.pending_settlement, m.settled_total, m.is_active, m.sort
+           FROM ${swTable('merchant')} m
+           JOIN ${legacyTable('user')} owner ON owner.uid = m.login_uid
+           WHERE owner.division_id = ? AND m.is_active = 1 ORDER BY m.sort DESC, m.id DESC`,
+          [divisionId]
+        );
+        const isMgr = Boolean(manager) || Number(actor.is_staff) === 1;
+        for (const row of rows) put(row, { isManager: isMgr, source: 'division' });
+      }
+    }
   }
-  const isManager = Boolean(manager);
-  const isStaff = Number(actor.is_staff) === 1 || Boolean(merchant && Number(merchant.login_uid) === Number(uid));
-  if (!merchant || (!isStaff && !isManager)) {
+
+  const list = [...byId.values()];
+  list.sort((a, b) => (b.isManager - a.isManager) || (b.sort - a.sort) || (b.merchant.id - a.merchant.id));
+  return list;
+}
+
+/**
+ * 解析当前操作的商家访问权限。
+ * @param merchantId 可选：指定要操作的门店（一人多店时用于切换）。传了但无权访问则抛 403。
+ * 不传时返回该人的"首选门店"（负责人优先、排序权重高者），保持旧行为。
+ */
+async function resolveMerchantAccess(uid, db = getPool(), merchantId = 0) {
+  const list = await listMerchantAccess(uid, db);
+  const targetId = Number(merchantId || 0);
+
+  if (targetId) {
+    const found = list.find((x) => Number(x.merchant.id) === targetId);
+    if (!found) throw Object.assign(new Error('你没有该门店的操作权限'), { statusCode: 403 });
+    return { merchant: found.merchant, isStaff: found.isStaff, isManager: found.isManager, divisionId: 0 };
+  }
+
+  if (!list.length) {
     throw Object.assign(new Error('未配置商家核销权限'), { statusCode: 403 });
   }
-  return {
-    merchant: pickMerchantFields(merchant),
-    isStaff,
-    isManager: isManager || Number(merchant.login_uid) === Number(uid),
-    divisionId
-  };
+  const primary = list[0];
+  return { merchant: primary.merchant, isStaff: primary.isStaff, isManager: primary.isManager, divisionId: 0 };
 }
 
 async function getMerchantByUidWithDb(uid, db) {
@@ -605,4 +662,4 @@ function failMerchant(reply, error) {
   return fail(reply, error.statusCode || 500, error.message || '商家服务异常');
 }
 
-module.exports = { registerMerchantRoutes, resolveMerchantAccess, ensureSettlementColumns };
+module.exports = { registerMerchantRoutes, resolveMerchantAccess, listMerchantAccess, ensureSettlementColumns };

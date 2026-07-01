@@ -20,8 +20,12 @@ const listQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(500).optional().default(20),
   keyword: z.string().trim().max(64).optional().default(''),
   category: z.string().trim().max(64).optional().default(''),
-  sortBy: z.enum(['id', 'todayAmount', 'monthAmount', 'staffActive', 'staffBound', 'pending', 'lastVerify']).optional().default('id'),
+  sortBy: z.enum(['sort', 'id', 'todayAmount', 'monthAmount', 'staffActive', 'staffBound', 'pending', 'lastVerify']).optional().default('sort'),
   sortOrder: z.enum(['asc', 'desc']).optional().default('desc')
+});
+
+const merchantReorderSchema = z.object({
+  ids: z.array(z.coerce.number().int().positive()).min(1).max(500)
 });
 
 function dayStartTs(d = new Date()) {
@@ -49,6 +53,27 @@ const merchantUpdateSchema = z.object({
   settlementNote: z.string().trim().max(255).optional()
 });
 
+// sw_merchant.sort 列（商家显示排序权重，大在前）运行时幂等补列，避免手动跑 SQL
+let _merchantSortColEnsured = false;
+async function ensureMerchantSortColumn() {
+  if (_merchantSortColEnsured) return;
+  try {
+    await getPool().query(
+      `ALTER TABLE ${swTable('merchant')} ADD COLUMN sort int(11) NOT NULL DEFAULT '0' COMMENT '显示排序权重,大在前'`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+  try {
+    await getPool().query(
+      `ALTER TABLE ${swTable('merchant')} ADD KEY idx_sort (sort)`
+    );
+  } catch (e) {
+    if (e.code !== 'ER_DUP_KEYNAME') throw e;
+  }
+  _merchantSortColEnsured = true;
+}
+
 function mapMerchant(row) {
   let storeImages = [];
   if (row.store_images) {
@@ -61,6 +86,7 @@ function mapMerchant(row) {
     contactName: row.contact_name || '',
     contactPhone: row.contact_phone || '',
     loginUid: row.login_uid,
+    sort: Number(row.sort || 0),
     canVerify: Number(row.can_verify) === 1,
     pendingSettlement: Number(row.pending_settlement || 0),
     settledTotal: Number(row.settled_total || 0),
@@ -91,6 +117,7 @@ function registerAdminMerchantRoutes(app) {
 
     const { page, pageSize, keyword, category, sortBy, sortOrder } = parsed.data;
     await staffService.ensureTable();
+    await ensureMerchantSortColumn();
     const conditions = ['m.is_active = 1'];
     const values = [];
     if (keyword) {
@@ -111,6 +138,7 @@ function registerAdminMerchantRoutes(app) {
     const staffTbl = swTable('merchant_staff');
 
     const sortColumnMap = {
+      sort: 'm.sort',
       id: 'm.id',
       todayAmount: 'today_amount',
       monthAmount: 'month_amount',
@@ -119,7 +147,7 @@ function registerAdminMerchantRoutes(app) {
       pending: 'm.pending_settlement',
       lastVerify: 'last_verify_at'
     };
-    const orderCol = sortColumnMap[sortBy] || 'm.id';
+    const orderCol = sortColumnMap[sortBy] || 'm.sort';
     const orderDir = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
     const [[countRow]] = await getPool().query(
@@ -160,6 +188,48 @@ function registerAdminMerchantRoutes(app) {
         staffActive: Number(row.staff_active || 0)
       }))
     });
+  });
+
+  // 批量保存商家显示排序（后台拖拽后调用）。body={ ids:[按新顺序排列的商家id] }。
+  // 与积分商城/商品排序约定一致：sort = 总数 - 下标，首位 sort 最大，列表按 sort DESC。
+  // 放在 :id 路由之前注册，避免 /reorder 命中 /:id。
+  app.patch('/api/admin/merchant/reorder', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const parsed = merchantReorderSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '排序参数错误', parsed.error.flatten());
+    await ensureMerchantSortColumn();
+
+    const ids = parsed.data.ids;
+    const now = Math.floor(Date.now() / 1000);
+    const maxSort = ids.length;
+    const connection = await getPool().getConnection();
+    try {
+      await connection.beginTransaction();
+      for (let index = 0; index < ids.length; index += 1) {
+        await connection.query(
+          `UPDATE ${swTable('merchant')} SET sort = ?, updated_at = ? WHERE id = ?`,
+          [maxSort - index, now, ids[index]]
+        );
+      }
+      await connection.commit();
+    } catch (error) {
+      try { await connection.rollback(); } catch { /* ignore */ }
+      return fail(reply, 500, error.message || '保存排序失败');
+    } finally {
+      connection.release();
+    }
+
+    const session = getAdminSession(request);
+    await audit.write({
+      adminUsername: session?.username || '',
+      action: 'merchant_reorder',
+      targetType: 'merchant',
+      targetId: 0,
+      payload: { count: ids.length },
+      ip: getClientIp(request)
+    });
+
+    return ok({ updatedCount: ids.length }, '排序已保存');
   });
 
   app.get('/api/admin/merchant/:id', async (request, reply) => {
@@ -703,4 +773,4 @@ function registerAdminMerchantRoutes(app) {
   });
 }
 
-module.exports = { registerAdminMerchantRoutes };
+module.exports = { registerAdminMerchantRoutes, ensureMerchantSortColumn };

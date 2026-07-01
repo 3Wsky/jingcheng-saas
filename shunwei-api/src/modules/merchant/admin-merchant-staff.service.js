@@ -128,16 +128,8 @@ class AdminMerchantStaffService {
     );
 
     if (normalizedRole === 'manager') {
-      const [[conflict]] = await pool.query(
-        `SELECT id, merchant_name FROM ${swTable('merchant')}
-         WHERE login_uid = ? AND id <> ? AND is_active = 1 LIMIT 1`,
-        [uid, merchantId]
-      );
-      if (conflict) {
-        const error = new Error(`该用户已是商家「${conflict.merchant_name}」的绑定账号`);
-        error.statusCode = 400;
-        throw error;
-      }
+      // 允许一人同时负责多店：不再拦"已是别家绑定账号"，直接把本店绑定账号设为该 uid。
+      // login_uid 是每个商家行独立的列，同一 uid 可作为多家店的负责人。
       await pool.query(
         `UPDATE ${swTable('merchant')} SET login_uid = ?, updated_at = ? WHERE id = ?`,
         [uid, now, merchantId]
