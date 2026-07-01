@@ -33,7 +33,7 @@ class VerifyTokenService {
     const sig = stripped.slice(dotIdx + 1);
 
     const expected = this._sign(payloadB64);
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    if (!this._signatureMatches(sig, expected)) {
       return { valid: false, reason: '核销码签名无效' };
     }
 
@@ -70,7 +70,7 @@ class VerifyTokenService {
     const payloadB64 = stripped.slice(0, dotIdx);
     const sig = stripped.slice(dotIdx + 1);
     const expected = this._sign(payloadB64);
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    if (!this._signatureMatches(sig, expected)) {
       return { valid: false, reason: '核销码签名无效' };
     }
     let payload;
@@ -97,7 +97,7 @@ class VerifyTokenService {
     const payloadB64 = stripped.slice(0, dotIdx);
     const sig = stripped.slice(dotIdx + 1);
     const expected = this._sign(payloadB64);
-    if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) {
+    if (!this._signatureMatches(sig, expected)) {
       return { valid: false, reason: '核销码签名无效' };
     }
     let payload;
@@ -109,6 +109,19 @@ class VerifyTokenService {
 
   _sign(data) {
     return crypto.createHmac('sha256', this._secret).update(data).digest('base64url');
+  }
+
+  /**
+   * crypto.timingSafeEqual 要求两个 Buffer 等长，否则直接 throw RangeError。
+   * 核销码里的签名段来自请求体，长度完全由攻击者/畸形客户端控制——
+   * 不判等长直接比较，会被随手一个短/长伪造签名的请求打出未捕获异常
+   * （虽然上层路由有 try/catch 兜底转成 500，但会泄露实现细节且掩盖了本该返回的"签名无效"）。
+   */
+  _signatureMatches(sig, expected) {
+    const sigBuf = Buffer.from(String(sig || ''));
+    const expectedBuf = Buffer.from(String(expected || ''));
+    if (sigBuf.length !== expectedBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, expectedBuf);
   }
 
   _cleanup() {

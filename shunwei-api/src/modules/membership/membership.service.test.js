@@ -30,3 +30,28 @@ test('resolveMembershipChange 新用户从当前时间起算', () => {
   assert.equal(result.afterTier, 'SW199');
   assert.ok(result.afterOverdue >= before + 365 * 86400);
 });
+
+// 安全回归：claimGift() 对 wechat_pay 渠道按真实支付金额倒推档位，不采信客户端 tierCode。
+test('pickTierByPaidAmount 未配置方案价格时按默认199/299门槛', () => {
+  assert.equal(MembershipService.pickTierByPaidAmount(299, []), 'SW299');
+  assert.equal(MembershipService.pickTierByPaidAmount(199, []), 'SW199');
+  assert.equal(MembershipService.pickTierByPaidAmount(198, []), '');
+  assert.equal(MembershipService.pickTierByPaidAmount(0, []), '');
+  assert.equal(MembershipService.pickTierByPaidAmount(-1, []), '');
+});
+
+test('pickTierByPaidAmount 按后台配置的方案价格取满足条件的最高档', () => {
+  const plans = [
+    { tierCode: 'SW199', price: 199, tierRank: 1 },
+    { tierCode: 'SW299', price: 299, tierRank: 2 }
+  ];
+  assert.equal(MembershipService.pickTierByPaidAmount(299, plans), 'SW299');
+  assert.equal(MembershipService.pickTierByPaidAmount(250, plans), 'SW199');
+  assert.equal(MembershipService.pickTierByPaidAmount(199, plans), 'SW199');
+  assert.equal(MembershipService.pickTierByPaidAmount(50, plans), '');
+});
+
+test('pickTierByPaidAmount 未配置价格的方案(price=0)不参与匹配，退回默认门槛', () => {
+  const plans = [{ tierCode: 'SW199', price: 0, tierRank: 1 }];
+  assert.equal(MembershipService.pickTierByPaidAmount(199, plans), 'SW199');
+});

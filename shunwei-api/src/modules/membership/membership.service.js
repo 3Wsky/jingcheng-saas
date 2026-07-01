@@ -146,7 +146,8 @@ class MembershipService {
   async claimGift(uid, input) {
     await this.repository.ensureTables();
     const config = await this.repository.getConfigMap();
-    const tierCode = this.normalizeTierCode(input.tierCode);
+    let tierCode = this.normalizeTierCode(input.tierCode);
+    let memberShipId = input.memberShipId;
     const sourceChannel = CHANNEL_MAP[input.channel] || input.channel;
     const sourceRef = String(input.refId || '').trim();
     const operatorUid = Number(input.operatorUid || 0);
@@ -162,7 +163,27 @@ class MembershipService {
       return { duplicate: true, membership: this.toMembershipDto(existing), integral: { granted: 0 } };
     }
 
-    const tierMeta = await this.resolveTierMeta(tierCode, input.memberShipId, config);
+    // 安全关键：wechat_pay 渠道必须能在 CRMEB 找到「属于该 uid、已支付、类型=会员购买」的真实订单，
+    // 档位由实付金额倒推 —— 绝不信任客户端传入的 tierCode/memberShipId，
+    // 否则任何登录用户都能不付款直接调本接口白领会员档位+赠送积分。
+    if (input.channel === 'wechat_pay') {
+      const order = await this.repository.getPaidOrderByOrderId(sourceRef);
+      if (!order || Number(order.uid) !== Number(uid)) {
+        const error = new Error('未查询到与当前用户匹配的已支付订单，无法领取权益');
+        error.statusCode = 403;
+        throw error;
+      }
+      const verifiedTier = await this.resolveVerifiedTierFromPayment(Number(order.pay_price || 0));
+      if (!verifiedTier) {
+        const error = new Error('订单金额不满足开卡赠送条件');
+        error.statusCode = 403;
+        throw error;
+      }
+      tierCode = verifiedTier;
+      memberShipId = undefined;
+    }
+
+    const tierMeta = await this.resolveTierMeta(tierCode, memberShipId, config);
     const user = await this.repository.getUserMembership(uid);
     if (!user) {
       const error = new Error('用户不存在');
@@ -233,6 +254,12 @@ class MembershipService {
       return { duplicate: false, membership: this.toMembershipDto(membership), integral: integralResult };
     } catch (error) {
       await connection.rollback();
+      // 并发窗口：两个请求同时通过了前面的"先查后插"重复校验，靠 uk_source 唯一键在数据库层兜底拒绝其中一个。
+      // 命中这个竞态时不当成故障，直接按"已领取过"返回，避免用户端看到一个吓人的 500。
+      if (error && error.code === 'ER_DUP_ENTRY' && /uk_source/i.test(String(error.sqlMessage || error.message || ''))) {
+        const dup = await this.repository.findMembershipBySource(sourceChannel, sourceRef);
+        if (dup) return { duplicate: true, membership: this.toMembershipDto(dup), integral: { granted: 0 } };
+      }
       throw error;
     } finally {
       connection.release();
@@ -394,6 +421,32 @@ class MembershipService {
       tierRank: 1,
       vipDays: Number(config.member_vip_days || 365)
     };
+  }
+
+  /**
+   * 由真实支付金额倒推可开通的档位（取满足"实付 >= 方案价"的最高档），
+   * 用于 claimGift() 校验 wechat_pay 渠道，防止客户端伪造 tierCode 冒领高档权益。
+   * 优先用后台配置的方案价格；未配置(价格为0/无方案)时退回 199/299 默认门槛
+   * （与 migrations/backfill/001_legacy_member_backfill.sql 的历史回填口径一致）。
+   */
+  async resolveVerifiedTierFromPayment(payPrice) {
+    const plans = await this.getPlans();
+    return MembershipService.pickTierByPaidAmount(payPrice, plans);
+  }
+
+  /** 纯函数（可脱离 DB 单测）：按"实付 >= 方案价"取满足条件的最高档；未配置方案价格时退回 199/299 默认门槛。 */
+  static pickTierByPaidAmount(payPrice, plans = []) {
+    const amount = Number(payPrice || 0);
+    if (!(amount > 0)) return '';
+
+    const eligible = plans
+      .filter((p) => Number(p.price) > 0 && amount >= Number(p.price))
+      .sort((a, b) => Number(b.price) - Number(a.price) || Number(b.tierRank) - Number(a.tierRank));
+    if (eligible.length) return eligible[0].tierCode;
+
+    if (amount >= 299) return 'SW299';
+    if (amount >= 199) return 'SW199';
+    return '';
   }
 
   resolveMembershipChange(beforeTier, newTier, currentExpireAt, vipDays) {

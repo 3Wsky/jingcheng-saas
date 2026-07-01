@@ -7,6 +7,55 @@ function verifyAdminCredentials(username, password) {
   return safeEqual(username, config.admin.username) && safeEqual(password, config.admin.password);
 }
 
+/**
+ * 登录暴力破解节流（单进程内存版）。
+ * 后台只有一个固定账号、无验证码/无锁定机制，此前 /admin/login 可无限次尝试。
+ * 简单滑动窗口：同一来源连续失败达到阈值后锁定一段时间，成功登录即清零。
+ * 进程重启会重置计数——对这种单管理员后台的威胁模型是可接受的取舍，
+ * 比"完全不限"是明确的安全加固；不引入新依赖，纯内存 Map，量级极小。
+ */
+class LoginThrottle {
+  constructor({ maxAttempts = 5, windowMs = 15 * 60 * 1000, lockoutMs = 15 * 60 * 1000 } = {}) {
+    this.maxAttempts = maxAttempts;
+    this.windowMs = windowMs;
+    this.lockoutMs = lockoutMs;
+    this.records = new Map();
+  }
+
+  check(key, now = Date.now()) {
+    const rec = this.records.get(key);
+    if (!rec) return { locked: false };
+    if (rec.lockedUntil && now < rec.lockedUntil) {
+      return { locked: true, retryAfterSeconds: Math.ceil((rec.lockedUntil - now) / 1000) };
+    }
+    return { locked: false };
+  }
+
+  recordFailure(key, now = Date.now()) {
+    let rec = this.records.get(key);
+    if (!rec || now - rec.windowStart > this.windowMs) {
+      rec = { count: 0, windowStart: now, lockedUntil: 0 };
+    }
+    rec.count += 1;
+    if (rec.count >= this.maxAttempts) {
+      rec.lockedUntil = now + this.lockoutMs;
+    }
+    this.records.set(key, rec);
+  }
+
+  recordSuccess(key) {
+    this.records.delete(key);
+  }
+}
+
+const adminLoginThrottle = new LoginThrottle();
+
+/** Nginx 反代场景下 Fastify 未开 trustProxy 时 request.ip 只会是反代自身地址，优先取 X-Forwarded-For 首段。 */
+function getClientKey(request) {
+  const xff = String((request.headers && request.headers['x-forwarded-for']) || '').split(',')[0].trim();
+  return xff || (request.ip || 'unknown');
+}
+
 function createAdminSession(username) {
   const issuedAt = Date.now();
   const maxAgeMs = config.admin.sessionMaxAgeSeconds * 1000;
@@ -106,9 +155,12 @@ function serializeCookie(name, value, options = {}) {
 }
 
 module.exports = {
+  adminLoginThrottle,
   clearAdminSessionCookie,
   getAdminSession,
+  getClientKey,
   isAdminAuthenticated,
+  LoginThrottle,
   requireAdmin,
   setAdminSessionCookie,
   verifyAdminCredentials

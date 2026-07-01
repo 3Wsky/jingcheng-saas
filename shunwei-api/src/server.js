@@ -117,6 +117,17 @@ async function buildServer() {
     done(null, body);
   });
 
+  // 基础安全响应头（全局，风险极低）：
+  // - nosniff 防浏览器按内容嗅探而无视上传接口声明的 Content-Type（配合图片上传的 MIME 白名单）
+  // - X-Frame-Options 防 /admin 登录页等被第三方站点 iframe 嵌套做点击劫持
+  // - Referrer-Policy 减少跨站跳转时 URL 信息泄露
+  // 不加 CSP：/admin 页面大量内联 <script>，盲上严格 CSP 极易在未充分回归下打挂后台，留作后续专项处理。
+  app.addHook('onSend', async (request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'SAMEORIGIN');
+    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+  });
+
   app.decorateRequest('auth', null);
   app.addHook('preHandler', async (request) => {
     const rawAuth = request.headers['authori-zation'] || request.headers.authorization || '';

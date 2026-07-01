@@ -84,6 +84,18 @@ function validateConfig(currentConfig) {
   if (currentConfig.admin.password.length < 10) {
     throw new Error('ADMIN_PASSWORD must be at least 10 characters in production');
   }
+
+  // SHUNWEI_INTERNAL_TOKEN 保护 /api/internal/membership/pay-callback 这类会直接发放会员+积分的
+  // 服务间回调。不在此处 throw（避免线上若历史上确实未配置、一改就把启动打挂），
+  // 但必须响亮地警告：默认值/未设置等于任何人都能猜到密钥，会被拿来白领会员权益。
+  // claim-gift 目前已加真实订单校验兜底，这里仍应尽快在生产 .env 配置一个随机值并与 CRMEB 侧同步。
+  if (!process.env.SHUNWEI_INTERNAL_TOKEN || currentConfig.internal.token === 'local-dev-internal-token') {
+    // eslint-disable-next-line no-console
+    console.warn(
+      '[security][WARN] SHUNWEI_INTERNAL_TOKEN 未设置或仍为文档默认值 "local-dev-internal-token"。' +
+      '请在生产 .env 设置一个随机长字符串，并同步更新 CRMEB 侧 .env 的同名变量，否则 /api/internal/* 回调鉴权形同虚设。'
+    );
+  }
 }
 
 module.exports = { config };

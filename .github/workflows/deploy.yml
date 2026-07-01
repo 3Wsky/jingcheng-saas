@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+# 默认最小权限：这个工作流只用 SSH+密钥部署，不调用 GitHub API/GITHUB_TOKEN，
+# 显式收窄避免默认的宽松权限成为供应链风险的放大面。
+permissions:
+  contents: read
+
 concurrency:
   group: jingcheng-saas-production
   cancel-in-progress: true

@@ -4,9 +4,13 @@ const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { requireAdmin } = require('../admin/admin.auth');
 const { MembershipService } = require('./membership.service');
 
+// 公开接口只允许 wechat_pay 渠道自助领取（且服务层会用真实已支付订单核验金额倒推档位，
+// 不采信这里的 tierCode/memberShipId）；admin/offline_approval 是特权渠道，只能走各自的
+// 后台鉴权入口（/api/admin/membership/grant、审批发放流程）在服务端直接指定 channel，
+// 绝不能作为客户端可选值出现在这个公开 schema 里，否则等于把「白领会员+积分」的路又开一遍。
 const claimGiftSchema = z.object({
-  tierCode: z.enum(['SW199', 'SW299', 'tier_199', 'tier_299']),
-  channel: z.enum(['wechat_pay', 'offline_approval', 'admin']),
+  tierCode: z.enum(['SW199', 'SW299', 'tier_199', 'tier_299']).optional(),
+  channel: z.literal('wechat_pay'),
   refId: z.string().trim().min(1).max(64),
   memberShipId: z.coerce.number().int().positive().optional()
 });

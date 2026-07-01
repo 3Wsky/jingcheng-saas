@@ -106,6 +106,7 @@ class MembershipRepository {
     `);
 
     await this.ensureShipMapColumns(pool);
+    await this.ensureUserMembershipSourceUnique(pool);
 
     const now = Math.floor(Date.now() / 1000);
     const defaults = [
@@ -146,6 +147,42 @@ class MembershipRepository {
     if (adds.length) {
       await pool.query(`ALTER TABLE ${swTable('membership_ship_map')} ${adds.join(', ')}`);
     }
+  }
+
+  /**
+   * 为 sw_user_membership 补建 (source_channel, source_ref) 唯一键，堵住"先查后插"的并发重复发放窗口。
+   * 幂等：已存在(ER_DUP_KEYNAME)跳过；历史数据已有重复(ER_DUP_ENTRY)则跳过不阻塞启动
+   * （原表定义里的非唯一 idx_source 仍在，应用层的先查重逻辑继续兜底）。
+   */
+  async ensureUserMembershipSourceUnique(pool) {
+    try {
+      await pool.query(
+        `ALTER TABLE ${swTable('user_membership')} ADD UNIQUE KEY uk_source (source_channel, source_ref)`
+      );
+    } catch (e) {
+      const code = e && e.code;
+      if (code !== 'ER_DUP_KEYNAME' && code !== 'ER_DUP_ENTRY') throw e;
+    }
+  }
+
+  /**
+   * 校验微信购卡的真实已支付订单（防止绕过支付直接调 claim-gift 白领会员+积分）。
+   * 仅认 CRMEB eb_other_order 里 type=1（会员购买）且 paid=1、未删除、uid 匹配的订单，
+   * 档位由实付金额倒推，不信任调用方传入的 tierCode/memberShipId。
+   */
+  async getPaidOrderByOrderId(orderId) {
+    const ref = String(orderId || '').trim();
+    if (!ref) return null;
+    const [rows] = await getPool().query(
+      `
+      SELECT id, uid, pay_price, order_id
+      FROM ${legacyTable('other_order')}
+      WHERE order_id = ? AND type = 1 AND COALESCE(paid, 0) = 1 AND COALESCE(is_del, 0) = 0
+      LIMIT 1
+      `,
+      [ref]
+    );
+    return rows[0] || null;
   }
 
   async getAllConfig() {

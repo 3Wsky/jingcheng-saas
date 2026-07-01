@@ -159,7 +159,7 @@
           </div>
           <div class="detail-preview-col">
             <div class="detail-label">手机预览</div>
-            <div class="detail-preview" v-html="form.description || '<p style=color:#999>暂无内容</p>'" />
+            <div class="detail-preview" v-html="safeDescriptionHtml" />
           </div>
         </div>
       </div>
@@ -181,6 +181,7 @@ import { useRoute, useRouter } from 'vue-router'
 import request from '@/utils/request'
 import { ElMessage } from 'element-plus'
 import { ArrowLeft, Goods } from '@element-plus/icons-vue'
+import DOMPurify from 'dompurify'
 import ShowcaseProductSelectDialog from '@/components/ShowcaseProductSelectDialog.vue'
 import ImageUrlInput from '@/components/ImageUrlInput.vue'
 import ImageListInput from '@/components/ImageListInput.vue'
@@ -208,6 +209,13 @@ const aiGenerating = ref(false)
 const aiConfigured = ref(true)
 const aiDone = ref(false)
 const aiDetailPreview = ref<string[]>([])
+
+// 详情预览用 v-html 直出，而 description 可能来自"从展示商品导入"（CRMEB/官网采集/CSV 等外部数据源），
+// 不能假设内容可信——先过 DOMPurify 净化，避免被投毒的商品详情在管理员会话里跑出 XSS。
+const safeDescriptionHtml = computed(() => {
+  const raw = form.value.description || '<p style="color:#999">暂无内容</p>'
+  return DOMPurify.sanitize(raw)
+})
 
 const createModeHint = computed(() => {
   if (createMode.value === 'ai') return '上传门店实拍照片，AI 自动生成纯白底电商主图与竖版详情长图，并按店内售价×倍率换算积分价，一步生成积分礼品。'

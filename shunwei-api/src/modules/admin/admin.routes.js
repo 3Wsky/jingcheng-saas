@@ -3,8 +3,10 @@ const { ok, fail } = require('../../shared/http');
 const { NewcomerLotteryRepository } = require('../newcomer-lottery/newcomer-lottery.repository');
 const { NewcomerLotteryService } = require('../newcomer-lottery/newcomer-lottery.service');
 const {
+  adminLoginThrottle,
   clearAdminSessionCookie,
   getAdminSession,
+  getClientKey,
   requireAdmin,
   setAdminSessionCookie,
   verifyAdminCredentials
@@ -74,12 +76,23 @@ function registerAdminRoutes(app) {
   });
 
   app.post('/admin/login', async (request, reply) => {
+    const clientKey = getClientKey(request);
+    const lockState = adminLoginThrottle.check(clientKey);
+    if (lockState.locked) {
+      reply.header('Retry-After', String(lockState.retryAfterSeconds));
+      return reply.type('text/html; charset=utf-8').code(429).send(
+        renderAdminLoginPage(`登录尝试过多，请 ${Math.ceil(lockState.retryAfterSeconds / 60)} 分钟后再试`)
+      );
+    }
+
     const body = parseFormBody(request.body);
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success || !verifyAdminCredentials(parsed.data.username, parsed.data.password)) {
+      adminLoginThrottle.recordFailure(clientKey);
       return reply.type('text/html; charset=utf-8').code(401).send(renderAdminLoginPage('账号或密码错误'));
     }
 
+    adminLoginThrottle.recordSuccess(clientKey);
     setAdminSessionCookie(reply, parsed.data.username);
     return reply.redirect('/admin');
   });
@@ -515,7 +528,13 @@ function registerAdminManagementRoutes(app) {
 
   const changePasswordSchema = z.object({
     currentPassword: z.string().min(1),
-    newPassword: z.string().min(8).max(64)
+    // 禁止换行/回车/NUL：newPassword 会被直接写进 .env 文本文件，
+    // 若放行换行符，攻击者（哪怕已通过 requireAdmin）可借密码字段注入额外的 KEY=VALUE 行，
+    // 篡改其它环境变量并在下次进程重启后生效（.env 注入）。
+    newPassword: z.string().min(8).max(64).refine(
+      (v) => !/[\r\n\0]/.test(v),
+      { message: '新密码不能包含换行符' }
+    )
   });
 
   app.put('/api/admin/account/password', async (request, reply) => {

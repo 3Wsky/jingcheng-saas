@@ -6,6 +6,22 @@ const {
   recogniseSnFromImage
 } = require('./sn-vision.service');
 const { getMiniappStatus, probeAccessToken } = require('../wechat/wechat-mp.service');
+const { StaffService } = require('../staff/staff.service');
+
+const staffService = new StaffService();
+
+// 这几个接口路径都是 /api/staff/...，但此前只校验了"已登录"，没有像其余 staff 接口
+// 一样校验 is_staff=1——任何普通会员登录后也能调用，白嫖 OCR/AI 识别配额、写入绑定记录。
+// 统一在这里补上店员身份校验，非店员返回 403，不再往下执行。
+async function assertStaffOrFail(uid, reply) {
+  try {
+    await staffService.assertStaff(uid);
+    return true;
+  } catch (error) {
+    fail(reply, error.statusCode || 403, '仅店员可使用该功能');
+    return false;
+  }
+}
 
 // SN 码绑定记录表（admin-r7 迁移）。生产若未手动执行该迁移，
 // 绑定/查询接口一调用就会 Table doesn't exist 报错。这里在运行时幂等建表，
@@ -35,6 +51,7 @@ async function ensureSnBindingTable() {
 function registerSnScanRoutes(app) {
   app.get('/api/staff/scan-sn/status', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    if (!(await assertStaffOrFail(request.auth.uid, reply))) return;
     const caps = await getRecognitionCapabilities();
     const wechat = await getMiniappStatus();
     const tokenProbe = await probeAccessToken();
@@ -56,6 +73,7 @@ function registerSnScanRoutes(app) {
 
   app.post('/api/staff/scan-sn', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    if (!(await assertStaffOrFail(request.auth.uid, reply))) return;
 
     let imageBuffer;
     let imageMime;
@@ -82,6 +100,7 @@ function registerSnScanRoutes(app) {
 
   app.post('/api/staff/sn-binding', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    if (!(await assertStaffOrFail(request.auth.uid, reply))) return;
     const body = request.body || {};
     const snCode = String(body.snCode || '').trim();
     const orderId = String(body.orderId || '').trim();
@@ -114,6 +133,7 @@ function registerSnScanRoutes(app) {
 
   app.get('/api/staff/sn-bindings', async (request, reply) => {
     if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    if (!(await assertStaffOrFail(request.auth.uid, reply))) return;
     const page = Math.max(1, Number(request.query.page || 1));
     const limit = Math.min(50, Math.max(1, Number(request.query.limit || 20)));
     const offset = (page - 1) * limit;
