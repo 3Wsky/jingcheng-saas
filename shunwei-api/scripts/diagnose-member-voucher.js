@@ -8,9 +8,11 @@
  * 它对每个 uid 打印：
  *   1) 审批单(sw_approval_request)：消费金额 / 匹配档位 / 匹配现金券额 / 匹配积分 / 状态 / 时间
  *      —— matched_voucher_amount 是审批"当时"冻结下来的券额，=0 就永远不发券
- *   2) 实际现金券批次(sw_cash_voucher_batch)：来源(approval_grant/manual) / 金额 / 时间
+ *   2) 实际现金券批次(sw_cash_voucher_batch)：来源(approval_grant/manual) / 总额 / 余额 / 状态
+ *  2b) 现金券流水(sw_cash_voucher_ledger)：direction=1发放 / 0核销——【核销就是"消费记录"】
+ *      含核销商户、操作人、时间；这解释"余额为0却看不到消费记录"（旧版没打这张表）
  *   3) 积分赠送流水(sw_integral_batch，若表存在)
- *   4) 逐单裁决：这一单该发多少券、实际发了没、原因
+ *   4) 逐单裁决：券发了没 / 是否已核销消费光 / 原因
  *
  * 另外全局打印一次：
  *   A) 当前档位规则表 sw_tier_rule（现在每档送多少券）
@@ -180,10 +182,50 @@ async function diagnoseUid(conn, dbName, uid, prefix) {
   }
   for (const b of batches) {
     const st = Number(b.status) === 1 ? '有效' : Number(b.status) === 0 ? '耗尽' : '过期';
+    const usedFlag = Number(b.remain_amount) < Number(b.total_amount)
+      ? `  ⬅️ 已核销¥${round2(Number(b.total_amount) - Number(b.remain_amount))}`
+      : '';
     console.log(
       `批次#${b.id} | ${fmtTime(b.created_at)} | 来源=${b.source_type}(${b.source_id}) | ` +
-      `总额¥${round2(b.total_amount)} 余额¥${round2(b.remain_amount)} | ${st}`
+      `总额¥${round2(b.total_amount)} 余额¥${round2(b.remain_amount)} | ${st}${usedFlag}`
     );
+  }
+
+  // 2.5) 现金券【核销/使用流水】—— 这就是"消费记录"！余额=0 却看不到消费，就是因为之前没打印这张表
+  console.log('\n--- ②b 现金券流水 sw_cash_voucher_ledger（direction=1发放 / 0核销，核销即"消费记录"）---');
+  const hasMerchant = await tableExists(conn, dbName, SW('merchant'));
+  const [ledgers] = await conn.query(
+    hasMerchant
+      ? `SELECT l.id, l.direction, l.amount, l.batch_id, l.merchant_id, l.operator_uid,
+                l.biz_id, l.remark, l.created_at, m.merchant_name
+         FROM ${SW('cash_voucher_ledger')} l
+         LEFT JOIN ${SW('merchant')} m ON m.id = l.merchant_id
+         WHERE l.uid = ? ORDER BY l.id ASC`
+      : `SELECT l.id, l.direction, l.amount, l.batch_id, l.merchant_id, l.operator_uid,
+                l.biz_id, l.remark, l.created_at, NULL AS merchant_name
+         FROM ${SW('cash_voucher_ledger')} l
+         WHERE l.uid = ? ORDER BY l.id ASC`,
+    [uid]
+  );
+  if (!ledgers.length) {
+    console.log('（无任何现金券流水）');
+  }
+  let usedSum = 0;
+  let grantSum = 0;
+  for (const l of ledgers) {
+    const isUse = Number(l.direction) === 0;
+    if (isUse) usedSum = round2(usedSum + Number(l.amount));
+    else grantSum = round2(grantSum + Number(l.amount));
+    const dirLabel = isUse ? '🟥核销(消费)' : '🟩发放';
+    const who = isUse
+      ? `商户=${l.merchant_name || ('#' + l.merchant_id)} | 操作人uid=${l.operator_uid}`
+      : '（系统发放）';
+    console.log(
+      `#${l.id} | ${fmtTime(l.created_at)} | ${dirLabel} ¥${round2(l.amount)} | 批次#${l.batch_id} | ${who} | 单号=${l.biz_id} | ${l.remark || ''}`
+    );
+  }
+  if (ledgers.length) {
+    console.log(`  └─ 汇总：累计发放¥${grantSum} / 累计核销(消费)¥${usedSum} / 当前应余¥${round2(grantSum - usedSum)}`);
   }
 
   // 3) 积分赠送流水（表名兼容）
@@ -212,6 +254,7 @@ async function diagnoseUid(conn, dbName, uid, prefix) {
   const approved = reqs.filter((r) => r.status === 'approved');
   const grantBatches = batches.filter((b) => b.source_type === 'approval_grant');
   const isLegacy = memberships.some((m) => m.source_channel === 'legacy_import');
+  const totalRemain = round2(batches.reduce((s, b) => s + Number(b.remain_amount || 0), 0));
   if (!reqs.length && isLegacy) {
     console.log('结论：🟦 该会员是「历史回填(legacy_import)」——即本系统上线前就在 CRMEB 买过199/299的老会员。');
     console.log('     回填只迁移了「历史积分」和「会员档位」，==现金券是新功能、老会员本就没有==；');
@@ -224,8 +267,14 @@ async function diagnoseUid(conn, dbName, uid, prefix) {
     console.log('     → 属"配置/数据"问题：需 (1) 把档位规则券额改对；(2) 对这些历史单回填补发现金券。');
   } else if (approved.some((r) => Number(r.matched_voucher_amount) > 0) && grantBatches.length === 0) {
     console.log('结论：⚠️ 审批单记了应发券额 > 0，但没有对应的 approval_grant 现金券批次 → 疑似发放中断/异常，需重点排查这几单。');
+  } else if (grantBatches.length && usedSum > 0 && totalRemain <= 0.001) {
+    console.log(`结论：✅ 券已按审批足额发放，且【已被核销消费光】——累计核销¥${usedSum}，当前余额¥0。`);
+    console.log('     ==这不是漏发，就是"消费记录"==：核销明细见上面 ②b 现金券流水里 direction=0(🟥核销) 的行（含商户/操作人/时间）。');
+    console.log('     之所以你之前"看不到消费记录"，是因为旧版脚本只打了批次表(②)没打流水表(②b)。');
+  } else if (grantBatches.length && usedSum > 0) {
+    console.log(`结论：✅ 券已发放，且【部分已核销消费】——累计核销¥${usedSum}，当前仍余¥${totalRemain}。核销明细见 ②b(🟥核销行)。`);
   } else if (grantBatches.length) {
-    console.log('结论：✅ 有 approval_grant 现金券批次，券已按审批发放（若钱包显示 0，多半是已被核销，看②里余额与来源）。');
+    console.log(`结论：✅ 有 approval_grant 现金券批次，券已按审批发放，且【从未核销】，当前余额¥${totalRemain}（钱包应能看到这笔券）。`);
   } else {
     console.log('结论：审批单存在但未到"approved"，尚未走到发放环节（看①里的状态）。');
   }
@@ -261,9 +310,9 @@ async function main() {
 
     console.log('\n\n==================== 汇总提示 ====================');
     console.log('把以上完整输出发回，即可确认：');
-    console.log('  · "有券"的人（如1839/1840）审批单 matched_voucher_amount 是否>0、批次是否 approval_grant；');
-    console.log('  · "没券"的人（如1841/1843/1855/1858）是券额=0，还是发放中断；');
-    console.log('  · 结合 B 段审计，判断是不是某个时间点把档位券额改成了 0（配置漂移）。');
+    console.log('  · "有券"的人（如1839/1840）批次余额>0、②b 流水里无🟥核销 → 券还在；');
+    console.log('  · "没券"的人（如1841/1843/1855/1858）看 ②b 流水：若有🟥核销行 → 券是被消费光的（含商户/时间），==这就是"消费记录"，不是漏发==；');
+    console.log('  · 若 ②b 没有任何🟥核销行、余额却为0 → 才是真异常，需排查。');
   } finally {
     await conn.end();
   }
