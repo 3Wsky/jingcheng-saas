@@ -1,6 +1,117 @@
 const { ok, fail } = require('../../shared/http');
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
+const { SnCatalogService } = require('./sn-catalog.service');
+const { ApprovalCodeUsageService } = require('../approval/approval-code-usage.service');
+
+const PRODUCT_TYPES = ['手机', '平板', '电脑', '智能穿戴'];
+
+/**
+ * 把审批收据串解析为结构化产品数组（供超管终审逐条核对）。
+ * 收据形如：`[产品1] 手机/型号/¥价格/IMEI:xxx; [产品2] 智能穿戴/型号/¥价/SN:yyy`
+ * 返回 [{ index, type, model, price, imei, sn, codeType, code }]。
+ */
+function parseReceiptProducts(receiptNo) {
+  const s = String(receiptNo || '').trim();
+  if (!s || s.indexOf('[产品') < 0) return [];
+  const parts = s.split(/;\s*(?=\[产品)/);
+  const items = [];
+  parts.forEach((part) => {
+    const m = part.match(/^\[产品(\d+)\]\s*(.*)$/);
+    if (!m) return;
+    const idx = Number(m[1]) || items.length + 1;
+    const segments = String(m[2]).split('/');
+    const item = { index: idx, type: '其他', model: '', price: '', imei: '', sn: '', codeType: '', code: '' };
+    segments.forEach((segRaw) => {
+      const seg = String(segRaw).trim();
+      if (!seg) return;
+      if (PRODUCT_TYPES.indexOf(seg) >= 0) {
+        item.type = seg;
+      } else if (seg.indexOf('¥') === 0 || seg.indexOf('￥') === 0) {
+        item.price = seg;
+      } else if (/^IMEI\s*\d?\s*[:：]/i.test(seg)) {
+        item.imei = seg.replace(/^IMEI\s*\d?\s*[:：]\s*/i, '').trim();
+        item.codeType = 'imei1';
+        item.code = item.imei;
+      } else if (/^SN\s*[:：]/i.test(seg)) {
+        item.sn = seg.replace(/^SN\s*[:：]\s*/i, '').trim();
+        item.codeType = 'sn';
+        item.code = item.sn;
+      } else {
+        item.model = seg;
+      }
+    });
+    items.push(item);
+  });
+  return items;
+}
+
+/**
+ * 给一批审批单补全「产品结构化 + 每件码命中/已用状态 + 店长审批步骤」。
+ * 只做只读增强，不改任何审批状态。返回 { productsByReq, managerStepByReq, usedByReq }。
+ */
+async function enrichApprovals(rows) {
+  const catalog = new SnCatalogService();
+  const codeUsage = new ApprovalCodeUsageService();
+  const productsByReq = {};
+  const managerStepByReq = {};
+
+  const requestIds = rows.map((r) => Number(r.requestId ?? r.id)).filter(Boolean);
+
+  // 1) 店长审批步骤（谁/何时/备注）
+  if (requestIds.length) {
+    try {
+      const [steps] = await getPool().query(
+        `SELECT s.request_id, s.step_role, s.action, s.comment, s.created_at, s.operator_uid,
+                u.nickname AS operator_nickname
+         FROM ${swTable('approval_step')} s
+         LEFT JOIN ${legacyTable('user')} u ON u.uid = s.operator_uid
+         WHERE s.request_id IN (?) AND s.step_role = 'manager'
+         ORDER BY s.id ASC`,
+        [requestIds]
+      );
+      for (const st of steps) {
+        const rid = Number(st.request_id);
+        // 保留最后一条 manager 步骤（通常就是初审通过那条）
+        managerStepByReq[rid] = {
+          action: st.action || '',
+          comment: st.comment || '',
+          operatorUid: Number(st.operator_uid || 0),
+          operatorName: st.operator_nickname || '',
+          at: Number(st.created_at || 0)
+        };
+      }
+    } catch { /* 步骤缺失不影响主流程 */ }
+  }
+
+  // 2) 每单产品结构化 + 每件码命中/已用
+  for (const r of rows) {
+    const rid = Number(r.requestId ?? r.id);
+    const receiptNo = r.receiptNo ?? r.receipt_no ?? '';
+    const products = parseReceiptProducts(receiptNo);
+    for (const p of products) {
+      if (!p.code) { p.matched = null; p.used = null; continue; }
+      try {
+        const hit = p.codeType === 'imei1'
+          ? await catalog.lookupByCode({ imei: p.code })
+          : await catalog.lookupByCode({ sn: p.code });
+        p.matched = !!(hit && hit.found);
+        p.catalogModel = (hit && hit.model) || '';
+      } catch { p.matched = null; }
+      try {
+        const u = p.codeType === 'imei1'
+          ? await codeUsage.checkSingle({ imei: p.code })
+          : await codeUsage.checkSingle({ sn: p.code });
+        // 已被「其它单」用过才算重复（排除自己这单）
+        p.used = !!(u && u.used && Number(u.requestId) !== rid);
+        p.usedByRequestId = p.used ? Number(u.requestId) : 0;
+      } catch { p.used = null; }
+    }
+    productsByReq[rid] = products;
+  }
+
+  return { productsByReq, managerStepByReq };
+}
 
 async function getSuperAdminUids() {
   try {
@@ -32,8 +143,8 @@ function registerSuperuserRoutes(app) {
     try {
       const pool = getPool();
       const [rows] = await pool.query(
-        `SELECT r.id AS requestId, r.customer_uid, r.staff_uid, r.consumption_amount,
-                r.matched_tier_code, r.matched_integral, r.matched_voucher_amount,
+        `SELECT r.id AS requestId, r.request_no, r.customer_uid, r.staff_uid, r.division_id,
+                r.consumption_amount, r.matched_tier_code, r.matched_integral, r.matched_voucher_amount,
                 r.receipt_no, r.status, r.created_at
          FROM ${swTable('approval_request')} r
          WHERE r.status = 'admin_review'
@@ -41,31 +152,77 @@ function registerSuperuserRoutes(app) {
          LIMIT 50`
       );
 
+      // 收集会员/店员/客户经理(归属)相关 uid，一次查全（昵称+手机号+归属）
       const uids = new Set();
-      rows.forEach(r => { uids.add(Number(r.customer_uid)); uids.add(Number(r.staff_uid)); });
-      const nameMap = {};
+      rows.forEach((r) => { uids.add(Number(r.customer_uid)); uids.add(Number(r.staff_uid)); });
+      const userMap = {};
       if (uids.size > 0) {
         const [users] = await pool.query(
-          `SELECT uid, nickname FROM ${legacyTable('user')} WHERE uid IN (?)`,
+          `SELECT uid, nickname, phone, spread_uid FROM ${legacyTable('user')} WHERE uid IN (?)`,
           [Array.from(uids)]
         );
-        users.forEach(u => { nameMap[u.uid] = u.nickname || ''; });
+        users.forEach((u) => {
+          userMap[u.uid] = { nickname: u.nickname || '', phone: u.phone || '', spreadUid: Number(u.spread_uid || 0) };
+        });
+      }
+      // 客户经理(会员归属人)昵称：补查一轮 spread_uid
+      const spreadUids = new Set();
+      rows.forEach((r) => {
+        const su = userMap[r.customer_uid] && userMap[r.customer_uid].spreadUid;
+        if (su) spreadUids.add(su);
+      });
+      const spreadNameMap = {};
+      if (spreadUids.size > 0) {
+        const [sps] = await pool.query(
+          `SELECT uid, nickname FROM ${legacyTable('user')} WHERE uid IN (?)`,
+          [Array.from(spreadUids)]
+        );
+        sps.forEach((u) => { spreadNameMap[u.uid] = u.nickname || ''; });
+      }
+      // 门店名：按 division_id 批量取
+      const divisionIds = [...new Set(rows.map((r) => Number(r.division_id || 0)).filter(Boolean))];
+      const storeNameMap = {};
+      if (divisionIds.length) {
+        try {
+          const [stores] = await pool.query(
+            `SELECT id, name FROM ${legacyTable('system_store')} WHERE id IN (?)`,
+            [divisionIds]
+          );
+          stores.forEach((s) => { storeNameMap[Number(s.id)] = s.name || ''; });
+        } catch { /* 门店表异常不阻断 */ }
       }
 
-      return ok(rows.map(r => ({
-        requestId: r.requestId,
-        customerUid: r.customer_uid,
-        customerName: nameMap[r.customer_uid] || '',
-        clerkUid: r.staff_uid,
-        clerkName: nameMap[r.staff_uid] || '',
-        consumeAmount: Number(r.consumption_amount || 0),
-        matchedTierCode: r.matched_tier_code,
-        matchedIntegral: Number(r.matched_integral || 0),
-        matchedVoucher: Number(r.matched_voucher_amount || 0),
-        receiptNo: r.receipt_no || '',
-        status: r.status,
-        createdAt: Number(r.created_at || 0)
-      })));
+      const { productsByReq, managerStepByReq } = await enrichApprovals(rows);
+
+      return ok(rows.map((r) => {
+        const cust = userMap[r.customer_uid] || {};
+        const clerk = userMap[r.staff_uid] || {};
+        const divId = Number(r.division_id || 0);
+        const spreadUid = Number(cust.spreadUid || 0);
+        return {
+          requestId: r.requestId,
+          requestNo: r.request_no || '',
+          customerUid: r.customer_uid,
+          customerName: cust.nickname || '',
+          customerPhone: cust.phone || '',
+          clerkUid: r.staff_uid,
+          clerkName: clerk.nickname || '',
+          clerkPhone: clerk.phone || '',
+          spreadUid,
+          spreadName: spreadUid ? (spreadNameMap[spreadUid] || '') : '',
+          divisionId: divId,
+          storeName: divId ? (storeNameMap[divId] || ('门店#' + divId)) : '',
+          consumeAmount: Number(r.consumption_amount || 0),
+          matchedTierCode: r.matched_tier_code,
+          matchedIntegral: Number(r.matched_integral || 0),
+          matchedVoucher: Number(r.matched_voucher_amount || 0),
+          receiptNo: r.receipt_no || '',
+          products: productsByReq[Number(r.requestId)] || [],
+          managerStep: managerStepByReq[Number(r.requestId)] || null,
+          status: r.status,
+          createdAt: Number(r.created_at || 0)
+        };
+      }));
     } catch (error) {
       return fail(reply, 500, error.message || '获取待审列表失败');
     }
@@ -190,4 +347,4 @@ function registerSuperuserRoutes(app) {
   });
 }
 
-module.exports = { registerSuperuserRoutes };
+module.exports = { registerSuperuserRoutes, parseReceiptProducts, enrichApprovals };
