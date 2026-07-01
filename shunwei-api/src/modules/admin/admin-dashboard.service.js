@@ -27,24 +27,39 @@ class AdminDashboardService {
       `SELECT COUNT(*) AS cnt FROM ${legacyTable('user')} WHERE COALESCE(is_del, 0) = 0`
     );
 
+    // 今日核销笔数（固定当天，供导出/兼容用）
     let verifyToday = 0;
+    // 本期核销笔数（随 today/7d/30d 变化，供看板核销卡片用）
+    let verifyInPeriod = 0;
     try {
-      const [[v1]] = await pool.query(
+      const [[v1today]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
          WHERE created_at >= ?`,
         [bounds.cardStart]
       );
-      verifyToday += Number(v1?.cnt || 0);
+      verifyToday += Number(v1today?.cnt || 0);
+      const [[v1period]] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
+         WHERE created_at >= ?`,
+        [bounds.dayStart]
+      );
+      verifyInPeriod += Number(v1period?.cnt || 0);
     } catch { /* table may not exist */ }
 
     try {
       // 仅统计真实核销：merchant_id > 0（排除超管回收/撤销，那类 direction=0 但 merchant_id=0）
-      const [[v2]] = await pool.query(
+      const [[v2today]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
          WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
         [bounds.cardStart]
       );
-      verifyToday += Number(v2?.cnt || 0);
+      verifyToday += Number(v2today?.cnt || 0);
+      const [[v2period]] = await pool.query(
+        `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
+        [bounds.dayStart]
+      );
+      verifyInPeriod += Number(v2period?.cnt || 0);
     } catch { /* ignore */ }
 
     // 已核销金额（现金券核销 direction=0 且 merchant_id>0 的金额合计，排除超管回收）：累计 + 本期
@@ -146,6 +161,7 @@ class AdminDashboardService {
       cards: {
         memberTotal: Number(memberRow?.cnt || 0),
         verifyToday,
+        verifyInPeriod,
         verifyAmountTotal,
         verifyAmountInPeriod,
         pendingSettlement,

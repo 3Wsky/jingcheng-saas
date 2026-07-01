@@ -89,6 +89,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import request from '@/utils/request'
 import PageShell from '@/components/PageShell.vue'
 import UidLink from '@/components/UidLink.vue'
@@ -99,6 +100,7 @@ import { fmtUnixTime, fmtMoney } from '@/utils/format'
 import { lastNDaysRange, dateRangeToUnix, monthRange } from '@/utils/dateDefaults'
 import { downloadCsv } from '@/utils/csvExport'
 
+const route = useRoute()
 const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
 const loading = ref(false)
 const list = ref<any[]>([])
@@ -110,7 +112,30 @@ const month = ref('')
 const exporting = ref(false)
 const filters = ref<{ uid?: number; direction?: number; keyword: string }>({ keyword: '' })
 
-onMounted(() => load())
+// 支持从看板卡片带参跳转：?direction=0(核销)/1(发放) & range=today/7d/30d（或 startAt/endAt）
+function applyQuery() {
+  const q = route.query
+  if (q.direction !== undefined && q.direction !== '') {
+    const d = Number(q.direction)
+    if (d === 0 || d === 1) filters.value.direction = d
+  }
+  const rangeMap: Record<string, number> = { today: 1, '7d': 7, '30d': 30 }
+  if (typeof q.range === 'string' && rangeMap[q.range]) {
+    dateRange.value = lastNDaysRange(rangeMap[q.range])
+    month.value = ''
+  } else if (q.startAt && q.endAt) {
+    const s = new Date(Number(q.startAt) * 1000)
+    const e = new Date(Number(q.endAt) * 1000)
+    const fmt = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+    dateRange.value = [fmt(s), fmt(e)]
+    month.value = ''
+  }
+}
+
+onMounted(() => {
+  applyQuery()
+  load()
+})
 
 function onMonthPick(m: string) {
   if (m) {
