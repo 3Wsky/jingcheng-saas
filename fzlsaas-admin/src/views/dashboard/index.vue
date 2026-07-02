@@ -29,16 +29,8 @@
     </template>
 
     <el-row :gutter="16" v-loading="loading" class="stat-row">
-      <el-col
-        v-for="card in statCards"
-        :key="card.key"
-        :xs="24" :sm="12" :md="8"
-        :class="{ 'stat-col-spacer': card.spacer }"
-      >
-        <!-- 占位空卡：仅在 md(3列) 占位对齐“发放/核销”上下同列，小屏(xs/sm)隐藏避免留白 -->
-        <div v-if="card.spacer" class="stat-spacer" aria-hidden="true"></div>
+      <el-col :xs="24" :sm="12" :md="8" v-for="card in statCards" :key="card.key">
         <StatCard
-          v-else
           :type="card.type"
           :icon="card.icon"
           :title="card.title"
@@ -229,43 +221,10 @@ const periodVerifyTitle = computed(() => `${periodPrefix.value}核销订单数`)
 const periodVerifyAmountTitle = computed(() => `${periodPrefix.value}核销金额`)
 
 const statCards = computed(() => [
-  // 第一行：概览
   { key: 'member', type: 'member', icon: 'User', title: '全网会员总数', value: cards.value.memberTotal },
   { key: 'newuser', type: 'newuser', icon: 'UserFilled', title: `${periodPrefix.value}新注册会员`, value: cards.value.newUsersToday, onClick: () => router.push('/members') },
-  { key: 'approval', type: 'approval', icon: 'Document', title: '待审批申请数', value: cards.value.pendingApproval, onClick: () => router.push('/approval?tab=pending') },
-  // 第二行：积分（发放 / 消耗）+ 核销笔数
   { key: 'grant', type: 'grant', icon: 'TrendCharts', title: `${periodPrefix.value}积分发放总量`, value: cards.value.integralGrantedToday },
   { key: 'consume', type: 'consume', icon: 'Minus', title: `${periodPrefix.value}积分消耗总量`, value: cards.value.integralConsumedToday },
-  {
-    key: 'verify',
-    type: 'verify',
-    icon: 'Checked',
-    title: periodVerifyTitle.value,
-    value: cards.value.verifyInPeriod ?? cards.value.verifyToday,
-    onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
-  },
-  // 第三行：时段金额对 —— 现金券发放 ↔ 核销金额（左右对齐）
-  {
-    key: 'cash-grant-period',
-    type: 'grant',
-    icon: 'Wallet',
-    title: periodGrantTitle.value,
-    value: cards.value.cashVoucherGrantedInPeriod,
-    prefix: '¥',
-    onClick: () => router.push('/finance-cash'),
-  },
-  {
-    key: 'verify-amount-period',
-    type: 'verify',
-    icon: 'Coin',
-    title: periodVerifyAmountTitle.value,
-    value: cards.value.verifyAmountInPeriod,
-    prefix: '¥',
-    onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
-  },
-  // 占位空卡：让“时段对”和“累计对”各自独占一行、上下对齐（发放列 / 核销列）
-  { key: 'spacer-1', type: 'spacer', icon: '', title: '', value: '', spacer: true },
-  // 第四行：累计金额对 —— 已发放现金券汇总 ↔ 已核销总金额（左右对齐、且与上一行同列）
   {
     key: 'cash-grant-total',
     type: 'voucher',
@@ -276,6 +235,32 @@ const statCards = computed(() => [
     onClick: () => router.push('/finance-cash'),
   },
   {
+    key: 'cash-grant-period',
+    type: 'grant',
+    icon: 'Wallet',
+    title: periodGrantTitle.value,
+    value: cards.value.cashVoucherGrantedInPeriod,
+    prefix: '¥',
+    onClick: () => router.push('/finance-cash'),
+  },
+  {
+    key: 'verify',
+    type: 'verify',
+    icon: 'Checked',
+    title: periodVerifyTitle.value,
+    value: cards.value.verifyInPeriod ?? cards.value.verifyToday,
+    onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
+  },
+  {
+    key: 'verify-amount-period',
+    type: 'grant',
+    icon: 'Coin',
+    title: periodVerifyAmountTitle.value,
+    value: cards.value.verifyAmountInPeriod,
+    prefix: '¥',
+    onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
+  },
+  {
     key: 'verify-amount-total',
     type: 'voucher',
     icon: 'GoldMedal',
@@ -283,6 +268,14 @@ const statCards = computed(() => [
     value: cards.value.verifyAmountTotal,
     prefix: '¥',
     onClick: () => router.push('/finance-cash'),
+  },
+  {
+    key: 'approval',
+    type: 'approval',
+    icon: 'Document',
+    title: '待审批申请数',
+    value: cards.value.pendingApproval,
+    onClick: () => router.push('/approval?tab=pending')
   },
 ])
 
@@ -451,20 +444,6 @@ onBeforeUnmount(() => {
 <style scoped>
 .stat-row {
   margin-bottom: 8px;
-}
-
-/* 占位空卡：撑起与真实卡片一致的高度以实现上下同列对齐（发放列/核销列） */
-.stat-spacer {
-  height: 100%;
-  min-height: 78px;
-  margin-bottom: 16px;
-}
-
-/* 小屏（<992px）隐藏占位列，避免 1/2 列布局下出现空白错位 */
-@media (max-width: 991px) {
-  .stat-col-spacer {
-    display: none;
-  }
 }
 
 .pool-section {
