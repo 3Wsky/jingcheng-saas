@@ -46,12 +46,29 @@ async function buildServer() {
     }
   });
 
-  // CORS：默认反射来源（兼容小程序 WebView 无固定 Origin + Bearer token 鉴权）。
-  // 生产可用 CORS_ORIGINS=https://a.com,https://b.com 显式收窄为白名单，更安全。
-  const corsAllowList = String(process.env.CORS_ORIGINS || '')
+  // CORS 白名单：
+  // 部署拓扑决定了「浏览器跨域」几乎不存在——后台(/fzlsaas)与 API(/sw-api) 同域(ok.xjshunwei.cn)、
+  // VITE_API_BASE=/sw-api 即同源请求；小程序 WebView 走 Bearer token，请求要么无 Origin、要么是 servicewechat.com。
+  // 因此生产默认即收窄为白名单（PUBLIC_BASE_URL 推导的站点源 + 微信），无需运维改服务器 .env：
+  //   - 显式设 CORS_ORIGINS=https://a.com,https://b.com → 完全以它为准（运维可覆盖）
+  //   - 未设 + 生产 → 用内置默认白名单（站点自身源 + 微信 servicewechat.com）
+  //   - 未设 + 开发 → 反射全部来源（本地联调方便）
+  // 三种情况都放行「无 Origin」（小程序 / 同源 / 服务端调用），确保不误伤。
+  const explicitOrigins = String(process.env.CORS_ORIGINS || '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+  let siteOrigin = '';
+  try {
+    if (config.publicBaseUrl) siteOrigin = new URL(config.publicBaseUrl).origin;
+  } catch { /* PUBLIC_BASE_URL 非法则忽略，不影响启动 */ }
+
+  const defaultProdOrigins = [siteOrigin, 'https://servicewechat.com'].filter(Boolean);
+  const corsAllowList = explicitOrigins.length
+    ? explicitOrigins
+    : (config.env === 'production' ? defaultProdOrigins : []);
+
   const corsOrigin = corsAllowList.length
     ? (origin, cb) => {
         // 无 Origin（小程序/同源/服务端调用）或命中白名单 → 放行；否则拒绝
@@ -59,6 +76,10 @@ async function buildServer() {
         return cb(null, false);
       }
     : true;
+  app.log.info(
+    { corsMode: corsAllowList.length ? 'allowlist' : 'reflect', corsAllowList },
+    '[cors] initialized'
+  );
   await app.register(cors, {
     origin: corsOrigin,
     allowedHeaders: ['Content-Type', 'Authorization', 'Authori-zation', 'Cb-lang'],
