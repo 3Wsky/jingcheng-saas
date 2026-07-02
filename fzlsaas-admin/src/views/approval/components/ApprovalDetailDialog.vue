@@ -34,7 +34,10 @@
               <el-tag size="small" type="info" effect="plain">无 IMEI/SN 码</el-tag>
             </template>
             <template v-else-if="detail.codeVerify.matched">
-              <el-tag size="small" type="success">
+              <el-tag v-if="detail.codeVerify.matchedBy === 'manual'" size="small" type="success">
+                IMEI/SN 已人工核验通过
+              </el-tag>
+              <el-tag v-else size="small" type="success">
                 IMEI/SN 已核对（按 {{ detail.codeVerify.matchedBy === 'imei1' ? 'IMEI1' : 'SN' }} 命中产品库）
               </el-tag>
               <span v-if="detail.codeVerify.hit" class="code-hit">
@@ -57,8 +60,20 @@
               class="recheck-btn"
               @click="recheckCode"
             >复核</el-button>
+            <el-button
+              v-if="isSuperAdmin && detail.codeVerify.hasCode && !detail.codeVerify.matched"
+              size="small"
+              type="warning"
+              plain
+              :loading="manualVerifying"
+              @click="manualVerify"
+            >标记为人工核验通过</el-button>
           </p>
-          <p v-if="detail.codeVerify && detail.codeVerify.hasCode" class="recheck-hint">
+          <p v-if="detail.codeVerify && detail.codeVerify.manualVerified" class="manual-verify-hint">
+            🛡️ 已人工核验：{{ detail.codeVerify.manualVerifiedByName || ('超管 ' + (detail.codeVerify.manualVerifiedBy || '')) }}
+            于 {{ fmtTime(detail.codeVerify.manualVerifiedAt) }} 核实为正常交易（产品未录入产品库）
+          </p>
+          <p v-else-if="detail.codeVerify && detail.codeVerify.hasCode" class="recheck-hint">
             更新产品库后点「复核」可按最新产品库重新比对 IMEI/SN
           </p>
           <div v-if="detail.receiptImages?.length" class="receipt-images">
@@ -138,7 +153,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/utils/request'
 import ApprovalStatusTag from './ApprovalStatusTag.vue'
 import { useUserStore } from '@/store/user'
@@ -153,6 +168,7 @@ const emit = defineEmits<{ approve: [detail: any, comment: string]; reject: [det
 const router = useRouter()
 const loading = ref(false)
 const rechecking = ref(false)
+const manualVerifying = ref(false)
 const detail = ref<any>(null)
 const comment = ref('')
 
@@ -192,6 +208,30 @@ async function recheckCode() {
   }
 }
 
+// 超管人工核验：产品已售未入库、线下已核实为正常交易时使用。如实落库(谁/何时)，可追溯。
+async function manualVerify() {
+  const id = props.requestId
+  if (!id || manualVerifying.value) return
+  try {
+    await ElMessageBox.confirm(
+      '确认这台产品「已售出、确为本店正常销售的货」，仅因未录入产品库而未匹配？\n\n' +
+      '确认后将标记为「人工核验通过」，并如实记录操作人与时间（可在审批流程时间线查到）。',
+      '人工核验确认',
+      { type: 'warning', confirmButtonText: '确认已线下核实', cancelButtonText: '取消', dangerouslyUseHTMLString: false }
+    )
+  } catch { return }
+  manualVerifying.value = true
+  try {
+    await request.post(`/api/admin/approval/${id}/manual-verify-code`, {})
+    await loadDetail(Number(id))
+    ElMessage.success('已标记为人工核验通过')
+  } catch (e: any) {
+    ElMessage.error(e?.message || '人工核验失败，请稍后再试')
+  } finally {
+    manualVerifying.value = false
+  }
+}
+
 // 是否展示终审操作：显式传入 showActions 优先；否则按详情状态判定（待超管 pending_admin 可终审）
 const canAct = computed(() => props.showActions ?? detail.value?.status === 'pending_admin')
 
@@ -215,7 +255,7 @@ const timelineItems = computed(() => {
   for (const step of detail.value.steps || []) {
     const role = roleLabel[step.stepRole] || step.stepRole || '操作人'
     const time = fmtTime(step.createdAt)
-    const action = step.action === 'submit' ? '提交' : step.action === 'approve' ? '通过' : step.action === 'reject' ? '驳回' : step.action === 'revoke' ? '撤销' : step.action || '处理'
+    const action = step.action === 'submit' ? '提交' : step.action === 'approve' ? '通过' : step.action === 'reject' ? '驳回' : step.action === 'revoke' ? '撤销' : step.action === 'manual_verify_code' ? '人工核验 IMEI/SN' : step.action || '处理'
     const who = step.operatorNickname ? `${step.operatorNickname}（UID ${step.operatorUid}）` : `UID ${step.operatorUid || '—'}`
     const suffix = step.comment ? ` 「${step.comment}」` : ''
     items.push({ text: `${time}  ${role} ${who} ${action}${suffix}`, type: step.action === 'reject' ? 'danger' : 'primary' })
@@ -282,6 +322,7 @@ function emitRevoke() {
 .code-hit { font-size: 13px; color: #4B5563; }
 .recheck-btn { margin-left: 4px; }
 .recheck-hint { font-size: 12px; color: #9CA3AF; margin: 4px 0 0; }
+.manual-verify-hint { font-size: 12px; color: #00a870; margin: 4px 0 0; }
 .receipt-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .receipt-thumb {
   width: 120px;

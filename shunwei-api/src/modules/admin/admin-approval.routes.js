@@ -241,6 +241,40 @@ function registerAdminApprovalRoutes(app) {
     }
   });
 
+  // 超管人工核验 IMEI/SN：产品已售未入库、超管线下核实为正常交易时使用（如实落库、可追溯）
+  app.post('/api/admin/approval/:id/manual-verify-code', async (request, reply) => {
+    if (!requireSuperAdmin(request, reply)) return;
+    const requestId = Number(request.params.id);
+    if (!requestId) return fail(reply, 400, 'id 无效');
+
+    const session = getAdminSession(request);
+    const note = String(request.body?.note || '').trim();
+    try {
+      const result = await approvalService.manualVerifyCode(session?.uid || 0, requestId, note);
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'approval_manual_verify_code',
+        targetType: 'approval',
+        targetId: String(requestId),
+        payload: { note },
+        ip: getClientIp(request)
+      });
+      return ok(result, result.alreadyVerified ? '该单此前已人工核验' : '已标记为人工核验通过');
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'approval_manual_verify_code',
+        targetType: 'approval',
+        targetId: String(requestId),
+        resultStatus: 'failed',
+        resultMessage: error.message || '人工核验失败',
+        payload: { note },
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '人工核验失败');
+    }
+  });
+
   app.post('/api/admin/approval/:id/revoke', async (request, reply) => {
     if (!requireSuperAdmin(request, reply)) return;
     const requestId = Number(request.params.id);
