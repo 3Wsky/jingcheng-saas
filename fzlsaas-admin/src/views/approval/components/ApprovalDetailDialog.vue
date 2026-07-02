@@ -49,6 +49,17 @@
             <el-tag v-if="detail.codeVerify.reused" size="small" type="danger" effect="dark">
               ⚠️ 此码已被使用过，疑似重复申请
             </el-tag>
+            <el-button
+              v-if="detail.codeVerify.hasCode"
+              size="small"
+              icon="Refresh"
+              :loading="rechecking"
+              class="recheck-btn"
+              @click="recheckCode"
+            >复核</el-button>
+          </p>
+          <p v-if="detail.codeVerify && detail.codeVerify.hasCode" class="recheck-hint">
+            更新产品库后点「复核」可按最新产品库重新比对 IMEI/SN
           </p>
           <div v-if="detail.receiptImages?.length" class="receipt-images">
             <el-image
@@ -127,6 +138,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import request from '@/utils/request'
 import ApprovalStatusTag from './ApprovalStatusTag.vue'
 import { useUserStore } from '@/store/user'
@@ -140,8 +152,45 @@ const emit = defineEmits<{ approve: [detail: any, comment: string]; reject: [det
 
 const router = useRouter()
 const loading = ref(false)
+const rechecking = ref(false)
 const detail = ref<any>(null)
 const comment = ref('')
+
+// 拉取详情（后端每次都会重新比对 IMEI/SN 与最新产品库）
+async function loadDetail(id: number) {
+  loading.value = true
+  try {
+    detail.value = await request.get(`/api/admin/approval/${id}`)
+  } catch {
+    detail.value = null
+  } finally {
+    loading.value = false
+  }
+}
+
+// 复核：重新拉产品库比对 IMEI/SN（更新产品库后用），刷新展示并给出明确结果提示
+async function recheckCode() {
+  const id = props.requestId
+  if (!id || rechecking.value) return
+  rechecking.value = true
+  try {
+    const fresh = await request.get(`/api/admin/approval/${id}`)
+    detail.value = fresh
+    const cv = fresh?.codeVerify
+    if (!cv || !cv.hasCode) {
+      ElMessage.info('该单收据无 IMEI/SN 码，无需复核')
+    } else if (cv.matched) {
+      const by = cv.matchedBy === 'imei1' ? 'IMEI1' : 'SN'
+      ElMessage.success(`复核完成：IMEI/SN 现已命中产品库（按 ${by}）`)
+    } else {
+      ElMessage.warning('复核完成：IMEI/SN 仍未在产品库匹配到，请确认已把该 IMEI/SN 录入产品库')
+    }
+  } catch (e: any) {
+    ElMessage.error(e?.message || '复核失败，请稍后再试')
+  } finally {
+    rechecking.value = false
+  }
+}
 
 // 是否展示终审操作：显式传入 showActions 优先；否则按详情状态判定（待超管 pending_admin 可终审）
 const canAct = computed(() => props.showActions ?? detail.value?.status === 'pending_admin')
@@ -157,14 +206,7 @@ const roleLabel: Record<string, string> = {
 watch(() => [props.requestId, visible.value], async ([id, open]) => {
   if (!open || !id) return
   comment.value = ''
-  loading.value = true
-  try {
-    detail.value = await request.get(`/api/admin/approval/${id}`)
-  } catch {
-    detail.value = null
-  } finally {
-    loading.value = false
-  }
+  await loadDetail(Number(id))
 })
 
 const timelineItems = computed(() => {
@@ -238,6 +280,8 @@ function emitRevoke() {
 }
 .code-verify { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .code-hit { font-size: 13px; color: #4B5563; }
+.recheck-btn { margin-left: 4px; }
+.recheck-hint { font-size: 12px; color: #9CA3AF; margin: 4px 0 0; }
 .receipt-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .receipt-thumb {
   width: 120px;
