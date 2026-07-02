@@ -5,9 +5,16 @@ const { AdminDashboardService } = require('./admin-dashboard.service');
 const { getPool } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
+const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日期格式须为 YYYY-MM-DD');
+
 const rangeSchema = z.object({
-  range: z.enum(['today', '7d', '30d']).optional().default('today')
-});
+  range: z.enum(['today', '7d', '30d', 'yesterday', 'custom']).optional().default('today'),
+  startDate: dateStr.optional(),
+  endDate: dateStr.optional()
+}).refine(
+  (v) => v.range !== 'custom' || !!v.startDate,
+  { message: '自定义区间需提供 startDate', path: ['startDate'] }
+);
 
 const budgetSchema = z.object({
   budget: z.coerce.number().min(0).max(1000000000)
@@ -43,7 +50,10 @@ function registerAdminDashboardRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     try {
-      const data = await service.getSummary(parsed.data.range);
+      const data = await service.getSummary(parsed.data.range, {
+        startDate: parsed.data.startDate,
+        endDate: parsed.data.endDate
+      });
       data.pauseStatus = {
         grant: await isPaused('pause_grant'),
         verify: await isPaused('pause_verify')

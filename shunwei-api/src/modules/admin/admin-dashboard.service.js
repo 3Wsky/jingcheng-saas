@@ -1,25 +1,77 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
-function getRangeBounds(range) {
+const DAY = 86400;
+// 自定义区间最多回看的天数（趋势图点数上限，防止一次拉取过多）
+const MAX_CUSTOM_TREND_DAYS = 90;
+
+// 将 YYYY-MM-DD 解析为当天 0 点的秒级时间戳（本地时区）；非法返回 null
+function parseDateStartSec(dateStr) {
+  if (typeof dateStr !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr.trim());
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+  if (Number.isNaN(d.getTime())) return null;
+  if (d.getFullYear() !== Number(m[1]) || d.getMonth() !== Number(m[2]) - 1 || d.getDate() !== Number(m[3])) return null;
+  return Math.floor(d.getTime() / 1000);
+}
+
+/**
+ * 计算区间边界。返回 { range, dayStart, dayEnd, cardStart, cardEnd, trendStart, trendDays }
+ * - today/7d/30d：保持原行为——cardStart 恒为今日 0 点、上界为“现在”（即 now）；趋势按各自天数
+ * - yesterday：整段 = 昨日 0 点 ~ 今日 0 点；卡片与区间上下界一致；趋势展示近 7 日（含昨日）
+ * - custom：整段 = startDate 0 点 ~ endDate 次日 0 点；卡片与区间上下界一致；趋势覆盖整段（上限 90 天）
+ */
+function getRangeBounds(range, opts = {}) {
   const nowSec = Math.floor(Date.now() / 1000);
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayStartSec = Math.floor(todayStart.getTime() / 1000);
 
   if (range === '7d') {
-    return { range, dayStart: todayStartSec - 6 * 86400, trendDays: 7, cardStart: todayStartSec };
+    const s = todayStartSec - 6 * DAY;
+    // 趋势=近 7 日（含今日），向后迭代时起点须为 6 天前
+    return { range, dayStart: s, dayEnd: nowSec, cardStart: todayStartSec, cardEnd: nowSec, trendStart: s, trendDays: 7 };
   }
   if (range === '30d') {
-    return { range, dayStart: todayStartSec - 29 * 86400, trendDays: 30, cardStart: todayStartSec };
+    const s = todayStartSec - 29 * DAY;
+    // 趋势=近 30 日（含今日），起点须为 29 天前
+    return { range, dayStart: s, dayEnd: nowSec, cardStart: todayStartSec, cardEnd: nowSec, trendStart: s, trendDays: 30 };
   }
-  return { range: 'today', dayStart: todayStartSec, trendDays: 7, cardStart: todayStartSec };
+  if (range === 'yesterday') {
+    const yStart = todayStartSec - DAY;
+    // 趋势展示近 7 日（以昨日为最后一天）
+    const trendStart = todayStartSec - 7 * DAY;
+    return { range: 'yesterday', dayStart: yStart, dayEnd: todayStartSec, cardStart: yStart, cardEnd: todayStartSec, trendStart, trendDays: 7 };
+  }
+  if (range === 'custom') {
+    const startSec = parseDateStartSec(opts.startDate);
+    let endStartSec = parseDateStartSec(opts.endDate);
+    if (startSec == null) return null; // 交由上层报参数错误
+    // endDate 缺省时默认与 startDate 同一天
+    if (endStartSec == null) endStartSec = startSec;
+    if (endStartSec < startSec) return null; // 结束早于开始，非法
+    const endExclusive = endStartSec + DAY; // 含 endDate 当天：上界为其次日 0 点
+    let trendDays = Math.round((endExclusive - startSec) / DAY);
+    if (trendDays < 1) trendDays = 1;
+    if (trendDays > MAX_CUSTOM_TREND_DAYS) trendDays = MAX_CUSTOM_TREND_DAYS;
+    // 趋势起点：从结束往回 trendDays 天，保证与整段右端对齐且点数受控
+    const trendStart = endExclusive - trendDays * DAY;
+    return { range: 'custom', dayStart: startSec, dayEnd: endExclusive, cardStart: startSec, cardEnd: endExclusive, trendStart, trendDays };
+  }
+  // today：卡片/区间为今日，趋势沿用近 7 日（含今日），起点为 6 天前
+  return { range: 'today', dayStart: todayStartSec, dayEnd: nowSec, cardStart: todayStartSec, cardEnd: nowSec, trendStart: todayStartSec - 6 * DAY, trendDays: 7 };
 }
 
 class AdminDashboardService {
-  async getSummary(rangeInput) {
-    const range = ['today', '7d', '30d'].includes(rangeInput) ? rangeInput : 'today';
-    const bounds = getRangeBounds(range);
+  async getSummary(rangeInput, opts = {}) {
+    const range = ['today', '7d', '30d', 'yesterday', 'custom'].includes(rangeInput) ? rangeInput : 'today';
+    const bounds = getRangeBounds(range, opts);
+    if (!bounds) {
+      const err = new Error('自定义日期区间参数无效（请检查开始/结束日期）');
+      err.statusCode = 400;
+      throw err;
+    }
     const pool = getPool();
     const now = Math.floor(Date.now() / 1000);
 
@@ -34,14 +86,14 @@ class AdminDashboardService {
     try {
       const [[v1today]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
-         WHERE created_at >= ?`,
-        [bounds.cardStart]
+         WHERE created_at >= ? AND created_at < ?`,
+        [bounds.cardStart, bounds.cardEnd]
       );
       verifyToday += Number(v1today?.cnt || 0);
       const [[v1period]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
-         WHERE created_at >= ?`,
-        [bounds.dayStart]
+         WHERE created_at >= ? AND created_at < ?`,
+        [bounds.dayStart, bounds.dayEnd]
       );
       verifyInPeriod += Number(v1period?.cnt || 0);
     } catch { /* table may not exist */ }
@@ -50,14 +102,14 @@ class AdminDashboardService {
       // 仅统计真实核销：merchant_id > 0（排除超管回收/撤销，那类 direction=0 但 merchant_id=0）
       const [[v2today]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
-        [bounds.cardStart]
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        [bounds.cardStart, bounds.cardEnd]
       );
       verifyToday += Number(v2today?.cnt || 0);
       const [[v2period]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
-        [bounds.dayStart]
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        [bounds.dayStart, bounds.dayEnd]
       );
       verifyInPeriod += Number(v2period?.cnt || 0);
     } catch { /* ignore */ }
@@ -74,8 +126,8 @@ class AdminDashboardService {
 
       const [[periodRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ?`,
-        [bounds.dayStart]
+         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        [bounds.dayStart, bounds.dayEnd]
       );
       verifyAmountInPeriod = Number(periodRow?.total || 0);
     } catch { /* ignore */ }
@@ -104,32 +156,32 @@ class AdminDashboardService {
       const [[grantRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
          WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','legacy_import','manual')
-         AND created_at >= ?`,
-        [bounds.cardStart]
+         AND created_at >= ? AND created_at < ?`,
+        [bounds.cardStart, bounds.cardEnd]
       );
       integralGrantedToday = Number(grantRow?.total || 0);
 
       const [[consumeRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
          WHERE direction = 0 AND biz_type IN ('consume','exchange','expire','deduct')
-         AND created_at >= ?`,
-        [bounds.cardStart]
+         AND created_at >= ? AND created_at < ?`,
+        [bounds.cardStart, bounds.cardEnd]
       );
       integralConsumedToday = Number(consumeRow?.total || 0);
     } catch { /* ignore */ }
 
     const [[newUserRow]] = await pool.query(
       `SELECT COUNT(*) AS cnt FROM ${legacyTable('user')}
-       WHERE COALESCE(is_del, 0) = 0 AND add_time >= ?`,
-      [bounds.cardStart]
+       WHERE COALESCE(is_del, 0) = 0 AND add_time >= ? AND add_time < ?`,
+      [bounds.cardStart, bounds.cardEnd]
     );
 
     let approvalApprovedToday = 0;
     try {
       const [[approvedRow]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('approval_request')}
-         WHERE status = 'approved' AND approved_at >= ?`,
-        [bounds.cardStart]
+         WHERE status = 'approved' AND approved_at >= ? AND approved_at < ?`,
+        [bounds.cardStart, bounds.cardEnd]
       );
       approvalApprovedToday = Number(approvedRow?.cnt || 0);
     } catch { /* ignore */ }
@@ -145,18 +197,20 @@ class AdminDashboardService {
 
       const [[cashPeriodRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1 AND created_at >= ?`,
-        [bounds.dayStart]
+         WHERE direction = 1 AND created_at >= ? AND created_at < ?`,
+        [bounds.dayStart, bounds.dayEnd]
       );
       cashVoucherGrantedInPeriod = Number(cashPeriodRow?.total || 0);
     } catch { /* ignore */ }
 
-    const trend = await this.buildTrend(pool, bounds.dayStart, bounds.trendDays);
+    const trend = await this.buildTrend(pool, bounds.trendStart, bounds.trendDays);
 
     const fundPool = await this.getFundPool();
 
     return {
       range,
+      // 实际生效的统计区间（秒级时间戳，含 start、不含 end），供前端精确展示所选窗口
+      period: { start: bounds.dayStart, end: bounds.dayEnd },
       updatedAt: now,
       cards: {
         memberTotal: Number(memberRow?.cnt || 0),
@@ -234,10 +288,11 @@ class AdminDashboardService {
     const integralGranted = [];
     const integralConsumed = [];
 
-    for (let i = days - 1; i >= 0; i--) {
-      const day = new Date();
+    // 以 startSec 为第 0 天，向后逐日推进 days 天（兼容 today/近N日 与 昨日/自定义 区间）
+    for (let i = 0; i < days; i++) {
+      const day = new Date(startSec * 1000);
       day.setHours(0, 0, 0, 0);
-      day.setDate(day.getDate() - i);
+      day.setDate(day.getDate() + i);
       const dayStart = Math.floor(day.getTime() / 1000);
       const dayEnd = dayStart + 86400;
       const label = `${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
@@ -271,4 +326,4 @@ class AdminDashboardService {
   }
 }
 
-module.exports = { AdminDashboardService };
+module.exports = { AdminDashboardService, getRangeBounds };
