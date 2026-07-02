@@ -218,6 +218,7 @@ const periodPrefix = computed(() => ({
 
 const periodGrantTitle = computed(() => `${periodPrefix.value}现金券发放`)
 const periodVerifyTitle = computed(() => `${periodPrefix.value}核销订单数`)
+const periodVerifyAmountTitle = computed(() => `${periodPrefix.value}核销金额`)
 
 const statCards = computed(() => [
   { key: 'member', type: 'member', icon: 'User', title: '全网会员总数', value: cards.value.memberTotal },
@@ -248,6 +249,15 @@ const statCards = computed(() => [
     icon: 'Checked',
     title: periodVerifyTitle.value,
     value: cards.value.verifyInPeriod ?? cards.value.verifyToday,
+    onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
+  },
+  {
+    key: 'verify-amount-period',
+    type: 'grant',
+    icon: 'Coin',
+    title: periodVerifyAmountTitle.value,
+    value: cards.value.verifyAmountInPeriod,
+    prefix: '¥',
     onClick: () => router.push({ path: '/finance-cash', query: { direction: 0, ...verifyJumpQuery() } }),
   },
   {
@@ -388,6 +398,8 @@ function exportReport() {
       [`${p}积分新增`, c.integralGrantedToday ?? 0],
       [`${p}积分消耗`, c.integralConsumedToday ?? 0],
       [`${p}核销订单数`, c.verifyInPeriod ?? c.verifyToday ?? 0],
+      [`${p}核销金额(元)`, c.verifyAmountInPeriod ?? 0],
+      ['已核销总金额(元)', c.verifyAmountTotal ?? 0],
       ['待审批', c.pendingApproval ?? 0],
       [`${p}审批通过`, c.approvalApprovedToday ?? 0],
       ['已发放现金券汇总(元)', c.cashVoucherGrantTotal ?? 0],
