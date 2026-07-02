@@ -123,11 +123,11 @@
 
   <el-dialog v-model="formOpen" :title="editing ? '编辑 SN' : '新增 SN'" width="440px">
     <el-form :model="form" label-width="72px">
-      <el-form-item label="SN 码" required>
-        <el-input v-model="form.snCode" placeholder="设备序列号 SN" :disabled="editing" />
+      <el-form-item label="IMEI1" required>
+        <el-input v-model="form.imei1" placeholder="手机 IMEI1（纯数字）" :disabled="editing" />
       </el-form-item>
-      <el-form-item label="IMEI1">
-        <el-input v-model="form.imei1" placeholder="手机 IMEI1（纯数字，选填）" />
+      <el-form-item label="SN 码">
+        <el-input v-model="form.snCode" placeholder="设备序列号 SN（选填）" />
       </el-form-item>
       <el-form-item label="品牌">
         <el-input v-model="form.brand" placeholder="如 华为 / vivo" />
@@ -280,8 +280,13 @@ function openEdit(row: SnRow) {
 }
 
 async function save() {
-  if (!form.value.snCode.trim()) {
-    ElMessage.warning('请输入 SN 码')
+  const imei = form.value.imei1.trim()
+  if (!imei) {
+    ElMessage.warning('请输入 IMEI1 码')
+    return
+  }
+  if (!/^\d{10,}$/.test(imei.replace(/\D/g, ''))) {
+    ElMessage.warning('IMEI1 应为纯数字（一般 15 位）')
     return
   }
   saving.value = true
