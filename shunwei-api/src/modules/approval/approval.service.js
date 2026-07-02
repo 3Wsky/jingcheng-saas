@@ -3,10 +3,6 @@ const { swTable } = require('../../shared/sw-mysql');
 const { SnCatalogService } = require('../admin/sn-catalog.service');
 const { ApprovalCodeUsageService } = require('./approval-code-usage.service');
 
-// 超管「人工核验 IMEI/SN」动作标记：以审批步骤(approval_step)形式落库，
-// 保证可追溯(谁/何时/备注)，并在详情里如实标注为「人工核验」而非机器命中。
-const MANUAL_VERIFY_ACTION = 'manual_verify_code';
-
 class ApprovalService {
   constructor() {
     this.codeUsage = new ApprovalCodeUsageService();
@@ -361,62 +357,6 @@ class ApprovalService {
     }
   }
 
-  /**
-   * 超管「人工核验 IMEI/SN」：用于产品确实已销售但未录入产品库、超管已线下核实为正常交易的场景。
-   * 以审批步骤形式如实落库（谁/何时/备注），详情里标注为「已人工核验」而非伪装成机器命中——透明可追溯。
-   * 幂等：已核验过则直接返回，不重复写。
-   * @param {number} adminUid 操作超管 uid
-   * @param {number} requestId 审批单 id
-   * @param {string} note 备注（可空，默认标准说明）
-   */
-  async manualVerifyCode(adminUid, requestId, note = '') {
-    const now = Math.floor(Date.now() / 1000);
-    const [[req]] = await getPool().query(
-      `SELECT id FROM ${swTable('approval_request')} WHERE id = ? LIMIT 1`,
-      [requestId]
-    );
-    if (!req) throw Object.assign(new Error('审批单不存在'), { statusCode: 404 });
-
-    // 幂等：已存在人工核验步骤则不再重复
-    const [[existed]] = await getPool().query(
-      `SELECT id FROM ${swTable('approval_step')}
-       WHERE request_id = ? AND action = ? LIMIT 1`,
-      [requestId, MANUAL_VERIFY_ACTION]
-    );
-    if (existed) return { requestId, alreadyVerified: true };
-
-    const comment = String(note || '').trim() || '超管人工核验：产品已线下核实为正常销售（未录入产品库）';
-    await getPool().query(
-      `INSERT INTO ${swTable('approval_step')}
-       (request_id, step_role, operator_uid, action, comment, created_at)
-       VALUES (?, 'admin', ?, ?, ?, ?)`,
-      [requestId, adminUid, MANUAL_VERIFY_ACTION, comment.slice(0, 255), now]
-    );
-    return { requestId, alreadyVerified: false, verifiedAt: now };
-  }
-
-  /** 读取某单的人工核验步骤（若有），返回 { by, byName, at, comment } 或 null */
-  async getManualVerifyStep(requestId) {
-    try {
-      const [[row]] = await getPool().query(
-        `SELECT s.operator_uid, s.comment, s.created_at, u.nickname AS operator_nickname
-         FROM ${swTable('approval_step')} s
-         LEFT JOIN ${legacyTable('user')} u ON u.uid = s.operator_uid
-         WHERE s.request_id = ? AND s.action = ? ORDER BY s.id ASC LIMIT 1`,
-        [requestId, MANUAL_VERIFY_ACTION]
-      );
-      if (!row) return null;
-      return {
-        by: Number(row.operator_uid || 0),
-        byName: row.operator_nickname || '',
-        at: Number(row.created_at || 0),
-        comment: row.comment || ''
-      };
-    } catch {
-      return null;
-    }
-  }
-
   async executeGrant(connection, req) {
     const now = Math.floor(Date.now() / 1000);
     const uid = req.customer_uid;
@@ -760,20 +700,6 @@ class ApprovalService {
         reused,
         reusedConflicts
       };
-      // 人工核验：产品已售未入库、超管线下核实为正常交易时，如实标注（不冒充机器命中）
-      const manual = await this.getManualVerifyStep(requestId);
-      if (manual) {
-        detail.codeVerify.manualVerified = true;
-        detail.codeVerify.manualVerifiedBy = manual.by;
-        detail.codeVerify.manualVerifiedByName = manual.byName;
-        detail.codeVerify.manualVerifiedAt = manual.at;
-        detail.codeVerify.manualVerifyNote = manual.comment;
-        // 机器未命中时，视为已核验通过（matched=true, matchedBy='manual'）——展示为绿色正常态
-        if (!detail.codeVerify.matched) {
-          detail.codeVerify.matched = true;
-          detail.codeVerify.matchedBy = 'manual';
-        }
-      }
     } catch {
       detail.codeVerify = { hasCode: false, matched: false, matchedBy: '', hit: null, category: '', reused: false, reusedConflicts: [] };
     }
