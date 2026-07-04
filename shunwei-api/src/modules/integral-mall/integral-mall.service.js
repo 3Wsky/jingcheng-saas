@@ -80,7 +80,7 @@ class IntegralMallService {
         SET status = 3, delivery_type = 'fictitious', delivery_name = ?, delivery_uid = ?
         WHERE order_id = ? AND is_del = 0 AND status <> 3
         `,
-        [staff.nickname || '店员', staffUid, orderId]
+        [staff.nickname || '店员', staffUid, order.order_id]
       );
 
       if (!updateResult.affectedRows) {
