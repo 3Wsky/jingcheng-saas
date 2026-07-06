@@ -64,6 +64,49 @@ function getRangeBounds(range, opts = {}) {
 }
 
 class AdminDashboardService {
+  async sumIntegralGranted(pool, startAt, endAt) {
+    const [[row]] = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
+       WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','legacy_import','manual')
+       AND created_at >= ? AND created_at < ?`,
+      [startAt, endAt]
+    );
+    return Number(row?.total || 0);
+  }
+
+  async sumIntegralConsumed(pool, startAt, endAt) {
+    let total = 0;
+    try {
+      const [[ledgerRow]] = await pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
+         WHERE direction = 0 AND biz_type IN ('consume','exchange','expire','deduct')
+         AND created_at >= ? AND created_at < ?`,
+        [startAt, endAt]
+      );
+      total += Number(ledgerRow?.total || 0);
+    } catch { /* ignore */ }
+
+    try {
+      const [[mallRow]] = await pool.query(
+        `SELECT COALESCE(SUM(o.total_price), 0) AS total
+         FROM ${legacyTable('store_integral_order')} o
+         WHERE o.is_del = 0
+           AND o.add_time >= ? AND o.add_time < ?
+           AND NOT EXISTS (
+             SELECT 1 FROM ${swTable('integral_ledger')} l
+             WHERE l.direction = 0
+               AND l.biz_type = 'exchange'
+               AND l.biz_id = o.order_id
+             LIMIT 1
+           )`,
+        [startAt, endAt]
+      );
+      total += Number(mallRow?.total || 0);
+    } catch { /* ignore */ }
+
+    return total;
+  }
+
   async getSummary(rangeInput, opts = {}) {
     const range = ['today', '7d', '30d', 'yesterday', 'custom'].includes(rangeInput) ? rangeInput : 'today';
     const bounds = getRangeBounds(range, opts);
@@ -153,21 +196,8 @@ class AdminDashboardService {
     let integralGrantedToday = 0;
     let integralConsumedToday = 0;
     try {
-      const [[grantRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-         WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','legacy_import','manual')
-         AND created_at >= ? AND created_at < ?`,
-        [bounds.cardStart, bounds.cardEnd]
-      );
-      integralGrantedToday = Number(grantRow?.total || 0);
-
-      const [[consumeRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-         WHERE direction = 0 AND biz_type IN ('consume','exchange','expire','deduct')
-         AND created_at >= ? AND created_at < ?`,
-        [bounds.cardStart, bounds.cardEnd]
-      );
-      integralConsumedToday = Number(consumeRow?.total || 0);
+      integralGrantedToday = await this.sumIntegralGranted(pool, bounds.cardStart, bounds.cardEnd);
+      integralConsumedToday = await this.sumIntegralConsumed(pool, bounds.cardStart, bounds.cardEnd);
     } catch { /* ignore */ }
 
     const [[newUserRow]] = await pool.query(
@@ -301,21 +331,8 @@ class AdminDashboardService {
       let granted = 0;
       let consumed = 0;
       try {
-        const [[g]] = await pool.query(
-          `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-           WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','legacy_import','manual')
-           AND created_at >= ? AND created_at < ?`,
-          [dayStart, dayEnd]
-        );
-        granted = Number(g?.total || 0);
-
-        const [[c]] = await pool.query(
-          `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-           WHERE direction = 0 AND biz_type IN ('consume','exchange','expire','deduct')
-           AND created_at >= ? AND created_at < ?`,
-          [dayStart, dayEnd]
-        );
-        consumed = Number(c?.total || 0);
+        granted = await this.sumIntegralGranted(pool, dayStart, dayEnd);
+        consumed = await this.sumIntegralConsumed(pool, dayStart, dayEnd);
       } catch { /* ignore */ }
 
       integralGranted.push(granted);
