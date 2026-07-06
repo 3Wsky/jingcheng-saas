@@ -87,9 +87,12 @@ class AdminDashboardService {
       const [[mallRow]] = await pool.query(
         `SELECT COALESCE(SUM(o.total_price), 0) AS total
          FROM ${legacyTable('store_integral_order')} o
+         JOIN ${swTable('integral_mall_verify_log')} v ON v.order_id = o.order_id
          WHERE o.is_del = 0
+           AND o.status = 3
            AND o.order_id NOT LIKE 'DEMOIG%'
-           AND o.add_time >= ? AND o.add_time < ?`,
+           AND v.verify_status = 1
+           AND v.verified_at >= ? AND v.verified_at < ?`,
         [startAt, endAt]
       );
       return Number(mallRow?.total || 0);
@@ -153,14 +156,21 @@ class AdminDashboardService {
     let verifyAmountInPeriod = 0;
     try {
       const [[totalRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0`
+        `SELECT COALESCE(SUM(l.amount), 0) AS total
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+         WHERE l.direction = 0 AND l.merchant_id > 0
+           AND COALESCE(b.source_type, '') <> 'demo_video'`
       );
       verifyAmountTotal = Number(totalRow?.total || 0);
 
       const [[periodRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        `SELECT COALESCE(SUM(l.amount), 0) AS total
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+         WHERE l.direction = 0 AND l.merchant_id > 0
+           AND COALESCE(b.source_type, '') <> 'demo_video'
+           AND l.created_at >= ? AND l.created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
       verifyAmountInPeriod = Number(periodRow?.total || 0);
@@ -211,14 +221,19 @@ class AdminDashboardService {
     let cashVoucherGrantedInPeriod = 0;
     try {
       const [[cashTotalRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%')`
+        `SELECT COALESCE(SUM(l.amount), 0) AS total
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'`
       );
       cashVoucherGrantTotal = Number(cashTotalRow?.total || 0);
 
       const [[cashPeriodRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%') AND created_at >= ? AND created_at < ?`,
+        `SELECT COALESCE(SUM(l.amount), 0) AS total
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'
+           AND l.created_at >= ? AND l.created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
       cashVoucherGrantedInPeriod = Number(cashPeriodRow?.total || 0);
@@ -277,8 +292,10 @@ class AdminDashboardService {
       fundPool.integralGrantedTotal = Number(integralTotal?.total || 0);
 
       const [[cashTotalRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%')`
+        `SELECT COALESCE(SUM(l.amount), 0) AS total
+         FROM ${swTable('cash_voucher_ledger')} l
+         LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'`
       );
       fundPool.cashVoucherGrantedTotal = Number(cashTotalRow?.total || 0);
 

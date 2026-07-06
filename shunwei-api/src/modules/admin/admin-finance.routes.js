@@ -49,11 +49,12 @@ function registerAdminFinanceRoutes(app) {
     const pool = getPool();
     const [[cashRow]] = await pool.query(
       `SELECT
-         COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS grantTotal,
-         COALESCE(SUM(CASE WHEN direction = 0 THEN amount ELSE 0 END), 0) AS verifyTotal,
+         COALESCE(SUM(CASE WHEN l.direction = 1 THEN l.amount ELSE 0 END), 0) AS grantTotal,
+         COALESCE(SUM(CASE WHEN l.direction = 0 THEN l.amount ELSE 0 END), 0) AS verifyTotal,
          COUNT(*) AS ledgerCount
-       FROM ${swTable('cash_voucher_ledger')}
-       WHERE remark IS NULL OR remark NOT LIKE '[演示]%'`
+       FROM ${swTable('cash_voucher_ledger')} l
+       LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
+       WHERE COALESCE(b.source_type, '') <> 'demo_video'`
     );
     const [[integralRow]] = await pool.query(
       `SELECT
