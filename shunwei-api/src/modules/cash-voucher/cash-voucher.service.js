@@ -1,8 +1,20 @@
 const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 
+const DEMO_SOURCE_TYPE = 'demo_video';
+const DEMO_REMARK_PREFIX = '[演示]';
+
 function roundMoney(value) {
   return Math.round(Number(value) * 100) / 100;
+}
+
+function isDemoSource(sourceType) {
+  return String(sourceType || '') === DEMO_SOURCE_TYPE;
+}
+
+function withDemoRemark(remark) {
+  const text = String(remark || '').trim() || '演示现金券';
+  return text.startsWith(DEMO_REMARK_PREFIX) ? text : `${DEMO_REMARK_PREFIX}${text}`;
 }
 
 class CashVoucherService {
@@ -23,18 +35,20 @@ class CashVoucherService {
 
   async getWallet(uid) {
     const [batches] = await getPool().query(
-      `SELECT id, total_amount, remain_amount, expire_at, status, created_at
+      `SELECT id, total_amount, remain_amount, expire_at, status, source_type, source_id, created_at
        FROM ${swTable('cash_voucher_batch')}
        WHERE uid = ? AND status = 1 AND remain_amount > 0
        ORDER BY expire_at ASC`,
       [uid]
     );
 
+    const demoBatches = batches.filter((b) => isDemoSource(b.source_type));
+    const visibleBatches = demoBatches.length ? demoBatches : batches;
     let totalBalance = 0;
     const now = Math.floor(Date.now() / 1000);
     let expiringSoon = 0;
 
-    for (const b of batches) {
+    for (const b of visibleBatches) {
       totalBalance += Number(b.remain_amount || 0);
       if (b.expire_at > 0 && b.expire_at <= now + 30 * 86400) {
         expiringSoon += Number(b.remain_amount || 0);
@@ -53,16 +67,67 @@ class CashVoucherService {
       balance: totalBalance,
       totalGranted: Number(totals?.total_granted || 0),
       totalUsed: Number(totals?.total_used || 0),
-      batchCount: batches.length,
+      batchCount: visibleBatches.length,
       expiringSoon,
-      batches: batches.map(b => ({
+      isDemo: demoBatches.length > 0,
+      realBalanceHidden: demoBatches.length > 0
+        ? batches.filter((b) => !isDemoSource(b.source_type)).reduce((sum, b) => sum + Number(b.remain_amount || 0), 0)
+        : 0,
+      batches: visibleBatches.map(b => ({
         id: b.id,
         totalAmount: Number(b.total_amount),
         remainAmount: Number(b.remain_amount),
         expireAt: Number(b.expire_at),
+        sourceType: b.source_type || '',
+        sourceId: b.source_id || '',
         createdAt: Number(b.created_at)
       }))
     };
+  }
+
+  async grantDemo(uid, amount, remark = '') {
+    const demoAmount = roundMoney(amount);
+    if (!uid || demoAmount <= 0) {
+      const error = new Error('演示现金券金额无效');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const expireAt = now + 7 * 86400;
+    const bizId = `DEMO_CV_${now}_${uid}`;
+    const connection = await getPool().getConnection();
+    try {
+      await connection.beginTransaction();
+      const [[user]] = await connection.query(
+        `SELECT uid FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+        [uid]
+      );
+      if (!user) {
+        const error = new Error('用户不存在');
+        error.statusCode = 404;
+        throw error;
+      }
+      const [result] = await connection.query(
+        `INSERT INTO ${swTable('cash_voucher_batch')}
+         (uid, source_type, source_id, total_amount, remain_amount, expire_at, status, remark, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+        [uid, DEMO_SOURCE_TYPE, bizId, demoAmount, demoAmount, expireAt, withDemoRemark(remark), now, now]
+      );
+      await connection.query(
+        `INSERT INTO ${swTable('cash_voucher_ledger')}
+         (uid, direction, amount, batch_id, merchant_id, operator_uid, biz_id, remark, created_at)
+         VALUES (?, 1, ?, ?, 0, 0, ?, ?, ?)`,
+        [uid, demoAmount, result.insertId, bizId, withDemoRemark(remark || '拍摄演示发放'), now]
+      );
+      await connection.commit();
+      return { batchId: result.insertId, uid, amount: demoAmount, expireAt };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 
   async getLedger(uid, page = 1, limit = 20) {
@@ -162,7 +227,7 @@ class CashVoucherService {
       }
 
       const [batches] = await connection.query(
-        `SELECT id, remain_amount, expire_at
+        `SELECT id, remain_amount, expire_at, source_type
          FROM ${swTable('cash_voucher_batch')}
          WHERE uid = ? AND status = 1 AND remain_amount > 0
          ORDER BY expire_at ASC
@@ -170,12 +235,16 @@ class CashVoucherService {
         [uid]
       );
 
+      const demoBatches = batches.filter((b) => isDemoSource(b.source_type));
+      const isDemoVerify = demoBatches.length > 0;
+      const usableBatches = isDemoVerify ? demoBatches : batches;
+
       let totalAvailable = 0;
-      for (const b of batches) totalAvailable += roundMoney(b.remain_amount || 0);
+      for (const b of usableBatches) totalAvailable += roundMoney(b.remain_amount || 0);
       totalAvailable = roundMoney(totalAvailable);
 
       if (totalAvailable + 0.001 < verifyAmount) {
-        const error = new Error(`现金券余额不足（可用 ${totalAvailable}，需核销 ${verifyAmount}）`);
+        const error = new Error(`${isDemoVerify ? '演示现金券' : '现金券'}余额不足（可用 ${totalAvailable}，需核销 ${verifyAmount}）`);
         error.statusCode = 400;
         throw error;
       }
@@ -185,7 +254,7 @@ class CashVoucherService {
 
       let deductedTotal = 0;
       let ledgerRows = 0;
-      for (const batch of batches) {
+      for (const batch of usableBatches) {
         if (remaining <= 0) break;
         const batchRemain = roundMoney(batch.remain_amount);
         const deduct = roundMoney(Math.min(batchRemain, remaining));
@@ -204,11 +273,12 @@ class CashVoucherService {
           throw error;
         }
 
+        const verifyRemark = isDemoVerify ? withDemoRemark(remark || '演示核销') : (remark || '现金券核销');
         const [ins] = await connection.query(
           `INSERT INTO ${swTable('cash_voucher_ledger')}
            (uid, direction, amount, batch_id, merchant_id, operator_uid, biz_id, remark, created_at)
            VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?)`,
-          [uid, deduct, batch.id, merchantId, operatorUid, bizId, remark || '现金券核销', now]
+          [uid, deduct, batch.id, isDemoVerify ? 0 : merchantId, operatorUid, bizId, verifyRemark, now]
         );
         if (ins.affectedRows) ledgerRows += 1;
 
@@ -223,7 +293,7 @@ class CashVoucherService {
         throw error;
       }
 
-      if (merchantId > 0) {
+      if (!isDemoVerify && merchantId > 0) {
         await connection.query(
           `UPDATE ${swTable('merchant')}
            SET pending_settlement = pending_settlement + ?, updated_at = ?
@@ -245,7 +315,7 @@ class CashVoucherService {
         }));
       } catch (e) { /* ignore logging error */ }
 
-      return { bizId, amount: verifyAmount, balanceAfter: roundMoney(totalAvailable - verifyAmount) };
+      return { bizId, amount: verifyAmount, balanceAfter: roundMoney(totalAvailable - verifyAmount), isDemo: isDemoVerify };
     } catch (error) {
       await connection.rollback();
       try {

@@ -88,6 +88,7 @@ class AdminDashboardService {
         `SELECT COALESCE(SUM(o.total_price), 0) AS total
          FROM ${legacyTable('store_integral_order')} o
          WHERE o.is_del = 0
+           AND o.order_id NOT LIKE 'DEMOIG%'
            AND o.add_time >= ? AND o.add_time < ?`,
         [startAt, endAt]
       );
@@ -119,13 +120,13 @@ class AdminDashboardService {
     try {
       const [[v1today]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
-         WHERE created_at >= ? AND created_at < ?`,
+         WHERE order_id NOT LIKE 'DEMOIG%' AND created_at >= ? AND created_at < ?`,
         [bounds.cardStart, bounds.cardEnd]
       );
       verifyToday += Number(v1today?.cnt || 0);
       const [[v1period]] = await pool.query(
         `SELECT COUNT(*) AS cnt FROM ${swTable('integral_mall_verify_log')}
-         WHERE created_at >= ? AND created_at < ?`,
+         WHERE order_id NOT LIKE 'DEMOIG%' AND created_at >= ? AND created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
       verifyInPeriod += Number(v1period?.cnt || 0);
@@ -211,13 +212,13 @@ class AdminDashboardService {
     try {
       const [[cashTotalRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1`
+         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%')`
       );
       cashVoucherGrantTotal = Number(cashTotalRow?.total || 0);
 
       const [[cashPeriodRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1 AND created_at >= ? AND created_at < ?`,
+         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%') AND created_at >= ? AND created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
       cashVoucherGrantedInPeriod = Number(cashPeriodRow?.total || 0);
@@ -277,7 +278,7 @@ class AdminDashboardService {
 
       const [[cashTotalRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 1`
+         WHERE direction = 1 AND (remark IS NULL OR remark NOT LIKE '[演示]%')`
       );
       fundPool.cashVoucherGrantedTotal = Number(cashTotalRow?.total || 0);
 

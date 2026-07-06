@@ -2,6 +2,9 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { toPublicUrl } = require('../../shared/url');
 
+const DEMO_SOURCE_TYPE = 'demo_video';
+const DEMO_ORDER_PREFIX = 'DEMOIG';
+
 /**
  * 积分商城核销服务（MVP1：免审开启时店员直接核销）
  */
@@ -94,7 +97,7 @@ class IntegralMallService {
         INSERT INTO ${swTable('integral_mall_verify_log')}
           (integral_order_id, order_id, uid, product_id, verify_code, staff_uid, division_id,
            verify_status, skip_approval, remark, verified_at, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, '店员免审核销', ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
           staff_uid = VALUES(staff_uid),
           verify_status = 1,
@@ -108,6 +111,7 @@ class IntegralMallService {
           order.verify_code || '',
           staffUid,
           Number(staff.division_id || 0),
+          String(order.order_id || '').startsWith(DEMO_ORDER_PREFIX) ? '[演示]店员免审核销' : '店员免审核销',
           now,
           now
         ]
@@ -194,6 +198,68 @@ class IntegralMallService {
         const error = new Error('积分不足');
         error.statusCode = 400;
         throw error;
+      }
+
+      const [demoBatches] = await connection.query(
+        `SELECT id, remain_amount
+         FROM ${swTable('integral_batch')}
+         WHERE uid = ? AND status = 1 AND remain_amount > 0 AND source_type = ?
+         ORDER BY expire_at ASC, id ASC
+         FOR UPDATE`,
+        [uid, DEMO_SOURCE_TYPE]
+      );
+      const demoAvailable = demoBatches.reduce((sum, batch) => sum + Number(batch.remain_amount || 0), 0);
+      if (demoAvailable > 0) {
+        if (demoAvailable < integralCost) {
+          const error = new Error('演示积分不足');
+          error.statusCode = 400;
+          throw error;
+        }
+
+        let remaining = integralCost;
+        for (const batch of demoBatches) {
+          if (remaining <= 0) break;
+          const batchRemain = Number(batch.remain_amount || 0);
+          const deduct = Math.min(batchRemain, remaining);
+          const newRemain = batchRemain - deduct;
+          await connection.query(
+            `UPDATE ${swTable('integral_batch')}
+             SET remain_amount = ?, status = ?, updated_at = ?
+             WHERE id = ?`,
+            [newRemain, newRemain > 0 ? 1 : 0, now, batch.id]
+          );
+          remaining -= deduct;
+        }
+
+        const afterIntegral = beforeIntegral - integralCost;
+        const demoOrderId = `${DEMO_ORDER_PREFIX}${now}${uid}${Math.random().toString(36).slice(2, 6)}`;
+        await connection.query(
+          `UPDATE ${legacyTable('user')} SET integral = ? WHERE uid = ?`,
+          [afterIntegral, uid]
+        );
+        await connection.query(
+          `INSERT INTO ${legacyTable('store_integral_order')}
+           (uid, order_id, product_id, store_name, image, suk, total_num, price, total_price,
+            verify_code, status, is_del, add_time, delivery_type, channel_type)
+           VALUES (?, ?, ?, ?, ?, '', 1, ?, ?, ?, 0, 0, ?, 'fictitious', 'routine')`,
+          [uid, demoOrderId, productId, product.title, product.image,
+           integralCost, integralCost, verifyCode, now]
+        );
+        await connection.query(
+          `INSERT INTO ${legacyTable('user_bill')}
+           (uid, link_id, pm, title, category, type, number, balance, mark, add_time, status, take, frozen_time)
+           VALUES (?, ?, 0, '积分商城兑换', 'integral', 'deduction', ?, ?, ?, ?, 1, 0, 0)`,
+          [uid, demoOrderId, integralCost, afterIntegral, `[演示]兑换${product.title}`, now]
+        );
+        await connection.commit();
+        return {
+          orderId: demoOrderId,
+          verifyCode,
+          productName: product.title,
+          integralCost,
+          balanceAfter: afterIntegral,
+          isDemo: true
+        };
       }
 
       // 原子扣库存并校验 affectedRows：售罄（=0 行）立即回滚，绝不“扣分却没货”。

@@ -52,14 +52,16 @@ function registerAdminFinanceRoutes(app) {
          COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS grantTotal,
          COALESCE(SUM(CASE WHEN direction = 0 THEN amount ELSE 0 END), 0) AS verifyTotal,
          COUNT(*) AS ledgerCount
-       FROM ${swTable('cash_voucher_ledger')}`
+       FROM ${swTable('cash_voucher_ledger')}
+       WHERE remark IS NULL OR remark NOT LIKE '[演示]%'`
     );
     const [[integralRow]] = await pool.query(
       `SELECT
          COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS grantTotal,
          COALESCE(SUM(CASE WHEN direction = 0 THEN amount ELSE 0 END), 0) AS consumeTotal,
          COUNT(*) AS ledgerCount
-       FROM ${swTable('integral_ledger')}`
+       FROM ${swTable('integral_ledger')}
+       WHERE biz_type <> 'demo'`
     );
     const [[settleRow]] = await pool.query(
       `SELECT

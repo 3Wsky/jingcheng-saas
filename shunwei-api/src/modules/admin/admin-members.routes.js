@@ -5,6 +5,9 @@ const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { AdminMembersService } = require('./admin-members.service');
 const { AdminMerchantStaffService } = require('../merchant/admin-merchant-staff.service');
 const { IntegralService } = require('../integral/integral.service');
+const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
+const { getPool, legacyTable } = require('../../shared/mysql');
+const { swTable } = require('../../shared/sw-mysql');
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
@@ -56,6 +59,12 @@ const integralGrantSchema = z.object({
   remark: z.string().trim().max(200).optional().default('超管手动发放')
 });
 
+const demoAssetsSchema = z.object({
+  integralAmount: z.coerce.number().int().min(0).max(10000000).optional().default(299000),
+  cashVoucherAmount: z.coerce.number().min(0).max(100000).optional().default(500),
+  remark: z.string().trim().max(200).optional().default('拍摄演示')
+});
+
 const merchantRoleSchema = z.object({
   action: z.enum(['grant', 'revoke']),
   merchantId: z.coerce.number().int().positive().optional(),
@@ -79,6 +88,7 @@ function registerAdminMembersRoutes(app) {
   const membersService = new AdminMembersService();
   const merchantStaffService = new AdminMerchantStaffService();
   const integralService = new IntegralService();
+  const cashVoucherService = new CashVoucherService();
   const auditService = new AdminAuditService();
 
   app.get('/api/admin/merchant/options', async (request, reply) => {
@@ -396,6 +406,89 @@ function registerAdminMembersRoutes(app) {
         ip: getClientIp(request)
       });
       return fail(reply, error.statusCode || 500, error.message || '积分发放失败');
+    }
+  });
+
+  app.post('/api/admin/members/:uid/demo-assets', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'uid 无效');
+    const parsed = demoAssetsSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+
+    const session = getAdminSession(request);
+    const now = Math.floor(Date.now() / 1000);
+    const result = { uid, integral: null, cashVoucher: null };
+    try {
+      const { integralAmount, cashVoucherAmount, remark } = parsed.data;
+      if (integralAmount > 0) {
+        const connection = await getPool().getConnection();
+        try {
+          await connection.beginTransaction();
+          const [[user]] = await connection.query(
+            `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1 FOR UPDATE`,
+            [uid]
+          );
+          if (!user) {
+            const error = new Error('用户不存在');
+            error.statusCode = 404;
+            throw error;
+          }
+          const beforeIntegral = Number(user.integral || 0);
+          const afterIntegral = beforeIntegral + integralAmount;
+          const sourceId = `DEMO_INT_${now}_${uid}`;
+          const expireAt = now + 7 * 86400;
+          const [batch] = await connection.query(
+            `INSERT INTO ${swTable('integral_batch')}
+             (uid, batch_type, source_type, source_id, total_amount, remain_amount, expire_at, status, remark, created_at, updated_at)
+             VALUES (?, 'gift', 'demo_video', ?, ?, ?, ?, 1, ?, ?, ?)`,
+            [uid, sourceId, integralAmount, integralAmount, expireAt, `[演示]${remark || '拍摄演示'}`, now, now]
+          );
+          await connection.query(
+            `UPDATE ${legacyTable('user')} SET integral = ? WHERE uid = ?`,
+            [afterIntegral, uid]
+          );
+          await connection.query(
+            `INSERT INTO ${swTable('integral_ledger')}
+             (uid, direction, amount, balance_after, batch_id, biz_type, biz_id, remark, operator_uid, created_at)
+             VALUES (?, 1, ?, ?, ?, 'demo', ?, ?, ?, ?)`,
+            [uid, integralAmount, afterIntegral, batch.insertId, sourceId, `[演示]${remark || '拍摄演示'}积分`, session?.uid || 0, now]
+          );
+          await connection.commit();
+          result.integral = { batchId: batch.insertId, amount: integralAmount, balanceAfter: afterIntegral, expireAt };
+        } catch (error) {
+          await connection.rollback();
+          throw error;
+        } finally {
+          connection.release();
+        }
+      }
+
+      if (cashVoucherAmount > 0) {
+        result.cashVoucher = await cashVoucherService.grantDemo(uid, cashVoucherAmount, remark || '拍摄演示');
+      }
+
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'demo_assets_grant',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        ip: getClientIp(request)
+      });
+      return ok(result, '演示资产已发放');
+    } catch (error) {
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'demo_assets_grant',
+        targetType: 'user',
+        targetId: uid,
+        payload: parsed.data,
+        resultStatus: 'failed',
+        resultMessage: error.message,
+        ip: getClientIp(request)
+      });
+      return fail(reply, error.statusCode || 500, error.message || '演示资产发放失败');
     }
   });
 }

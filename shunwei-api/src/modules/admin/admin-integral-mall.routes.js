@@ -547,7 +547,7 @@ function registerAdminIntegralMallRoutes(app) {
     const dateFrom = String(request.query.dateFrom || '').trim();
     const dateTo = String(request.query.dateTo || '').trim();
 
-    let where = 'o.is_del = 0';
+    let where = "o.is_del = 0 AND o.order_id NOT LIKE 'DEMOIG%'";
     const values = [];
     if (status === 'pending') where += ' AND o.status <> 3';
     else if (status === 'verified') where += ' AND o.status = 3';

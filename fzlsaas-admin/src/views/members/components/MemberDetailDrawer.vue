@@ -44,6 +44,7 @@
         <el-space wrap>
           <el-button type="primary" size="small" @click="showGrantIntegral = true">发放积分</el-button>
           <el-button size="small" @click="showGrantVoucher = true">发放现金券</el-button>
+          <el-button type="warning" plain size="small" @click="showDemoAssets = true">发放演示资产</el-button>
           <el-button size="small" @click="showGrantMembership = true">手动开通会员</el-button>
           <el-button size="small" @click="changeSpread">变更归属</el-button>
           <el-button size="small" @click="clearSpread">清除归属</el-button>
@@ -155,6 +156,25 @@
         </el-tabs>
       </template>
     </div>
+
+    <el-dialog v-model="showDemoAssets" title="发放演示资产" width="420px" append-to-body>
+      <el-alert type="warning" :closable="false" style="margin-bottom: 12px">
+        演示资产用于拍摄测试：演示券核销不进入商家待结算；演示积分兑换不扣真实库存。
+      </el-alert>
+      <el-form :model="demoForm" label-width="96px">
+        <el-form-item label="演示积分">
+          <el-input-number v-model="demoForm.integralAmount" :min="0" :max="10000000" :step="1000" />
+        </el-form-item>
+        <el-form-item label="演示现金券">
+          <el-input-number v-model="demoForm.cashVoucherAmount" :min="0" :max="100000" :step="100" />
+        </el-form-item>
+        <el-form-item label="备注"><el-input v-model="demoForm.remark" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="showDemoAssets = false">取消</el-button>
+        <el-button type="warning" @click="confirmGrantDemoAssets">确认发放</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="showGrantIntegral" title="发放积分" width="400px" append-to-body>
       <el-form :model="grantForm" label-width="80px">
@@ -296,6 +316,7 @@ const cashVoucherUsedTotal = ref(0)
 const membershipRecords = ref<any[]>([])
 const approvalHistory = ref<any[]>([])
 const activeTab = ref('voucher')
+const showDemoAssets = ref(false)
 const showGrantIntegral = ref(false)
 const showGrantVoucher = ref(false)
 const showGrantStaff = ref(false)
@@ -305,6 +326,7 @@ const staffStoreName = ref('')
 const managerStoreName = ref('')
 const grantForm = ref({ amount: 1000, batchType: 'gift', remark: '超管手动发放' })
 const voucherForm = ref({ amount: 100, remark: '超管手动发放' })
+const demoForm = ref({ integralAmount: 299000, cashVoucherAmount: 500, remark: '拍摄演示' })
 const membershipForm = ref({ tierCode: 'SW199' as 'SW199' | 'SW299' })
 const merchantRoles = ref<any[]>([])
 const merchantOptions = ref<Array<{ id: number; merchantName: string }>>([])
@@ -397,6 +419,22 @@ async function confirmGrantVoucher() {
     })
     ElMessage.success('现金券发放成功')
     showGrantVoucher.value = false
+    activeTab.value = 'voucher'
+    loadDetail(props.uid)
+  } catch { /* cancel */ }
+}
+
+async function confirmGrantDemoAssets() {
+  if (!props.uid) return
+  try {
+    await ElMessageBox.confirm(
+      `确认给 UID ${props.uid} 发放演示积分 ${demoForm.value.integralAmount} 和演示现金券 ¥${demoForm.value.cashVoucherAmount}？`,
+      '发放演示资产',
+      { type: 'warning' }
+    )
+    await request.post(`/api/admin/members/${props.uid}/demo-assets`, demoForm.value)
+    ElMessage.success('演示资产已发放')
+    showDemoAssets.value = false
     activeTab.value = 'voucher'
     loadDetail(props.uid)
   } catch { /* cancel */ }
