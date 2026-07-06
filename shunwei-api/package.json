@@ -10,7 +10,8 @@
     "pm2:start": "pm2 start ecosystem.config.cjs --env production",
     "pm2:reload": "pm2 reload shunwei-api --update-env",
     "health": "node -e \"fetch('http://127.0.0.1:' + (process.env.PORT || 8787) + '/health').then(r => r.text()).then(console.log)\"",
-    "test": "node --test"
+    "test": "node --test",
+    "backfill:sn-catalog": "node scripts/backfill-sn-catalog-from-approvals.js"
   },
   "keywords": [],
   "author": "",
