@@ -196,8 +196,8 @@ class AdminDashboardService {
     let integralGrantedToday = 0;
     let integralConsumedToday = 0;
     try {
-      integralGrantedToday = await this.sumIntegralGranted(pool, bounds.cardStart, bounds.cardEnd);
-      integralConsumedToday = await this.sumIntegralConsumed(pool, bounds.cardStart, bounds.cardEnd);
+      integralGrantedToday = await this.sumIntegralGranted(pool, bounds.dayStart, bounds.dayEnd);
+      integralConsumedToday = await this.sumIntegralConsumed(pool, bounds.dayStart, bounds.dayEnd);
     } catch { /* ignore */ }
 
     const [[newUserRow]] = await pool.query(
