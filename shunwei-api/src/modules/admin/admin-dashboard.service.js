@@ -66,45 +66,35 @@ function getRangeBounds(range, opts = {}) {
 class AdminDashboardService {
   async sumIntegralGranted(pool, startAt, endAt) {
     const [[row]] = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-       WHERE direction = 1 AND biz_type IN ('grant','gift','recharge','legacy_import','manual')
-       AND created_at >= ? AND created_at < ?`,
+      `SELECT COALESCE(SUM(l.amount), 0) AS total
+       FROM ${swTable('integral_ledger')} l
+       LEFT JOIN ${swTable('integral_batch')} b ON b.id = l.batch_id
+       WHERE l.direction = 1
+         AND l.biz_type = 'grant'
+         AND l.amount IN (199000, 299000)
+         AND (
+           b.source_type = 'approval_grant'
+           OR (b.source_type = 'membership_grant' AND b.source_id LIKE 'offline_approval:%')
+         )
+         AND l.created_at >= ? AND l.created_at < ?`,
       [startAt, endAt]
     );
     return Number(row?.total || 0);
   }
 
   async sumIntegralConsumed(pool, startAt, endAt) {
-    let total = 0;
-    try {
-      const [[ledgerRow]] = await pool.query(
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('integral_ledger')}
-         WHERE direction = 0 AND biz_type IN ('consume','exchange','expire','deduct')
-         AND created_at >= ? AND created_at < ?`,
-        [startAt, endAt]
-      );
-      total += Number(ledgerRow?.total || 0);
-    } catch { /* ignore */ }
-
     try {
       const [[mallRow]] = await pool.query(
         `SELECT COALESCE(SUM(o.total_price), 0) AS total
          FROM ${legacyTable('store_integral_order')} o
          WHERE o.is_del = 0
-           AND o.add_time >= ? AND o.add_time < ?
-           AND NOT EXISTS (
-             SELECT 1 FROM ${swTable('integral_ledger')} l
-             WHERE l.direction = 0
-               AND l.biz_type = 'exchange'
-               AND l.biz_id = o.order_id
-             LIMIT 1
-           )`,
+           AND o.add_time >= ? AND o.add_time < ?`,
         [startAt, endAt]
       );
-      total += Number(mallRow?.total || 0);
+      return Number(mallRow?.total || 0);
     } catch { /* ignore */ }
 
-    return total;
+    return 0;
   }
 
   async getSummary(rangeInput, opts = {}) {
