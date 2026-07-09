@@ -1,0 +1,53 @@
+name: Collect official products
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: 'One product model per line'
+        required: true
+        type: string
+      show:
+        description: 'Set imported products visible'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    name: Run official product collection
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Prepare SSH
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "${{ secrets.SERVER_PORT || 22 }}" "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Collect on server
+        shell: bash
+        env:
+          MODELS_TEXT: ${{ inputs.models }}
+          SHOW_PRODUCTS: ${{ inputs.show }}
+        run: |
+          MODELS_B64="$(printf '%s' "$MODELS_TEXT" | base64 -w0)"
+          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT || 22 }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "API_PATH='${{ secrets.API_DEPLOY_PATH }}' MODELS_B64='$MODELS_B64' SHOW_PRODUCTS='$SHOW_PRODUCTS' bash -s" <<'EOF'
+          set -euo pipefail
+          API_PATH="${API_PATH:-/www/wwwroot/our/shunwei-api}"
+          cd "$API_PATH"
+          MODELS_FILE="/tmp/fzlsaas-official-models-$$.txt"
+          printf '%s' "$MODELS_B64" | base64 -d > "$MODELS_FILE"
+          node scripts/collect-official-products.js --models-file "$MODELS_FILE" --show "$SHOW_PRODUCTS"
+          rm -f "$MODELS_FILE"
+          EOF
