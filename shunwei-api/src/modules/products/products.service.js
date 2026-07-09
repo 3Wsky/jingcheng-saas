@@ -590,15 +590,23 @@ class ProductsService {
     return importSummary;
   }
 
-  // 调用 fzlsaas 官网采集器（digital-price-tag-generator/fzlsaas-scraper.mjs），返回采集到的商品数组
+  // 调用 fzlsaas 官网采集器，返回采集到的商品数组
   async runOfficialScraper(models) {
-    const scraperDir = process.env.OFFICIAL_SCRAPER_DIR
-      || path.resolve(config.priceTag.dataDir, '..', '..');
-    const scraperFile = path.join(scraperDir, 'fzlsaas-scraper.mjs');
-    try {
-      await fs.access(scraperFile);
-    } catch {
-      const error = new Error('官网采集器未就绪：未找到 fzlsaas-scraper.mjs（请部署 digital-price-tag-generator 或设置 OFFICIAL_SCRAPER_DIR）');
+    const candidateDirs = [
+      process.env.OFFICIAL_SCRAPER_DIR,
+      path.join(config.rootDir, 'scrapers'),
+      path.resolve(config.priceTag.dataDir, '..', '..')
+    ].filter(Boolean);
+    let scraperDir = '';
+    for (const dir of candidateDirs) {
+      try {
+        await fs.access(path.join(dir, 'fzlsaas-scraper.mjs'));
+        scraperDir = dir;
+        break;
+      } catch {}
+    }
+    if (!scraperDir) {
+      const error = new Error('官网采集器未就绪：未找到 fzlsaas-scraper.mjs（已检查内置 scrapers 目录、OFFICIAL_SCRAPER_DIR 和 digital-price-tag-generator）');
       error.statusCode = 503;
       throw error;
     }
