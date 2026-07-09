@@ -253,7 +253,7 @@ function mapVmallProduct(keyword, row, detail = null, sboms = []) {
   const sliderImages = unique([image, ...normalizedSboms.map((item) => item.image)]).filter(Boolean);
   const colorItems = buildColorItems(normalizedSboms);
   return {
-    productKey: `vmall:${row.productId || sourceKey(storeName)}:${row.skuCode || sourceKey(skuName)}`,
+    productKey: `vmall:${row.productId || sourceKey(storeName)}`,
     brand: inferBrand(storeName || keyword),
     model: clean(detail?.briefName || row.briefName || keyword),
     storeName,
@@ -325,7 +325,7 @@ function normalizeSboms(sboms) {
 }
 
 function isColorAttr(name) {
-  return /颜色|色$/i.test(String(name || ''));
+  return /颜色|色$|款式|表款|表带/i.test(String(name || ''));
 }
 
 function buildColorItems(skus) {

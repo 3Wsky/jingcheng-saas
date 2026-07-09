@@ -670,6 +670,7 @@ class ProductsService {
     let importSummary = null;
     await this.repository.updateAll((state) => {
       const byKey = new Map(state.products.map((product) => [product.productKey, product]));
+      const touchedOfficialIds = new Set();
       let createdCount = 0;
       let updatedCount = 0;
       const defaultShow = options.isShow !== undefined ? Boolean(options.isShow) : true;
@@ -677,7 +678,11 @@ class ProductsService {
       for (const sp of scraped) {
         const incoming = normalizeOfficialProduct(sp);
         if (!incoming.productKey || !incoming.storeName) continue;
-        const existing = byKey.get(incoming.productKey);
+        const officialId = getVmallProductId(incoming.productKey);
+        const existing = byKey.get(incoming.productKey)
+          || (officialId
+            ? state.products.find((product) => product.source === 'vmall-official' && getVmallProductId(product.productKey) === officialId)
+            : null);
         if (existing) {
           Object.assign(existing, mergeImportedProduct(existing, incoming, importedAt));
           existing.skuPrices = incoming.skuPrices;
@@ -690,6 +695,7 @@ class ProductsService {
           if (incoming.description) existing.description = incoming.description;
           if (categoryId) existing.categoryId = categoryId;
           updatedCount += 1;
+          if (officialId) touchedOfficialIds.add(officialId);
           continue;
         }
         const created = {
@@ -704,6 +710,19 @@ class ProductsService {
         state.products.push(created);
         byKey.set(created.productKey, created);
         createdCount += 1;
+        if (officialId) touchedOfficialIds.add(officialId);
+      }
+
+      if (touchedOfficialIds.size) {
+        const seenOfficialIds = new Set();
+        state.products = state.products.filter((product) => {
+          if (product.source !== 'vmall-official') return true;
+          const officialId = getVmallProductId(product.productKey);
+          if (!officialId || !touchedOfficialIds.has(officialId)) return true;
+          if (seenOfficialIds.has(officialId)) return false;
+          seenOfficialIds.add(officialId);
+          return true;
+        });
       }
 
       state.products.sort((a, b) => Number(b.sort || 0) - Number(a.sort || 0) || String(a.storeName).localeCompare(String(b.storeName), 'zh-CN'));
@@ -1067,6 +1086,11 @@ function mergeImportedProduct(existing, incoming, importedAt) {
     importedAt: existing.importedAt || importedAt,
     updatedAt: importedAt
   };
+}
+
+function getVmallProductId(productKey) {
+  const match = String(productKey || '').match(/^vmall:(\d+)/);
+  return match ? match[1] : '';
 }
 
 function normalizeEditableFields(product, input) {
