@@ -124,7 +124,7 @@ function registerAdminRoutes(app) {
     if (!requireAdmin(request, reply)) return reply;
     const s = getAdminSession(request);
     const role = (s?.kind || 'super') === 'super' ? 'super' : 'sub';
-    return ok(reply, { username: s?.username || 'admin', role, isSuperAdmin: role === 'super' });
+    return ok({ username: s?.username || 'admin', role, isSuperAdmin: role === 'super' });
   });
 
   app.get('/admin', async (request, reply) => {
