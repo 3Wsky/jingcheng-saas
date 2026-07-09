@@ -21,6 +21,21 @@ function resolveBase(request) {
   return deriveBaseFromRequest(request).replace(/\/+$/, '');
 }
 
+function isProxyableExternalImage(raw) {
+  try {
+    const url = new URL(raw.startsWith('//') ? `https:${raw}` : raw);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' && (host === 'res.vmallres.com' || host.endsWith('.vmallres.com'));
+  } catch {
+    return false;
+  }
+}
+
+function toImageProxyUrl(raw, base) {
+  const normalized = raw.startsWith('//') ? `https:${raw}` : raw;
+  return `${base.replace(/\/+$/, '')}/api/image-proxy?u=${encodeURIComponent(normalized)}`;
+}
+
 /**
  * 把图片/文件路径补成可被浏览器与小程序访问的绝对 URL。
  * - 空值原样返回（保持 ''）
@@ -45,6 +60,9 @@ function toPublicUrl(input, request) {
     const uploadsPattern = raw.match(new RegExp(`^${baseNoSlash.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/(?:api\\/)?uploads\\/(.+)`));
     if (uploadsPattern) {
       return `${baseNoSlash}/api/file?p=uploads/${uploadsPattern[1]}`;
+    }
+    if (isProxyableExternalImage(raw)) {
+      return toImageProxyUrl(raw, baseNoSlash);
     }
     return raw;
   }

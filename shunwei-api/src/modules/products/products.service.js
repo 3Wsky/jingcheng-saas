@@ -13,6 +13,7 @@ const {
   absImage,
   cleanText: helperCleanText
 } = require('../admin/product-collect.helper');
+const { toPublicUrl, toPublicUrlList } = require('../../shared/url');
 
 const PRICE_TAG_FILES = [
   { fileName: 'products.json', type: 'phone' },
@@ -39,27 +40,27 @@ class ProductsService {
     this.repository = repository;
   }
 
-  async listPublicProducts(query = {}) {
+  async listPublicProducts(query = {}, request = null) {
     const state = await this.repository.readAll();
     const products = applyProductFilters(state.products, { ...query, status: 'shown' });
     return {
-      list: products.map(toPublicProduct),
+      list: products.map((product) => toPublicProduct(product, request)),
       total: products.length
     };
   }
 
-  async getPublicProduct(id) {
+  async getPublicProduct(id, request = null) {
     const state = await this.repository.readAll();
     const product = state.products.find((item) => String(item.id) === String(id) && item.isShow);
-    return product ? toPublicProduct(product) : null;
+    return product ? toPublicProduct(product, request) : null;
   }
 
-  async listAdminProducts(query = {}) {
+  async listAdminProducts(query = {}, request = null) {
     const state = await this.repository.readAll();
     const products = applyProductFilters(state.products, query);
     return {
       summary: buildSummary(state.products, state.imports),
-      list: products.map(toAdminProduct),
+      list: products.map((product) => toAdminProduct(product, request)),
       total: products.length
     };
   }
@@ -1180,7 +1181,23 @@ function buildSummary(products, imports = []) {
   };
 }
 
-function toPublicProduct(product) {
+function publicSkuPrices(list, request) {
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => ({
+    ...item,
+    image: toPublicUrl(item && item.image, request)
+  }));
+}
+
+function publicColorItems(list, request) {
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => ({
+    ...item,
+    image: toPublicUrl(item && item.image, request)
+  }));
+}
+
+function toPublicProduct(product, request = null) {
   return {
     id: product.id,
     productKey: product.productKey,
@@ -1193,20 +1210,20 @@ function toPublicProduct(product) {
     priceText: formatPrice(product.price),
     otPrice: product.otPrice,
     unitName: product.unitName,
-    image: product.image,
-    sliderImages: product.sliderImages || [],
+    image: toPublicUrl(product.image, request),
+    sliderImages: toPublicUrlList(product.sliderImages || [], request),
     isHot: Boolean(product.isHot),
     isBest: Boolean(product.isBest),
     isNew: Boolean(product.isNew),
     specType: Number(product.specType || 0),
-    skuPrices: product.skuPrices || [],
+    skuPrices: publicSkuPrices(product.skuPrices || [], request),
     colors: product.colors || [],
-    colorItems: product.colorItems || [],
+    colorItems: publicColorItems(product.colorItems || [], request),
     bundles: product.bundles || [],
     features: product.features || [],
     specs: product.specs || {},
     paramsList: product.paramsList || [],
-    detailImages: product.detailImages || [],
+    detailImages: toPublicUrlList(product.detailImages || [], request),
     description: product.description || '',
     sourceUrl: product.sourceUrl || '',
     source: product.source || '',
@@ -1216,14 +1233,14 @@ function toPublicProduct(product) {
   };
 }
 
-function toAdminProduct(product) {
+function toAdminProduct(product, request = null) {
   const crmebId = Number(product.crmebId || product.raw?.sourceId || 0) || (
     String(product.productKey || '').startsWith('crmeb:')
       ? Number(String(product.productKey).split(':')[1]) || 0
       : 0
   );
   return {
-    ...toPublicProduct(product),
+    ...toPublicProduct(product, request),
     crmebId: crmebId || undefined,
     keyword: product.keyword || '',
     isShow: Boolean(product.isShow),
@@ -1245,7 +1262,10 @@ function normalizeSkuPrices(list) {
       price: formatPrice(normalizePrice(item && item.price)),
       priceValue: normalizePrice(item && item.price),
       sbomCode: cleanText(item && item.sbomCode),
-      colors: normalizeTextArray(item && item.colors)
+      config: cleanText(item && item.config),
+      color: cleanText(item && item.color),
+      colors: Array.from(new Set(normalizeTextArray(item && item.colors).concat(cleanText(item && item.color) ? [cleanText(item && item.color)] : []))),
+      image: cleanText(item && item.image)
     }))
     .filter((item) => item.version || item.priceValue > 0);
 }

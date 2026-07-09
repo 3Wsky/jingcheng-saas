@@ -143,13 +143,13 @@ function registerProductRoutes(app) {
   app.get('/api/products', async (request, reply) => {
     const parsed = listQuerySchema.safeParse(request.query || {});
     if (!parsed.success) return fail(reply, 400, '商品查询参数错误', parsed.error.flatten());
-    return ok(await service.listPublicProducts(parsed.data));
+    return ok(await service.listPublicProducts(parsed.data, request));
   });
 
   app.get('/api/products/:id', async (request, reply) => {
     const parsed = idParamsSchema.safeParse(request.params || {});
     if (!parsed.success) return fail(reply, 400, '商品参数错误', parsed.error.flatten());
-    const product = await service.getPublicProduct(parsed.data.id);
+    const product = await service.getPublicProduct(parsed.data.id, request);
     if (!product) return fail(reply, 404, '商品不存在');
     return ok(product);
   });
@@ -158,14 +158,14 @@ function registerProductRoutes(app) {
     if (!requireAdmin(request, reply)) return reply;
     const parsed = listQuerySchema.safeParse(request.query || {});
     if (!parsed.success) return fail(reply, 400, '商品查询参数错误', parsed.error.flatten());
-    return ok(await service.listAdminProducts(parsed.data));
+    return ok(await service.listAdminProducts(parsed.data, request));
   });
 
   app.get('/api/admin/products/:id', async (request, reply) => {
     if (!requireAdmin(request, reply)) return reply;
     const parsed = idParamsSchema.safeParse(request.params || {});
     if (!parsed.success) return fail(reply, 400, '商品参数错误', parsed.error.flatten());
-    const data = await service.listAdminProducts({ status: 'all' });
+    const data = await service.listAdminProducts({ status: 'all' }, request);
     const product = (data.list || []).find((item) => String(item.id) === String(parsed.data.id));
     if (!product) return fail(reply, 404, '商品不存在');
     return ok(product);

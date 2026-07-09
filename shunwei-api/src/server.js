@@ -134,6 +134,57 @@ async function buildServer() {
     return reply.send(buf);
   });
 
+  app.get('/api/image-proxy', async (request, reply) => {
+    const raw = String(request.query.u || '').trim();
+    if (!raw) return reply.code(400).send({ statusCode: 400, error: 'Missing u parameter' });
+
+    let target;
+    try {
+      target = new URL(raw);
+    } catch {
+      return reply.code(400).send({ statusCode: 400, error: 'Invalid URL' });
+    }
+
+    const host = target.hostname.toLowerCase();
+    if (target.protocol !== 'https:' || (host !== 'res.vmallres.com' && !host.endsWith('.vmallres.com'))) {
+      return reply.code(400).send({ statusCode: 400, error: 'Unsupported image host' });
+    }
+
+    let response;
+    try {
+      response = await fetch(target.toString(), {
+        headers: { 'User-Agent': 'Mozilla/5.0 fzlsaas-image-proxy' },
+        signal: AbortSignal.timeout(12000)
+      });
+    } catch {
+      return reply.code(502).send({ statusCode: 502, error: 'Image fetch failed' });
+    }
+
+    if (!response.ok) {
+      return reply.code(response.status).send({ statusCode: response.status, error: 'Image fetch failed' });
+    }
+
+    const contentType = String(response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+    if (!contentType.startsWith('image/')) {
+      return reply.code(415).send({ statusCode: 415, error: 'Not an image' });
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > 8 * 1024 * 1024) {
+      return reply.code(413).send({ statusCode: 413, error: 'Image too large' });
+    }
+
+    const buf = Buffer.from(await response.arrayBuffer());
+    if (buf.length > 8 * 1024 * 1024) {
+      return reply.code(413).send({ statusCode: 413, error: 'Image too large' });
+    }
+
+    reply.type(contentType);
+    reply.header('Content-Length', buf.length);
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.send(buf);
+  });
+
   app.addContentTypeParser('application/x-www-form-urlencoded', { parseAs: 'string' }, (request, body, done) => {
     done(null, body);
   });
