@@ -6,6 +6,7 @@ const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
 const { getVerifyTokenService } = require('../cash-voucher/verify-token.service');
 const { ensureMerchantSortColumn } = require('./admin-merchant.routes');
+const { toPublicUrl } = require('../../shared/url');
 
 const verifySchema = z.object({
   verifyToken: z.string().trim().min(1),
@@ -87,6 +88,51 @@ function registerMerchantRoutes(app) {
           cover: images[0] || '',
           images,
           businessHours: row.business_hours || ''
+        };
+      }));
+    } catch (error) {
+      return failMerchant(reply, error);
+    }
+  });
+
+  app.get('/api/merchants/public', async (request, reply) => {
+    try {
+      try { await ensureMerchantSortColumn(); } catch { /* optional runtime repair */ }
+      const category = String(request.query?.category || '').trim();
+      const limit = Math.min(50, Math.max(1, Number(request.query?.limit || 20)));
+      const where = ['is_active = 1', 'can_verify = 1'];
+      const values = [];
+      if (category && category !== '全部') {
+        where.push('category = ?');
+        values.push(category);
+      }
+
+      const [rows] = await getPool().query(
+        `SELECT id, merchant_name, category, contact_phone, store_address,
+                latitude, longitude, store_images, business_hours
+         FROM ${swTable('merchant')}
+         WHERE ${where.join(' AND ')}
+         ORDER BY sort DESC, id DESC
+         LIMIT ?`,
+        [...values, limit]
+      );
+
+      return ok(rows.map((row) => {
+        let images = [];
+        try { images = JSON.parse(row.store_images || '[]'); } catch { images = []; }
+        images = (Array.isArray(images) ? images : []).filter(Boolean);
+        return {
+          id: Number(row.id),
+          merchantName: row.merchant_name || '',
+          category: row.category || '',
+          contactPhone: row.contact_phone || '',
+          storeAddress: row.store_address || '',
+          latitude: Number(row.latitude || 0),
+          longitude: Number(row.longitude || 0),
+          cover: toPublicUrl(images[0] || '', request),
+          images: images.map((image) => toPublicUrl(image, request)).filter(Boolean),
+          businessHours: row.business_hours || '',
+          supportText: '支持米东区联盟消费券核销'
         };
       }));
     } catch (error) {
