@@ -69,19 +69,32 @@ function registerApprovalRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
 
     try {
-      const rule = parsed.data.tierRuleId
-        ? await service.getTierRuleById(parsed.data.tierRuleId)
-        : await service.matchTierRule(parsed.data.consumeAmount);
-      if (!rule) return fail(reply, 400, '消费金额不在任何档位范围内');
+      const catalog = await service.resolveCatalogConsumeAmount(parsed.data.receiptNo);
+      const submittedAmount = Number(parsed.data.consumeAmount || 0);
+      const effectiveAmount = catalog.allPriced ? catalog.amount : submittedAmount;
+      if (effectiveAmount <= 0) return fail(reply, 400, '请填写有效的产品价格');
+
+      const rule = await service.matchTierRule(effectiveAmount);
+      if (!rule) {
+        const source = catalog.allPriced ? '产品库核实金额' : '申报金额';
+        return fail(reply, 400, `${source} ¥${effectiveAmount} 不在任何权益档位范围内`);
+      }
+      const corrected = Boolean(parsed.data.tierRuleId) && Number(parsed.data.tierRuleId) !== Number(rule.id);
 
       const result = await service.createRequest({
         clerkUid: request.auth.uid,
         customerUid: parsed.data.customerUid,
-        consumeAmount: parsed.data.consumeAmount || Number(rule.min_amount),
+        consumeAmount: effectiveAmount,
         receiptNo: parsed.data.receiptNo,
         rule
       });
-      return ok(result, '提交成功，等待店长审批');
+      return ok({
+        ...result,
+        corrected,
+        effectiveAmount,
+        amountSource: catalog.allPriced ? 'sn_catalog' : 'manual',
+        catalogMatched: catalog.allMatched
+      }, corrected ? '已按产品库核实价格修正权益档位' : '提交成功，等待店长审批');
     } catch (error) {
       return failApproval(reply, error);
     }

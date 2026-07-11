@@ -16,11 +16,62 @@ class ApprovalService {
     const amount = Number(consumeAmount || 0);
     const [rules] = await getPool().query(
       `SELECT * FROM ${swTable('tier_rule')}
-       WHERE is_active = 1 AND min_amount <= ?
+       WHERE is_active = 1
+         AND min_amount <= ?
+         AND (max_amount IS NULL OR max_amount = 0 OR max_amount >= ?)
        ORDER BY min_amount DESC LIMIT 1`,
-      [amount]
+      [amount, amount]
     );
     return rules[0] || null;
+  }
+
+  // Use the SN catalog as the source of truth whenever every submitted code
+  // resolves to a catalog item with a configured price. This prevents a clerk
+  // from obtaining a lower-tier benefit by entering a lower manual price.
+  async resolveCatalogConsumeAmount(receiptNo) {
+    const codes = SnCatalogService.extractCodes(receiptNo || '');
+    const entries = [];
+    const seenProducts = new Set();
+    const catalog = new SnCatalogService();
+    let matchedCount = 0;
+
+    for (const imei of codes.imeis) {
+      // eslint-disable-next-line no-await-in-loop
+      const hit = await catalog.lookupByCode({ imei });
+      if (!hit.found) continue;
+      matchedCount += 1;
+      const key = hit.imei1 || hit.sn || imei;
+      if (!seenProducts.has(key)) {
+        seenProducts.add(key);
+        entries.push(hit);
+      }
+    }
+    for (const sn of codes.sns) {
+      // eslint-disable-next-line no-await-in-loop
+      const hit = await catalog.lookupByCode({ sn });
+      if (!hit.found) continue;
+      matchedCount += 1;
+      const key = hit.imei1 || hit.sn || sn;
+      if (!seenProducts.has(key)) {
+        seenProducts.add(key);
+        entries.push(hit);
+      }
+    }
+
+    const hasCode = codes.imeis.length + codes.sns.length > 0;
+    const allMatched = hasCode && matchedCount === codes.imeis.length + codes.sns.length;
+    const allPriced = allMatched && entries.length > 0 && entries.every((item) => Number(item.price || 0) > 0);
+    const amount = allPriced
+      ? entries.reduce((sum, item) => sum + Number(item.price || 0), 0)
+      : 0;
+
+    return {
+      hasCode,
+      allMatched,
+      allPriced,
+      amount: Math.round(amount * 100) / 100,
+      products: entries.map((item) => ({ model: item.model || '', price: Number(item.price || 0) }))
+    };
   }
 
   async getTierRules() {
