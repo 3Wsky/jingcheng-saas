@@ -311,7 +311,9 @@ class IntegralMallService {
     }
   }
 
-  async cancelExchange(uid, orderId) {
+  async cancelExchange(uid, orderId, options = {}) {
+    const allowExpired = Boolean(options.allowExpired);
+    const keepOrderVisible = Boolean(options.keepOrderVisible);
     const [orderRows] = await getPool().query(
       `SELECT id, uid, order_id, product_id, store_name, total_price, status, is_del, add_time
        FROM ${legacyTable('store_integral_order')}
@@ -334,10 +336,15 @@ class IntegralMallService {
       error.statusCode = 409;
       throw error;
     }
+    if (Number(order.status || 0) === -1) {
+      const error = new Error('该兑换订单已撤销，积分和库存均已恢复');
+      error.statusCode = 409;
+      throw error;
+    }
 
     const now = Math.floor(Date.now() / 1000);
     const CANCEL_WINDOW = 24 * 3600;
-    if (now - Number(order.add_time || 0) > CANCEL_WINDOW) {
+    if (!allowExpired && now - Number(order.add_time || 0) > CANCEL_WINDOW) {
       const error = new Error('已超过 24 小时撤销时限，这笔兑换暂时无法撤销啦～如有需要可联系客户经理协助');
       error.statusCode = 409;
       throw error;
@@ -350,9 +357,9 @@ class IntegralMallService {
 
       const [delResult] = await connection.query(
         `UPDATE ${legacyTable('store_integral_order')}
-         SET is_del = 1, status = -1
-         WHERE order_id = ? AND uid = ? AND is_del = 0 AND status <> 3`,
-        [orderId, uid]
+         SET is_del = ?, status = -1
+         WHERE order_id = ? AND uid = ? AND is_del = 0 AND status NOT IN (3, -1)`,
+        [keepOrderVisible ? 0 : 1, orderId, uid]
       );
       if (!delResult.affectedRows) {
         const error = new Error('撤销失败，订单状态可能已变更');
@@ -360,16 +367,26 @@ class IntegralMallService {
         throw error;
       }
 
-      await connection.query(
+      const [stockResult] = await connection.query(
         `UPDATE ${legacyTable('store_integral')} SET stock = stock + 1 WHERE id = ?`,
         [order.product_id]
       );
+      if (!stockResult.affectedRows) {
+        const error = new Error('礼品不存在，无法恢复库存');
+        error.statusCode = 409;
+        throw error;
+      }
 
       // 锁定用户行后重读积分，避免与并发兑换/其它积分变动互相覆盖（丢失更新）。
       const [userRows] = await connection.query(
         `SELECT integral FROM ${legacyTable('user')} WHERE uid = ? LIMIT 1 FOR UPDATE`,
         [uid]
       );
+      if (!userRows.length) {
+        const error = new Error('用户不存在，无法退回积分');
+        error.statusCode = 409;
+        throw error;
+      }
       const beforeIntegral = Number(userRows[0]?.integral || 0);
       const afterIntegral = beforeIntegral + refund;
       await connection.query(
@@ -387,8 +404,11 @@ class IntegralMallService {
       await connection.commit();
       return {
         orderId,
+        uid: Number(uid),
         refundIntegral: refund,
-        balanceAfter: afterIntegral
+        balanceAfter: afterIntegral,
+        productId: Number(order.product_id || 0),
+        productName: order.store_name || ''
       };
     } catch (error) {
       await connection.rollback();
@@ -396,6 +416,20 @@ class IntegralMallService {
     } finally {
       connection.release();
     }
+  }
+
+  async cancelExchangeByAdmin(orderId) {
+    const [rows] = await getPool().query(
+      `SELECT uid FROM ${legacyTable('store_integral_order')} WHERE order_id = ? LIMIT 1`,
+      [orderId]
+    );
+    const uid = Number(rows[0]?.uid || 0);
+    if (!uid) {
+      const error = new Error('订单不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    return this.cancelExchange(uid, orderId, { allowExpired: true, keepOrderVisible: true });
   }
 
   async listUserOrders(uid, page = 1, limit = 20, request) {

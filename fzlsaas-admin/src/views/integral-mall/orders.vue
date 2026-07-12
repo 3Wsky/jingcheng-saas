@@ -6,6 +6,7 @@
           <el-select v-model="filters.status" clearable placeholder="全部" style="width: 120px">
             <el-option label="待核销" value="pending" />
             <el-option label="已核销" value="verified" />
+            <el-option label="已撤销" value="cancelled" />
           </el-select>
         </el-form-item>
         <el-form-item label="用户UID">
@@ -51,13 +52,19 @@
       </el-table-column>
       <el-table-column label="状态" width="90">
         <template #default="{ row }">
-          <el-tag :type="row.status === 3 ? 'success' : 'warning'" size="small">
+          <el-tag :type="statusType(row.status)" size="small">
             {{ row.statusLabel }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="兑换时间" width="165">
         <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="110" fixed="right">
+        <template #default="{ row }">
+          <el-button v-if="canCancel(row)" link type="danger" @click="cancelOrder(row)">撤销兑换</el-button>
+          <span v-else class="sub-text">—</span>
+        </template>
       </el-table-column>
     </el-table>
 
@@ -78,7 +85,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import request from '@/utils/request'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import PageShell from '@/components/PageShell.vue'
 import UidLink from '@/components/UidLink.vue'
 import MemberDetailDrawer from '@/views/members/components/MemberDetailDrawer.vue'
@@ -151,6 +158,36 @@ function fmtTime(ts?: number) {
 function formatNum(v: unknown) {
   const n = Number(v)
   return Number.isFinite(n) ? n.toLocaleString('zh-CN') : '0'
+}
+
+function statusType(status: number) {
+  if (Number(status) === 3) return 'success'
+  if (Number(status) === -1) return 'info'
+  return 'warning'
+}
+
+function canCancel(row: any) {
+  return Number(row?.status) !== 3 && Number(row?.status) !== -1
+}
+
+async function cancelOrder(row: any) {
+  try {
+    await ElMessageBox.confirm(
+      `撤销后将退回 ${formatNum(row.integralCost)} 积分，并恢复「${row.productName || '该礼品'}」的库存。该操作不可恢复，是否继续？`,
+      '撤销兑换订单',
+      {
+        type: 'warning',
+        confirmButtonText: '确认撤销',
+        cancelButtonText: '取消',
+        distinguishCancelAndClose: true
+      }
+    )
+    const data = await request.post(`/api/admin/integral-mall/orders/${encodeURIComponent(row.orderId)}/cancel`)
+    ElMessage.success(`已撤销：退回 ${formatNum(data?.refundIntegral ?? row.integralCost)} 积分，并恢复库存`)
+    load()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.message || '撤销失败')
+  }
 }
 </script>
 

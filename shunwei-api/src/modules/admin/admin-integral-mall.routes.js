@@ -7,6 +7,7 @@ const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service
 const { IntegralProductExtRepository } = require('./integral-product-ext.repository');
 const { ProductsService } = require('../products/products.service');
 const { backfillIntegralImageUrls } = require('./integral-image-backfill');
+const { IntegralMallService } = require('../integral-mall/integral-mall.service');
 const {
   showcaseToIntegralPayload,
   fetchCrmebProducts,
@@ -241,6 +242,7 @@ function summarizeBatch(results) {
 
 function registerAdminIntegralMallRoutes(app) {
   const audit = new AdminAuditService();
+  const mallService = new IntegralMallService();
 
   app.get('/api/admin/integral-mall/products', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
@@ -549,8 +551,9 @@ function registerAdminIntegralMallRoutes(app) {
 
     let where = "o.is_del = 0 AND o.order_id NOT LIKE 'DEMOIG%'";
     const values = [];
-    if (status === 'pending') where += ' AND o.status <> 3';
+    if (status === 'pending') where += ' AND o.status NOT IN (3, -1)';
     else if (status === 'verified') where += ' AND o.status = 3';
+    else if (status === 'cancelled') where += ' AND o.status = -1';
     if (uid > 0) {
       where += ' AND o.uid = ?';
       values.push(uid);
@@ -599,10 +602,37 @@ function registerAdminIntegralMallRoutes(app) {
         integralCost: Number(r.total_price || 0),
         verifyCode: r.verify_code || '',
         status: Number(r.status || 0),
-        statusLabel: Number(r.status) === 3 ? '已核销' : '待核销',
-        createdAt: Number(r.add_time || 0)
+      statusLabel: Number(r.status) === 3 ? '已核销' : (Number(r.status) === -1 ? '已撤销' : '待核销'),
+      createdAt: Number(r.add_time || 0)
       }))
     });
+  });
+
+  app.post('/api/admin/integral-mall/orders/:orderId/cancel', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const orderId = String(request.params?.orderId || '').trim();
+    if (!orderId || orderId.length > 64) return fail(reply, 400, '订单号无效');
+
+    try {
+      const data = await mallService.cancelExchangeByAdmin(orderId);
+      const session = getAdminSession(request);
+      await audit.write({
+        adminUsername: session?.username || '',
+        action: 'integral_mall_order_cancel',
+        targetType: 'integral_order',
+        targetId: data.orderId,
+        payload: {
+          uid: data.uid,
+          productId: data.productId,
+          refundIntegral: data.refundIntegral,
+          balanceAfter: data.balanceAfter
+        },
+        ip: getClientIp(request)
+      });
+      return ok(data, '订单已撤销，积分和库存已恢复');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '撤销失败');
+    }
   });
 
   // 一键修复存量积分商品图片：把 eb_store_integral 历史裸路径改写为绝对 URL，

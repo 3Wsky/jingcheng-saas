@@ -501,6 +501,25 @@ class StaffService {
     return this.getCard(staffUid);
   }
 
+  // 客户经理在小程序中只能维护个人展示信息；门店资料仍由后台统一维护。
+  async updateOwnCard(staffUid, input = {}) {
+    const current = await this.getCard(staffUid);
+    return this.upsertCard(staffUid, {
+      displayName: input.displayName !== undefined ? input.displayName : current.displayName,
+      avatar: input.avatar !== undefined ? input.avatar : current.avatar,
+      jobTitle: input.jobTitle !== undefined ? input.jobTitle : current.jobTitle,
+      bio: input.bio !== undefined ? input.bio : current.bio,
+      storeName: current.storeName,
+      storeAddress: current.storeAddress,
+      storePhone: current.storePhone,
+      businessHours: current.businessHours,
+      latitude: current.latitude,
+      longitude: current.longitude,
+      wechatQrcode: input.wechatQrcode !== undefined ? input.wechatQrcode : current.wechatQrcode,
+      isPublished: input.isPublished !== undefined ? input.isPublished : current.isPublished
+    });
+  }
+
   async bindSpread(customerUid, staffUid) {
     if (Number(customerUid) === Number(staffUid)) {
       const error = new Error('不能绑定自己为客户经理');

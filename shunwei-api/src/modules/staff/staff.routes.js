@@ -12,6 +12,15 @@ const membersQuerySchema = z.object({
   keyword: z.string().trim().max(40).optional().default('')
 });
 
+const ownCardSchema = z.object({
+  displayName: z.string().trim().max(64).optional(),
+  avatar: z.string().trim().max(512).optional(),
+  jobTitle: z.string().trim().max(64).optional(),
+  bio: z.string().trim().max(500).optional(),
+  wechatQrcode: z.string().trim().max(512).optional(),
+  isPublished: z.boolean().optional()
+});
+
 function registerStaffRoutes(app) {
   const service = new StaffService();
 
@@ -56,6 +65,26 @@ function registerStaffRoutes(app) {
       }
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '获取客户经理名片失败');
+    }
+  });
+
+  app.get('/api/staff/my-card', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    try {
+      return ok(await service.getCard(request.auth.uid));
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '获取名片失败');
+    }
+  });
+
+  app.put('/api/staff/my-card', async (request, reply) => {
+    if (!request.auth.uid) return fail(reply, 401, '请先登录');
+    const parsed = ownCardSchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '名片参数错误', parsed.error.flatten());
+    try {
+      return ok(await service.updateOwnCard(request.auth.uid, parsed.data), '名片已保存');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '保存名片失败');
     }
   });
 
