@@ -13,7 +13,7 @@ const updateSchema = z.object({
   managerUids: z.array(z.coerce.number().int().positive()).max(100)
 });
 const liveFeedSchema = z.object({
-  limit: z.coerce.number().int().min(1).max(20).optional().default(8)
+  limit: z.coerce.number().int().min(1).max(20).optional().default(10)
 });
 
 let rotationQueue = Promise.resolve();
