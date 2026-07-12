@@ -3,12 +3,17 @@ const path = require('node:path');
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
 const { config } = require('../../shared/config');
+const { getPool, legacyTable } = require('../../shared/mysql');
+const { swTable } = require('../../shared/sw-mysql');
 const { requireAdmin } = require('../admin/admin.auth');
 const { StaffService } = require('../staff/staff.service');
 
 const DATA_FILE = path.join(config.dataDir, 'coupon-landing-config.json');
 const updateSchema = z.object({
   managerUids: z.array(z.coerce.number().int().positive()).max(100)
+});
+const liveFeedSchema = z.object({
+  limit: z.coerce.number().int().min(1).max(20).optional().default(8)
 });
 
 let rotationQueue = Promise.resolve();
@@ -45,6 +50,78 @@ function withRotationLock(task) {
   const run = rotationQueue.then(task, task);
   rotationQueue = run.catch(() => {});
   return run;
+}
+
+function toLiveNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+}
+
+function cleanLiveText(value, fallback = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120) || fallback;
+}
+
+function extractApprovalProductModel(receiptNo) {
+  const match = String(receiptNo || '').match(/\[产品\d+\]\s*([^;]+)/);
+  if (!match) return '购机产品';
+  const fields = match[1].split('/').map((value) => value.trim()).filter(Boolean);
+  return cleanLiveText(fields[1] || fields[0], '购机产品');
+}
+
+function mapApprovalLiveFeed(row) {
+  return {
+    id: `approval-${row.id}`,
+    type: 'approval',
+    customerNickname: cleanLiveText(row.customer_nickname, '微信用户'),
+    productModel: extractApprovalProductModel(row.receipt_no),
+    voucherAmount: toLiveNumber(row.matched_voucher_amount),
+    points: toLiveNumber(row.matched_integral),
+    occurredAt: Number(row.updated_at || row.created_at || 0)
+  };
+}
+
+function mapIntegralLiveFeed(row) {
+  return {
+    id: `integral-${row.id || row.order_id}`,
+    type: 'integral',
+    customerNickname: cleanLiveText(row.customer_nickname, '微信用户'),
+    productName: cleanLiveText(row.store_name, '积分好礼'),
+    voucherAmount: 0,
+    points: toLiveNumber(row.total_price),
+    occurredAt: Number(row.add_time || 0)
+  };
+}
+
+async function getCouponLandingLiveFeed(limit) {
+  const pool = getPool();
+  const [approvalResult, integralResult] = await Promise.all([
+    pool.query(
+      `SELECT r.id, r.receipt_no, r.matched_voucher_amount, r.matched_integral, r.updated_at, r.created_at,
+              u.nickname AS customer_nickname
+       FROM ${swTable('approval_request')} r
+       LEFT JOIN ${legacyTable('user')} u ON u.uid = r.customer_uid
+       WHERE r.status = 'approved'
+       ORDER BY COALESCE(NULLIF(r.updated_at, 0), r.created_at) DESC
+       LIMIT ?`,
+      [limit]
+    ),
+    pool.query(
+      `SELECT o.id, o.order_id, o.store_name, o.total_price, o.add_time, u.nickname AS customer_nickname
+       FROM ${legacyTable('store_integral_order')} o
+       LEFT JOIN ${legacyTable('user')} u ON u.uid = o.uid
+       WHERE COALESCE(o.is_del, 0) = 0
+       ORDER BY o.add_time DESC
+       LIMIT ?`,
+      [limit]
+    )
+  ]);
+  const approvals = (approvalResult[0] || []).map(mapApprovalLiveFeed);
+  const integralOrders = (integralResult[0] || []).map(mapIntegralLiveFeed);
+  return {
+    list: [...approvals, ...integralOrders]
+      .sort((left, right) => right.occurredAt - left.occurredAt)
+      .slice(0, limit * 2)
+  };
 }
 
 async function selectNextCard(current, getCard) {
@@ -95,6 +172,16 @@ function registerCouponLandingRoutes(app) {
     }
   });
 
+  app.get('/api/landing/coupon/live-feed', async (request, reply) => {
+    const parsed = liveFeedSchema.safeParse(request.query || {});
+    if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
+    try {
+      return ok(await getCouponLandingLiveFeed(parsed.data.limit));
+    } catch (error) {
+      return fail(reply, 500, error.message || '活动动态加载失败');
+    }
+  });
+
   app.get('/api/admin/landing/coupon', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     try {
@@ -122,4 +209,11 @@ function registerCouponLandingRoutes(app) {
   });
 }
 
-module.exports = { registerCouponLandingRoutes, normalizeConfig, selectNextCard };
+module.exports = {
+  registerCouponLandingRoutes,
+  normalizeConfig,
+  selectNextCard,
+  extractApprovalProductModel,
+  mapApprovalLiveFeed,
+  mapIntegralLiveFeed
+};
