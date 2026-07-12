@@ -4,7 +4,20 @@
       <template v-if="profile">
         <el-descriptions :column="1" border size="small" class="mb-16">
           <el-descriptions-item label="昵称">{{ profile.nickname || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="手机">{{ profile.phone || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="手机">
+            <span>{{ profile.phone || '—' }}</span>
+            <el-button
+              v-if="canViewFullPhone"
+              link
+              type="primary"
+              size="small"
+              :loading="phoneLoading"
+              :title="fullPhone ? '已显示完整手机号' : '查看完整手机号'"
+              @click="revealPhone"
+            >
+              <el-icon><View /></el-icon>
+            </el-button>
+          </el-descriptions-item>
           <el-descriptions-item label="等级">
             <MemberTag v-if="profile.tierCode" :tag="profile.tierCode" />
             <MemberTag v-else tag="normal" />
@@ -295,6 +308,7 @@
 import { ref, computed, watch } from 'vue'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { View } from '@element-plus/icons-vue'
 import MemberTag from '@/components/MemberTag.vue'
 import StoreNameSelect from '@/components/StoreNameSelect.vue'
 import { rememberStoreName } from '@/utils/recentStores'
@@ -302,12 +316,15 @@ import { useUserStore } from '@/store/user'
 
 const userStore = useUserStore()
 const isSuperAdmin = computed(() => userStore.isSuperAdmin)
+const canViewFullPhone = computed(() => userStore.canViewFullPhone)
 
 const props = defineProps<{ uid: number | null }>()
 const visible = defineModel<boolean>({ default: false })
 
 const loading = ref(false)
 const profile = ref<any>(null)
+const fullPhone = ref('')
+const phoneLoading = ref(false)
 const integralSummary = ref<any>(null)
 const integralBatches = ref<any[]>([])
 const cashVoucherBatches = ref<any[]>([])
@@ -363,6 +380,7 @@ function formatMoney(v: any) {
 async function loadDetail(uid: number) {
   loading.value = true
   activeTab.value = 'voucher'
+  fullPhone.value = ''
   try {
     const data = await request.get(`/api/admin/members/${uid}/detail`)
     profile.value = data.profile
@@ -378,6 +396,20 @@ async function loadDetail(uid: number) {
     profile.value = null
   } finally {
     loading.value = false
+  }
+}
+
+async function revealPhone() {
+  if (!props.uid || !canViewFullPhone.value || phoneLoading.value || fullPhone.value) return
+  phoneLoading.value = true
+  try {
+    const data = await request.get(`/api/admin/members/${props.uid}/phone`)
+    if (data?.phone) {
+      fullPhone.value = data.phone
+      if (profile.value) profile.value.phone = data.phone
+    }
+  } finally {
+    phoneLoading.value = false
   }
 }
 
