@@ -21,7 +21,7 @@ export const MENU_MODULES: MenuModuleConfig[] = [
     label: '财务',
     routes: ['finance-cash', 'finance-integral', 'finance-recharge', 'finance-settlement', 'finance-settings'],
   },
-  { key: 'operation', label: '运营', routes: ['lottery', 'content', 'share-config'] },
+  { key: 'operation', label: '运营', routes: ['lottery', 'homepage-banners', 'content', 'share-config'] },
   {
     key: 'settings',
     label: '系统',

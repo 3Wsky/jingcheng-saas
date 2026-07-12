@@ -117,6 +117,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '新客抽奖', icon: 'Present', module: 'operation' },
       },
       {
+        path: 'homepage-banners',
+        name: 'HomepageBanners',
+        component: () => import('@/views/operation/homepage-banners.vue'),
+        meta: { title: '首页轮播图', icon: 'Picture', module: 'operation' },
+      },
+      {
         path: 'share-config',
         name: 'ShareConfig',
         component: () => import('@/views/operation/share-config.vue'),
