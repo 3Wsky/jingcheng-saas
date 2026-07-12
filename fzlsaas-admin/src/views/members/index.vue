@@ -156,8 +156,21 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="手机号" width="120">
-        <template #default="{ row }">{{ maskPhone(row.phone) }}</template>
+      <el-table-column label="手机号" width="148">
+        <template #default="{ row }">
+          <span>{{ revealedPhones[row.uid] || maskPhone(row.phone) }}</span>
+          <el-button
+            v-if="canViewFullPhone"
+            link
+            type="primary"
+            size="small"
+            :loading="phoneLoadingUid === row.uid"
+            :title="revealedPhones[row.uid] ? '已显示完整手机号' : '查看完整手机号'"
+            @click="revealPhone(row.uid)"
+          >
+            <el-icon><View /></el-icon>
+          </el-button>
+        </template>
       </el-table-column>
       <el-table-column label="归属客户经理" min-width="108">
         <template #default="{ row }">
@@ -347,12 +360,15 @@ import { ref, computed, onMounted } from 'vue'
 import type { TableInstance } from 'element-plus'
 import request from '@/utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { View } from '@element-plus/icons-vue'
 import PageShell from '@/components/PageShell.vue'
 import MemberDetailDrawer from './components/MemberDetailDrawer.vue'
 import MemberTag from '@/components/MemberTag.vue'
 import TableSkeleton from '@/components/TableSkeleton.vue'
 import { downloadCsv } from '@/utils/csvExport'
+import { useUserStore } from '@/store/user'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const list = ref<any[]>([])
 const total = ref(0)
@@ -401,6 +417,9 @@ const autoSpreadPreview = ref<{
   plan: { uid: number; nickname: string; currentCount: number; addCount: number; afterCount: number }[]
 } | null>(null)
 const tableRef = ref<TableInstance>()
+const revealedPhones = ref<Record<number, string>>({})
+const phoneLoadingUid = ref<number | null>(null)
+const canViewFullPhone = computed(() => userStore.canViewFullPhone)
 
 const batchTitle = computed(() => ({
   integral: '批量发积分',
@@ -603,12 +622,25 @@ async function loadList() {
       rows = rows.filter((r: any) => !r.tierCode)
     }
     list.value = rows
+    revealedPhones.value = {}
     total.value = data?.total || 0
   } catch {
     list.value = []
     total.value = 0
   } finally {
     loading.value = false
+  }
+}
+
+async function revealPhone(uid: number) {
+  if (!canViewFullPhone.value || phoneLoadingUid.value === uid) return
+  if (revealedPhones.value[uid]) return
+  phoneLoadingUid.value = uid
+  try {
+    const data = await request.get(`/api/admin/members/${uid}/phone`)
+    if (data?.phone) revealedPhones.value = { ...revealedPhones.value, [uid]: data.phone }
+  } finally {
+    phoneLoadingUid.value = null
   }
 }
 

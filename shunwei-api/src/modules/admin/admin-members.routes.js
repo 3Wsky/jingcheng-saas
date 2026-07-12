@@ -1,6 +1,6 @@
 const { z } = require('zod');
 const { ok, fail } = require('../../shared/http');
-const { requireAdmin, getAdminSession } = require('./admin.auth');
+const { requireAdmin, getAdminSession, canViewFullPhone } = require('./admin.auth');
 const { AdminAuditService, getClientIp } = require('./admin-audit.service');
 const { AdminMembersService } = require('./admin-members.service');
 const { AdminMerchantStaffService } = require('../merchant/admin-merchant-staff.service');
@@ -122,6 +122,28 @@ function registerAdminMembersRoutes(app) {
       return ok(await membersService.getDetail(uid));
     } catch (error) {
       return fail(reply, error.statusCode || 500, error.message || '会员详情加载失败');
+    }
+  });
+
+  app.get('/api/admin/members/:uid/phone', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    if (!canViewFullPhone(request)) return fail(reply, 403, '无查看客户完整手机号权限');
+    const uid = Number(request.params.uid);
+    if (!uid) return fail(reply, 400, 'uid 无效');
+
+    const session = getAdminSession(request);
+    try {
+      const phone = await membersService.getFullPhone(uid);
+      await auditService.write({
+        adminUsername: session?.username || '',
+        action: 'member_phone_view',
+        targetType: 'user',
+        targetId: uid,
+        ip: getClientIp(request)
+      });
+      return ok({ phone });
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '手机号加载失败');
     }
   });
 

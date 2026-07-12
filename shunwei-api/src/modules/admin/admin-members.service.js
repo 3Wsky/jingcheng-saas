@@ -56,6 +56,20 @@ function multiRoleMatches(row, multiRole, dualRole) {
 }
 
 class AdminMembersService {
+  async getFullPhone(uid) {
+    const pool = getPool();
+    const [[user]] = await pool.query(
+      `SELECT phone FROM ${legacyTable('user')} WHERE uid = ? AND COALESCE(is_del, 0) = 0 LIMIT 1`,
+      [uid]
+    );
+    if (!user) {
+      const error = new Error('用户不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    return String(user.phone || '').trim();
+  }
+
   async list(params) {
     const page = Math.max(1, Number(params.page || 1));
     const pageSize = Math.min(100, Math.max(1, Number(params.pageSize || 20)));

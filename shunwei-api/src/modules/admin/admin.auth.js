@@ -2,6 +2,7 @@ const crypto = require('node:crypto');
 const { config } = require('../../shared/config');
 
 const COOKIE_NAME = 'sw_admin_session';
+const FULL_PHONE_VIEWER_USERNAME = '3wsky';
 
 function verifyAdminCredentials(username, password) {
   return safeEqual(username, config.admin.username) && safeEqual(password, config.admin.password);
@@ -94,6 +95,16 @@ function isSuperAdminSession(request) {
   return Boolean(session && (session.kind || 'super') === 'super');
 }
 
+/** 查看客户完整手机号属于高敏感权限：其它超管也无权读取。 */
+function canViewFullPhone(request) {
+  const session = getAdminSession(request);
+  return Boolean(
+    session
+    && (session.kind || 'super') === 'super'
+    && session.username === FULL_PHONE_VIEWER_USERNAME
+  );
+}
+
 function isAdminAuthenticated(request) {
   return Boolean(getAdminSession(request));
 }
@@ -182,6 +193,7 @@ function serializeCookie(name, value, options = {}) {
 
 module.exports = {
   adminLoginThrottle,
+  canViewFullPhone,
   clearAdminSessionCookie,
   getAdminSession,
   getClientKey,

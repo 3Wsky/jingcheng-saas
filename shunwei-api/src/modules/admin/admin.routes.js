@@ -5,6 +5,7 @@ const { NewcomerLotteryService } = require('../newcomer-lottery/newcomer-lottery
 const {
   adminLoginThrottle,
   clearAdminSessionCookie,
+  canViewFullPhone,
   getAdminSession,
   getClientKey,
   requireAdmin,
@@ -124,7 +125,12 @@ function registerAdminRoutes(app) {
     if (!requireAdmin(request, reply)) return reply;
     const s = getAdminSession(request);
     const role = (s?.kind || 'super') === 'super' ? 'super' : 'sub';
-    return ok({ username: s?.username || 'admin', role, isSuperAdmin: role === 'super' });
+    return ok({
+      username: s?.username || 'admin',
+      role,
+      isSuperAdmin: role === 'super',
+      canViewFullPhone: canViewFullPhone(request)
+    });
   });
 
   app.get('/admin', async (request, reply) => {

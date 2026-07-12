@@ -7,6 +7,7 @@ export const useUserStore = defineStore('user', {
     username: '',
     role: 'admin' as 'admin' | 'manager' | 'clerk' | 'merchant',
     isSuperAdmin: true,
+    canViewFullPhone: false,
     _checked: false,
   }),
 
@@ -29,6 +30,7 @@ export const useUserStore = defineStore('user', {
       try {
         const me: any = await request.get('/api/admin/me')
         this.isSuperAdmin = me?.isSuperAdmin !== false
+        this.canViewFullPhone = me?.canViewFullPhone === true
       } catch { this.isSuperAdmin = true }
     },
 
@@ -36,6 +38,7 @@ export const useUserStore = defineStore('user', {
       request.post('/admin/logout').catch(() => {})
       this.isLoggedIn = false
       this.username = ''
+      this.canViewFullPhone = false
       this._checked = true
     },
 
@@ -47,9 +50,11 @@ export const useUserStore = defineStore('user', {
         this.username = data?.username || 'admin'
         this.role = 'admin'
         this.isSuperAdmin = data?.isSuperAdmin !== false
+        this.canViewFullPhone = data?.canViewFullPhone === true
       } catch {
         this.isLoggedIn = false
         this.username = ''
+        this.canViewFullPhone = false
       }
       this._checked = true
       return this.isLoggedIn
