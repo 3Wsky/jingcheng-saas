@@ -314,6 +314,7 @@ class IntegralMallService {
   async cancelExchange(uid, orderId, options = {}) {
     const allowExpired = Boolean(options.allowExpired);
     const keepOrderVisible = Boolean(options.keepOrderVisible);
+    const allowVerified = Boolean(options.allowVerified);
     const [orderRows] = await getPool().query(
       `SELECT id, uid, order_id, product_id, store_name, total_price, status, is_del, add_time
        FROM ${legacyTable('store_integral_order')}
@@ -331,7 +332,7 @@ class IntegralMallService {
       error.statusCode = 403;
       throw error;
     }
-    if (Number(order.status || 0) === 3) {
+    if (Number(order.status || 0) === 3 && !allowVerified) {
       const error = new Error('这笔礼品已到店核销啦，无法再撤销～如有疑问可联系客户经理');
       error.statusCode = 409;
       throw error;
@@ -358,7 +359,7 @@ class IntegralMallService {
       const [delResult] = await connection.query(
         `UPDATE ${legacyTable('store_integral_order')}
          SET is_del = ?, status = -1
-         WHERE order_id = ? AND uid = ? AND is_del = 0 AND status NOT IN (3, -1)`,
+         WHERE order_id = ? AND uid = ? AND is_del = 0 AND status <> -1`,
         [keepOrderVisible ? 0 : 1, orderId, uid]
       );
       if (!delResult.affectedRows) {
@@ -429,7 +430,11 @@ class IntegralMallService {
       error.statusCode = 404;
       throw error;
     }
-    return this.cancelExchange(uid, orderId, { allowExpired: true, keepOrderVisible: true });
+    return this.cancelExchange(uid, orderId, {
+      allowExpired: true,
+      keepOrderVisible: true,
+      allowVerified: true
+    });
   }
 
   async listUserOrders(uid, page = 1, limit = 20, request) {

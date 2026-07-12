@@ -167,14 +167,14 @@ function statusType(status: number) {
 }
 
 function canCancel(row: any) {
-  return Number(row?.status) !== 3 && Number(row?.status) !== -1
+  return Number(row?.status) !== -1
 }
 
 async function cancelOrder(row: any) {
   try {
     await ElMessageBox.confirm(
-      `撤销后将退回 ${formatNum(row.integralCost)} 积分，并恢复「${row.productName || '该礼品'}」的库存。该操作不可恢复，是否继续？`,
-      '撤销兑换订单',
+      `该订单${Number(row.status) === 3 ? '已完成核销，' : ''}撤销后将退回 ${formatNum(row.integralCost)} 积分，并恢复「${row.productName || '该礼品'}」的库存。该操作不可恢复，是否继续？`,
+      '撤销已核销兑换订单',
       {
         type: 'warning',
         confirmButtonText: '确认撤销',
