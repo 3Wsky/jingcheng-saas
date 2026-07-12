@@ -33,6 +33,7 @@ const { registerApprovalRoutes } = require('./modules/approval/approval.routes')
 const { registerMiniappConfigRoutes } = require('./modules/miniapp/miniapp-config.routes');
 const { registerContentRoutes } = require('./modules/miniapp/content.routes');
 const { registerHomepageRoutes } = require('./modules/miniapp/homepage.routes');
+const { registerCouponLandingRoutes } = require('./modules/miniapp/coupon-landing.routes');
 const { registerWeworkRoutes } = require('./modules/wework/wework.routes');
 const { registerSnScanRoutes } = require('./modules/admin/admin-sn-scan.routes');
 const { registerSnCatalogRoutes } = require('./modules/admin/sn-catalog.routes');
@@ -240,6 +241,7 @@ async function buildServer() {
   registerMiniappConfigRoutes(app);
   registerContentRoutes(app);
   registerHomepageRoutes(app);
+  registerCouponLandingRoutes(app);
   registerWeworkRoutes(app);
   registerSnScanRoutes(app);
   registerSnCatalogRoutes(app);

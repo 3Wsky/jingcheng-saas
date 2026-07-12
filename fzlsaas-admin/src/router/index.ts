@@ -129,6 +129,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '分享设置', icon: 'Share', module: 'operation' },
       },
       {
+        path: 'landing-coupon',
+        name: 'LandingCoupon',
+        component: () => import('@/views/operation/landing-coupon.vue'),
+        meta: { title: '广告页设置', icon: 'Promotion', module: 'operation' },
+      },
+      {
         path: 'finance-cash',
         name: 'FinanceCash',
         component: () => import('@/views/finance/cash-ledger.vue'),
