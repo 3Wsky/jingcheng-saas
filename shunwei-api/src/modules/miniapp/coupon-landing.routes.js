@@ -61,6 +61,11 @@ function cleanLiveText(value, fallback = '') {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120) || fallback;
 }
 
+function isPhoneLikeNickname(value) {
+  const nickname = String(value || '').trim().replace(/[\s-]/g, '');
+  return /^1[3-9]\d{9}$/.test(nickname) || /^1[3-9]\d\*{4}\d{4}$/.test(nickname);
+}
+
 function extractApprovalProductModel(receiptNo) {
   const match = String(receiptNo || '').match(/\[产品\d+\]\s*([^;]+)/);
   if (!match) return '购机产品';
@@ -101,6 +106,10 @@ async function getCouponLandingLiveFeed(limit) {
        FROM ${swTable('approval_request')} r
        LEFT JOIN ${legacyTable('user')} u ON u.uid = r.customer_uid
        WHERE r.status = 'approved'
+         AND u.nickname IS NOT NULL
+         AND TRIM(u.nickname) <> ''
+         AND TRIM(u.nickname) NOT REGEXP '^1[3-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$'
+         AND TRIM(u.nickname) NOT REGEXP '^1[3-9][0-9][*][*][*][*][0-9][0-9][0-9][0-9]$'
        ORDER BY COALESCE(NULLIF(r.updated_at, 0), r.created_at) DESC
        LIMIT ?`,
       [limit]
@@ -110,13 +119,23 @@ async function getCouponLandingLiveFeed(limit) {
        FROM ${legacyTable('store_integral_order')} o
        LEFT JOIN ${legacyTable('user')} u ON u.uid = o.uid
        WHERE COALESCE(o.is_del, 0) = 0
+         AND u.nickname IS NOT NULL
+         AND TRIM(u.nickname) <> ''
+         AND TRIM(u.nickname) NOT REGEXP '^1[3-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$'
+         AND TRIM(u.nickname) NOT REGEXP '^1[3-9][0-9][*][*][*][*][0-9][0-9][0-9][0-9]$'
        ORDER BY o.add_time DESC
        LIMIT ?`,
       [limit]
     )
   ]);
-  const approvals = (approvalResult[0] || []).map(mapApprovalLiveFeed);
-  const integralOrders = (integralResult[0] || []).map(mapIntegralLiveFeed);
+  const approvals = (approvalResult[0] || [])
+    .filter((row) => !isPhoneLikeNickname(row.customer_nickname))
+    .slice(0, limit)
+    .map(mapApprovalLiveFeed);
+  const integralOrders = (integralResult[0] || [])
+    .filter((row) => !isPhoneLikeNickname(row.customer_nickname))
+    .slice(0, limit)
+    .map(mapIntegralLiveFeed);
   return {
     list: [...approvals, ...integralOrders]
       .sort((left, right) => right.occurredAt - left.occurredAt)
@@ -214,6 +233,7 @@ module.exports = {
   normalizeConfig,
   selectNextCard,
   extractApprovalProductModel,
+  isPhoneLikeNickname,
   mapApprovalLiveFeed,
   mapIntegralLiveFeed
 };

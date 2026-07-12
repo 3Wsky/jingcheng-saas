@@ -4,6 +4,7 @@ const {
   normalizeConfig,
   selectNextCard,
   extractApprovalProductModel,
+  isPhoneLikeNickname,
   mapApprovalLiveFeed,
   mapIntegralLiveFeed
 } = require('./coupon-landing.routes');
@@ -77,4 +78,10 @@ test('coupon landing integral feed maps a real points order', () => {
     points: 19900,
     occurredAt: 80
   });
+});
+
+test('coupon landing excludes phone-formatted customer nicknames', () => {
+  assert.equal(isPhoneLikeNickname('152****8807'), true);
+  assert.equal(isPhoneLikeNickname('15212348807'), true);
+  assert.equal(isPhoneLikeNickname('小米同学'), false);
 });
