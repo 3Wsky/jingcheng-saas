@@ -326,10 +326,10 @@ function registerAdminIntegralMallRoutes(app) {
     d = normalizeImageFields(d, request);
     const images = d.images?.length ? d.images : (d.image ? [d.image] : []);
     const now = Math.floor(Date.now() / 1000);
-    const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'is_del', 'add_time'];
+    const cols = ['title', 'image', 'images', 'description', 'price', 'stock', 'is_show', 'sort', 'unit_name', 'is_host', 'quota', 'once_num', 'num', 'exchange_limit_started_at', 'is_del', 'add_time'];
     const vals = [
       d.title, d.image || images[0] || '', serializeImages(images), d.description || '', d.price, d.stock,
-      d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, 0, now
+      d.isShow ? 1 : 0, d.sort, d.unitName, d.isHost ? 1 : 0, d.quota, d.onceNum, d.num, now, 0, now
     ];
     if (d.productId) {
       cols.unshift('product_id');
@@ -383,7 +383,18 @@ function registerAdminIntegralMallRoutes(app) {
     if (d.isHost !== undefined) { sets.push('is_host = ?'); values.push(d.isHost ? 1 : 0); }
     if (d.quota !== undefined) { sets.push('quota = ?'); values.push(d.quota); }
     if (d.onceNum !== undefined) { sets.push('once_num = ?'); values.push(d.onceNum); }
-    if (d.num !== undefined) { sets.push('num = ?'); values.push(d.num); }
+    if (d.num !== undefined) {
+      const [[current]] = await getPool().query(
+        `SELECT num FROM ${legacyTable('store_integral')} WHERE id = ? AND is_del = 0 LIMIT 1`,
+        [id]
+      );
+      if (current && Number(current.num || 0) !== Number(d.num)) {
+        sets.push('exchange_limit_started_at = ?');
+        values.push(Math.floor(Date.now() / 1000));
+      }
+      sets.push('num = ?');
+      values.push(d.num);
+    }
 
     const extFields = ['description', 'specType', 'attrs'];
     const hasExt = extFields.some((k) => d[k] !== undefined);

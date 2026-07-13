@@ -136,7 +136,7 @@ class IntegralMallService {
 
   async exchange(uid, productId) {
     const [productRows] = await getPool().query(
-      `SELECT id, image, title, price, stock, unit_name, is_show
+      `SELECT id, image, title, price, stock, unit_name, is_show, num, exchange_limit_started_at
        FROM ${legacyTable('store_integral')}
        WHERE id = ? AND is_del = 0 LIMIT 1`,
       [productId]
@@ -198,6 +198,45 @@ class IntegralMallService {
         const error = new Error('积分不足');
         error.statusCode = 400;
         throw error;
+      }
+
+      const [lockedProductRows] = await connection.query(
+        `SELECT id, stock, is_show, num, exchange_limit_started_at
+         FROM ${legacyTable('store_integral')}
+         WHERE id = ? AND is_del = 0
+         LIMIT 1 FOR UPDATE`,
+        [productId]
+      );
+      const lockedProduct = lockedProductRows[0];
+      if (!lockedProduct || Number(lockedProduct.is_show) !== 1 || Number(lockedProduct.stock || 0) <= 0) {
+        const error = new Error('该商品当前无法兑换');
+        error.statusCode = 409;
+        throw error;
+      }
+
+      const exchangeLimit = Number(lockedProduct.num || 0);
+      if (exchangeLimit > 0) {
+        let limitStartedAt = Number(lockedProduct.exchange_limit_started_at || 0);
+        // 兼容未执行历史初始化的商品：第一次受限兑换从当前订单起开始计算。
+        if (!limitStartedAt) {
+          limitStartedAt = now;
+          await connection.query(
+            `UPDATE ${legacyTable('store_integral')} SET exchange_limit_started_at = ? WHERE id = ?`,
+            [limitStartedAt, productId]
+          );
+        }
+        const [[countRow]] = await connection.query(
+          `SELECT COUNT(*) AS total
+           FROM ${legacyTable('store_integral_order')}
+           WHERE uid = ? AND product_id = ? AND is_del = 0 AND status <> -1 AND add_time >= ?`,
+          [uid, productId, limitStartedAt]
+        );
+        const exchangedCount = Number(countRow?.total || 0);
+        if (exchangedCount >= exchangeLimit) {
+          const error = new Error(`每位用户限兑 ${exchangeLimit} 件，您已兑换 ${exchangedCount} 件`);
+          error.statusCode = 409;
+          throw error;
+        }
       }
 
       const [demoBatches] = await connection.query(
