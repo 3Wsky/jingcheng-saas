@@ -3,6 +3,11 @@ const { ok, fail } = require('../../shared/http');
 const { isDatabaseConnectionError } = require('../../shared/mysql');
 const { requireAdmin, requireSuperAdmin } = require('../admin/admin.auth');
 const { MembershipService } = require('./membership.service');
+const { IntegralProductExtRepository } = require('../admin/integral-product-ext.repository');
+const { ProductsService } = require('../products/products.service');
+
+const integralProductExtRepo = new IntegralProductExtRepository();
+const productsService = new ProductsService();
 
 // 公开接口只允许 wechat_pay 渠道自助领取（且服务层会用真实已支付订单核验金额倒推档位，
 // 不采信这里的 tierCode/memberShipId）；admin/offline_approval 是特权渠道，只能走各自的
@@ -263,7 +268,7 @@ async function getIntegralMallProduct(request) {
 
   const [[row]] = await getPool().query(
     `
-    SELECT id, image, images, title, price, unit_name, stock, sales, is_show
+    SELECT id, image, images, description, title, price, unit_name, stock, sales, is_show
     FROM ${legacyTable('store_integral')}
     WHERE id = ? AND is_del = 0
     LIMIT 1
@@ -283,7 +288,15 @@ async function getIntegralMallProduct(request) {
   const cover = toPublicUrl(row.image, request);
   if (!images.length && cover) images = [cover];
 
-  let description = String(row.description || '');
+  const ext = await integralProductExtRepo.get(row.id);
+  let detailImages = toPublicUrlList((ext && ext.detailImages) || [], request);
+  // 兼容已采集但尚未保存详情图的旧积分商品，直接使用其关联的展示商品详情图。
+  if (!detailImages.length && ext && ext.showcaseId) {
+    const showcase = await productsService.getPublicProduct(ext.showcaseId, request);
+    detailImages = Array.isArray(showcase && showcase.detailImages) ? showcase.detailImages : [];
+  }
+
+  let description = String(row.description || (ext && ext.description) || '');
   if (description) {
     description = description.replace(
       /(<img[^>]+src=["'])([^"']+)(["'])/gi,
@@ -296,6 +309,7 @@ async function getIntegralMallProduct(request) {
     id: row.id,
     image: cover,
     images,
+    detailImages,
     title: row.title || '积分商品',
     info: '',
     description,

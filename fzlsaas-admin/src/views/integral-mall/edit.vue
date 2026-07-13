@@ -82,6 +82,10 @@
             <ImageListInput v-model="form.images" :max="9" />
             <p class="field-hint">建议 800×800，最多 9 张，首张为主图</p>
           </el-form-item>
+          <el-form-item label="商品详情图">
+            <ImageListInput v-model="form.detailImages" :max="30" />
+            <p class="field-hint">展示在小程序商品详情页，建议使用竖版详情长图</p>
+          </el-form-item>
           <el-form-item label="商品标题" required>
             <el-input v-model="form.title" maxlength="80" show-word-limit style="width: 480px" />
           </el-form-item>
@@ -229,6 +233,7 @@ const defaultForm = () => ({
   title: '',
   image: '',
   images: [] as string[],
+  detailImages: [] as string[],
   price: 0,
   stock: 0,
   unitName: '件',
@@ -287,6 +292,7 @@ async function generateAi() {
     if (data.suggestedIntegral > 0) form.value.price = data.suggestedIntegral
     if (!form.value.stock) form.value.stock = 100
     aiDetailPreview.value = Array.isArray(data.detailImages) ? data.detailImages : []
+    form.value.detailImages = [...aiDetailPreview.value]
     aiDone.value = true
     ElMessage.success('AI 生成完成，请点「下一步」核对积分价与库存')
   } catch {
@@ -322,6 +328,7 @@ function onProductSelected(detail: any) {
   form.value.title = detail.storeName
   form.value.image = detail.image
   form.value.images = detail.sliderImages?.length ? [...detail.sliderImages] : (detail.image ? [detail.image] : [])
+  form.value.detailImages = detail.detailImages?.length ? [...detail.detailImages] : []
   form.value.unitName = detail.unitName || '件'
   form.value.sort = detail.sort || 0
   form.value.description = detail.description || detail.storeInfo || ''
@@ -390,6 +397,7 @@ async function save() {
     productId: form.value.productId || undefined,
     showcaseId: createMode.value === 'import' ? form.value.showcaseId : undefined,
     images: form.value.images.filter(Boolean),
+    detailImages: form.value.detailImages.filter(Boolean),
     image: form.value.image || form.value.images[0] || ''
   }
   if (form.value.specType === 1) {

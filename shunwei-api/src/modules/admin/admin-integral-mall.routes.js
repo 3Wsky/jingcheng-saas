@@ -24,6 +24,7 @@ const productSchema = z.object({
   title: z.string().trim().min(1).max(128),
   image: z.string().trim().max(512).optional().default(''),
   images: z.array(z.string().trim().max(512)).max(9).optional().default([]),
+  detailImages: z.array(z.string().trim().max(512)).max(30).optional().default([]),
   price: z.coerce.number().int().min(0),
   stock: z.coerce.number().int().min(0).optional().default(0),
   isShow: z.boolean().optional().default(true),
@@ -112,6 +113,7 @@ async function mapProduct(row, request) {
     title: row.title,
     image: toPublicUrl(row.image || images[0] || '', request),
     images: toPublicUrlList(images, request),
+    detailImages: toPublicUrlList(ext.detailImages || [], request),
     price: Number(row.price || 0),
     stock: Number(row.stock || 0),
     sales: Number(row.sales || 0),
@@ -132,11 +134,12 @@ async function mapProduct(row, request) {
 }
 
 async function saveExt(productId, data) {
-  const payload = {
-    description: data.description || '',
-    specType: data.specType || 0,
-    attrs: data.attrs || []
-  };
+  const existing = await loadExt(productId);
+  const payload = { ...existing };
+  if (data.description !== undefined) payload.description = data.description || '';
+  if (data.detailImages !== undefined) payload.detailImages = data.detailImages || [];
+  if (data.specType !== undefined) payload.specType = data.specType || 0;
+  if (data.attrs !== undefined) payload.attrs = data.attrs || [];
   if (data.showcaseId !== undefined) payload.showcaseId = String(data.showcaseId || '');
   await extRepo.save(productId, payload);
 }
@@ -158,6 +161,7 @@ function normalizeImageFields(d, request) {
   const payload = { ...d };
   if (payload.image !== undefined) payload.image = toStoredUrl(payload.image, request);
   if (payload.images !== undefined) payload.images = toStoredUrlList(payload.images, request);
+  if (payload.detailImages !== undefined) payload.detailImages = toStoredUrlList(payload.detailImages, request);
   if (Array.isArray(payload.attrs) && payload.attrs.length) {
     payload.attrs = payload.attrs.map((attr) =>
       attr && attr.image ? { ...attr, image: toStoredUrl(attr.image, request) } : attr

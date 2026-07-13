@@ -36,6 +36,7 @@ function normalizeBrand(text) {
 
 function showcaseToIntegralPayload(source, overrides = {}) {
   const images = (source.sliderImages || []).filter(Boolean).map(absImage);
+  const detailImages = (source.detailImages || []).filter(Boolean).map(absImage);
   const image = absImage(source.image) || images[0] || '';
   const cashPrice = Number(source.price || 0);
   const defaultIntegral = Math.max(1000, Math.round(cashPrice * 10));
@@ -45,6 +46,7 @@ function showcaseToIntegralPayload(source, overrides = {}) {
     title: cleanText(source.storeName || source.title),
     image,
     images: images.length ? images : (image ? [image] : []),
+    detailImages,
     price: overrides.integralPrice ?? defaultIntegral,
     stock: overrides.stock ?? 100,
     isShow: overrides.isShow ?? false,
