@@ -203,6 +203,9 @@
       <el-form-item label="轮播图">
         <ImageListInput v-model="editForm.sliderImages" :max="9" />
       </el-form-item>
+      <el-form-item label="详情图">
+        <ImageListInput v-model="editForm.detailImages" :max="30" />
+      </el-form-item>
       <el-form-item label="售价"><el-input-number v-model="editForm.price" :min="0" /></el-form-item>
       <el-form-item label="排序"><el-input-number v-model="editForm.sort" /></el-form-item>
       <el-form-item label="标签">
@@ -477,6 +480,7 @@ function openCreate() {
     categoryId: '',
     image: '',
     sliderImages: [''],
+    detailImages: [''],
     price: 0,
     sort: 0,
     isShow: true,
@@ -501,6 +505,7 @@ function openEdit(row: any) {
     categoryId: row.categoryId || '',
     image: row.image,
     sliderImages: row.sliderImages?.length ? [...row.sliderImages] : [''],
+    detailImages: row.detailImages?.length ? [...row.detailImages] : [''],
     price: row.price,
     sort: row.sort,
     isShow: row.isShow,
@@ -537,6 +542,7 @@ async function saveEdit() {
   saving.value = true
   try {
     const sliderImages = (editForm.value.sliderImages || []).filter((x: string) => x?.trim())
+    const detailImages = (editForm.value.detailImages || []).filter((x: string) => x?.trim())
     const skuPrices = (editForm.value.skuPrices || [])
       .map((s: any) => {
         const config = String(s.config || '').trim()
@@ -555,6 +561,7 @@ async function saveEdit() {
       categoryId: editForm.value.categoryId || '',
       image: editForm.value.image,
       sliderImages,
+      detailImages,
       price: editForm.value.price,
       sort: editForm.value.sort,
       isShow: editForm.value.isShow,

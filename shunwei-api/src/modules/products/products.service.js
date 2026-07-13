@@ -1115,6 +1115,7 @@ function normalizeEditableFields(product, input) {
   if (input.categoryId !== undefined) next.categoryId = cleanText(input.categoryId).slice(0, 40);
   if (input.specType !== undefined) next.specType = Number(input.specType) ? 1 : 0;
   if (Array.isArray(input.sliderImages)) next.sliderImages = normalizeTextArray(input.sliderImages);
+  if (Array.isArray(input.detailImages)) next.detailImages = normalizeTextArray(input.detailImages);
   if (Array.isArray(input.colors)) next.colors = normalizeTextArray(input.colors);
   if (Array.isArray(input.features)) next.features = normalizeTextArray(input.features);
   if (Array.isArray(input.skuPrices)) next.skuPrices = normalizeSkuPrices(input.skuPrices);
