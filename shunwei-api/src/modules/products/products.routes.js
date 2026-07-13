@@ -8,7 +8,8 @@ const listQuerySchema = z.object({
   brand: z.string().trim().max(40).optional().default(''),
   status: z.enum(['all', 'shown', 'hidden']).optional().default('all'),
   source: z.string().trim().max(40).optional().default(''),
-  categoryId: z.string().trim().max(40).optional().default('')
+  categoryId: z.string().trim().max(40).optional().default(''),
+  systemType: z.enum(['Windows', 'Linux']).optional().default('')
 });
 
 const idParamsSchema = z.object({
@@ -94,6 +95,8 @@ const updateProductSchema = z.object({
   brand: z.string().trim().max(40).optional(),
   model: z.string().trim().max(80).optional(),
   categoryId: z.string().trim().max(40).optional(),
+  systemType: z.enum(['Windows', 'Linux']).or(z.literal('')).optional(),
+  editionType: z.enum(['悦享款', '标准版', '柔光版']).or(z.literal('')).optional(),
   price: z.union([z.string(), z.number()]).optional(),
   otPrice: z.union([z.string(), z.number()]).optional(),
   unitName: z.string().trim().min(1).max(12).optional(),

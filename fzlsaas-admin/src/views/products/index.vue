@@ -31,6 +31,19 @@
             <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
           </el-select>
         </el-form-item>
+        <el-form-item label="电脑系统">
+          <el-select v-model="systemFilter" placeholder="全部" clearable style="width: 110px">
+            <el-option label="Windows" value="Windows" />
+            <el-option label="Linux" value="Linux" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="平板版本">
+          <el-select v-model="editionFilter" placeholder="全部" clearable style="width: 110px">
+            <el-option label="悦享款" value="悦享款" />
+            <el-option label="标准版" value="标准版" />
+            <el-option label="柔光版" value="柔光版" />
+          </el-select>
+        </el-form-item>
         <template v-if="filterExpanded">
           <el-form-item label="来源">
             <el-select v-model="sourceFilter" placeholder="全部" clearable style="width: 120px">
@@ -141,6 +154,11 @@
           <span v-else class="sub-info">未分类</span>
         </template>
       </el-table-column>
+      <el-table-column label="系统 / 版本" width="112">
+        <template #default="{ row }">
+          <span>{{ row.systemType || row.editionType || '—' }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="售价" width="100" align="right">
         <template #default="{ row }">
           <span v-if="row.price">¥{{ row.price }}</span>
@@ -196,6 +214,19 @@
           <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
         </el-select>
         <el-button link type="primary" style="margin-left: 8px" @click="openCatDialog">管理分类</el-button>
+      </el-form-item>
+      <el-form-item label="电脑系统">
+        <el-select v-model="editForm.systemType" clearable placeholder="非电脑商品可不选" style="width: 200px">
+          <el-option label="Windows" value="Windows" />
+          <el-option label="Linux" value="Linux" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="平板版本">
+        <el-select v-model="editForm.editionType" clearable placeholder="非平板商品可不选" style="width: 200px">
+          <el-option label="悦享款" value="悦享款" />
+          <el-option label="标准版" value="标准版" />
+          <el-option label="柔光版" value="柔光版" />
+        </el-select>
       </el-form-item>
       <el-form-item label="封面图">
         <ImageUrlInput v-model="editForm.image" placeholder="封面图 URL" />
@@ -309,6 +340,8 @@ const activeTab = ref('shown')
 const keyword = ref('')
 const brand = ref('')
 const categoryFilter = ref('')
+const systemFilter = ref('')
+const editionFilter = ref('')
 const sourceFilter = ref('')
 const specFilter = ref('')
 const filterExpanded = ref(false)
@@ -336,6 +369,8 @@ const canSort = computed(() =>
   !keyword.value &&
   !brand.value &&
   !categoryFilter.value &&
+  !systemFilter.value &&
+  !editionFilter.value &&
   !sourceFilter.value &&
   !specFilter.value
 )
@@ -365,6 +400,8 @@ const filteredList = computed(() => {
   }
   if (brand.value) rows = rows.filter((r) => r.brand === brand.value)
   if (categoryFilter.value) rows = rows.filter((r) => String(r.categoryId || '') === categoryFilter.value)
+  if (systemFilter.value) rows = rows.filter((r) => r.systemType === systemFilter.value)
+  if (editionFilter.value) rows = rows.filter((r) => r.editionType === editionFilter.value)
   if (sourceFilter.value) rows = rows.filter((r) => r.source === sourceFilter.value)
   if (specFilter.value === '1') rows = rows.filter((r) => r.specType)
   else if (specFilter.value === '0') rows = rows.filter((r) => !r.specType)
@@ -462,6 +499,8 @@ function reset() {
   keyword.value = ''
   brand.value = ''
   categoryFilter.value = ''
+  systemFilter.value = ''
+  editionFilter.value = ''
   sourceFilter.value = ''
   specFilter.value = ''
   activeTab.value = 'shown'
@@ -478,6 +517,8 @@ function openCreate() {
     brand: '',
     model: '',
     categoryId: '',
+    systemType: '',
+    editionType: '',
     image: '',
     sliderImages: [''],
     detailImages: [''],
@@ -503,6 +544,8 @@ function openEdit(row: any) {
     brand: row.brand || '',
     model: row.model || '',
     categoryId: row.categoryId || '',
+    systemType: row.systemType || '',
+    editionType: row.editionType || '',
     image: row.image,
     sliderImages: row.sliderImages?.length ? [...row.sliderImages] : [''],
     detailImages: row.detailImages?.length ? [...row.detailImages] : [''],
@@ -559,6 +602,8 @@ async function saveEdit() {
       brand: editForm.value.brand,
       model: editForm.value.model,
       categoryId: editForm.value.categoryId || '',
+      systemType: editForm.value.systemType || '',
+      editionType: editForm.value.editionType || '',
       image: editForm.value.image,
       sliderImages,
       detailImages,

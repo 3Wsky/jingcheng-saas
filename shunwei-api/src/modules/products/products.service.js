@@ -1113,6 +1113,8 @@ function normalizeEditableFields(product, input) {
   if (input.brand !== undefined) next.brand = cleanText(input.brand).slice(0, 40);
   if (input.model !== undefined) next.model = cleanText(input.model).slice(0, 80);
   if (input.categoryId !== undefined) next.categoryId = cleanText(input.categoryId).slice(0, 40);
+  if (input.systemType !== undefined) next.systemType = ['Windows', 'Linux'].includes(input.systemType) ? input.systemType : '';
+  if (input.editionType !== undefined) next.editionType = ['悦享款', '标准版', '柔光版'].includes(input.editionType) ? input.editionType : '';
   if (input.specType !== undefined) next.specType = Number(input.specType) ? 1 : 0;
   if (Array.isArray(input.sliderImages)) next.sliderImages = normalizeTextArray(input.sliderImages);
   if (Array.isArray(input.detailImages)) next.detailImages = normalizeTextArray(input.detailImages);
@@ -1135,6 +1137,7 @@ function applyProductFilters(products, query = {}) {
   const status = cleanText(query.status);
   const source = cleanText(query.source);
   const categoryId = cleanText(query.categoryId);
+  const systemType = cleanText(query.systemType);
 
   return (products || [])
     .filter((product) => {
@@ -1143,6 +1146,7 @@ function applyProductFilters(products, query = {}) {
       if (brand && product.brand !== brand) return false;
       if (source && product.source !== source) return false;
       if (categoryId && String(product.categoryId || '') !== categoryId) return false;
+      if (systemType && product.systemType !== systemType) return false;
       if (!keyword) return true;
       const haystack = [
         product.storeName,
@@ -1206,12 +1210,24 @@ function publicColorItems(list, request) {
 }
 
 function toPublicProduct(product, request = null) {
+  const systemType = ['Windows', 'Linux'].includes(product.systemType) ? product.systemType : '';
+  const editionType = ['悦享款', '标准版', '柔光版'].includes(product.editionType) ? product.editionType : '';
+  const paramsList = product.paramsList || [];
+  const detailParams = [];
+  if (systemType && !paramsList.some((item) => item && ['操作系统', '系统'].includes(item.name))) {
+    detailParams.push({ name: '操作系统', value: systemType, sort: 9998, status: true });
+  }
+  if (editionType && !paramsList.some((item) => item && ['版本类型', '版本'].includes(item.name))) {
+    detailParams.push({ name: '版本类型', value: editionType, sort: 9999, status: true });
+  }
   return {
     id: product.id,
     productKey: product.productKey,
     brand: product.brand,
     model: product.model,
     categoryId: product.categoryId || '',
+    systemType,
+    editionType,
     storeName: product.storeName,
     storeInfo: product.storeInfo,
     price: product.price,
@@ -1230,7 +1246,7 @@ function toPublicProduct(product, request = null) {
     bundles: product.bundles || [],
     features: product.features || [],
     specs: product.specs || {},
-    paramsList: product.paramsList || [],
+    paramsList: paramsList.concat(detailParams),
     detailImages: toPublicUrlList(product.detailImages || [], request),
     description: product.description || '',
     sourceUrl: product.sourceUrl || '',
