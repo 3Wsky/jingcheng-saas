@@ -99,6 +99,7 @@ const updateProductSchema = z.object({
   unitName: z.string().trim().min(1).max(12).optional(),
   image: z.string().trim().max(1000).optional(),
   sliderImages: z.array(z.string().trim().max(1000)).max(12).optional(),
+  detailImages: z.array(z.string().trim().max(1000)).max(30).optional(),
   recommendImage: z.string().trim().max(1000).optional(),
   colors: z.array(z.string().trim().max(40)).max(20).optional(),
   isShow: z.boolean().optional(),
