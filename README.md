@@ -2,6 +2,8 @@
 
 > Admin + shunwei-api 单体仓库，push `main` 自动部署至 `ok.xjshunwei.cn`
 
+阶段开发记录见 [DEVELOPMENT_LOG.md](./DEVELOPMENT_LOG.md)。
+
 ## 仓库结构
 
 ```
