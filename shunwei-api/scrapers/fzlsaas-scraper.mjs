@@ -338,12 +338,12 @@ function buildColorItems(skus) {
 }
 
 function buildDetailImages(detail) {
-  const images = [];
-  // 手机、电脑、平板的详情接口字段不完全一致。详情图必须用原图地址，
-  // 不能复用 SKU 图的 428×428 缩略图规则，否则电脑长图会被错误降级。
+  // 官网不同品类的字段名称不同，但同一商品只使用一个详情图集合。
+  // 旧规则把所有字段合并，电脑会混入 gbomAttrDisplayList 的规格/配置展示图。
+  // 优先使用官网的功能详情图；缺失时才依次使用其他明确的详情图字段。
+  // 详情图必须用原图地址，不能复用 SKU 图的 428×428 缩略图规则。
   const lists = [
     detail?.functionPhotoList,
-    detail?.gbomAttrDisplayList,
     detail?.detailPhotoList,
     detail?.detailImageList,
     detail?.productDetailImageList,
@@ -351,13 +351,14 @@ function buildDetailImages(detail) {
     detail?.descriptionImageList
   ];
   for (const list of lists) {
-    for (const item of Array.isArray(list) ? list : []) {
-      if (item.photoPath || item.photoName) images.push(buildDetailImageUrl(item));
-      if (item.imageUrl) images.push(item.imageUrl);
-      if (item.imgUrl) images.push(item.imgUrl);
-    }
+    const images = unique((Array.isArray(list) ? list : []).flatMap((item) => [
+      item?.photoPath || item?.photoName ? buildDetailImageUrl(item) : '',
+      item?.imageUrl || '',
+      item?.imgUrl || ''
+    ])).filter(Boolean);
+    if (images.length) return images;
   }
-  return unique(images).filter(Boolean);
+  return [];
 }
 
 function buildDetailImageUrl(item) {
