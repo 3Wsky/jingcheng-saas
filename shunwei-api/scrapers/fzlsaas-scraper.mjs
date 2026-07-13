@@ -339,15 +339,33 @@ function buildColorItems(skus) {
 
 function buildDetailImages(detail) {
   const images = [];
-  for (const item of detail?.functionPhotoList || []) {
-    if (item.photoPath || item.photoName) images.push(buildImageUrl(item));
-    if (item.imgUrl) images.push(item.imgUrl);
-  }
-  for (const item of detail?.gbomAttrDisplayList || []) {
-    if (item.photoPath || item.photoName) images.push(buildImageUrl(item));
-    if (item.imgUrl) images.push(item.imgUrl);
+  // 手机、电脑、平板的详情接口字段不完全一致。详情图必须用原图地址，
+  // 不能复用 SKU 图的 428×428 缩略图规则，否则电脑长图会被错误降级。
+  const lists = [
+    detail?.functionPhotoList,
+    detail?.gbomAttrDisplayList,
+    detail?.detailPhotoList,
+    detail?.detailImageList,
+    detail?.productDetailImageList,
+    detail?.webDetailPhotoList,
+    detail?.descriptionImageList
+  ];
+  for (const list of lists) {
+    for (const item of Array.isArray(list) ? list : []) {
+      if (item.photoPath || item.photoName) images.push(buildDetailImageUrl(item));
+      if (item.imageUrl) images.push(item.imageUrl);
+      if (item.imgUrl) images.push(item.imgUrl);
+    }
   }
   return unique(images).filter(Boolean);
+}
+
+function buildDetailImageUrl(item) {
+  if (item.imageUrl && /^https?:\/\//i.test(item.imageUrl)) return item.imageUrl;
+  if (item.imgUrl && /^https?:\/\//i.test(item.imgUrl)) return item.imgUrl;
+  if (!item.photoPath || !item.photoName) return '';
+  const path = String(item.photoPath).replace(/^\/+/, '');
+  return `${VMALL_IMAGE_BASE}/${path}${item.photoName}`;
 }
 
 function buildSpecs(detail) {
