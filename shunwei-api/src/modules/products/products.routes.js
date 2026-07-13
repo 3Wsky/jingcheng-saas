@@ -230,6 +230,20 @@ function registerProductRoutes(app) {
     }
   });
 
+  app.post('/api/admin/products/:id/recollect', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return reply;
+    const parsedParams = idParamsSchema.safeParse(request.params || {});
+    if (!parsedParams.success) return fail(reply, 400, '商品参数错误', parsedParams.error.flatten());
+    try {
+      return ok(
+        await service.recollectOfficialProduct(parsedParams.data.id, request),
+        '官网数据已重新采集，请确认后保存'
+      );
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '重新采集失败');
+    }
+  });
+
   app.post('/api/admin/products/collect-url', async (request, reply) => {
     if (!requireAdmin(request, reply)) return reply;
     const url = String(request.body?.url || '').trim();

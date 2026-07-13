@@ -209,6 +209,10 @@
       <el-form-item label="简介"><el-input v-model="editForm.storeInfo" type="textarea" :rows="2" /></el-form-item>
       <el-form-item label="品牌"><el-input v-model="editForm.brand" style="width: 200px" /></el-form-item>
       <el-form-item label="型号"><el-input v-model="editForm.model" style="width: 200px" /></el-form-item>
+      <el-form-item v-if="canRecollect" label="官网数据">
+        <el-button type="success" plain :loading="recollecting" @click="recollectProduct">重新采集</el-button>
+        <span class="hint">重新抓取官网图片、配置、价格和详情图，确认后点击保存才会生效</span>
+      </el-form-item>
       <el-form-item label="分类">
         <el-select v-model="editForm.categoryId" placeholder="未分类" clearable style="width: 200px">
           <el-option v-for="c in categories" :key="c.id" :label="c.name" :value="c.id" />
@@ -356,6 +360,7 @@ const skuColorOptions = computed(() => Array.from(new Set(
   (editForm.value?.skuPrices || []).flatMap((sku: any) => sku.colors || []).map((color: any) => String(color || '').trim()).filter(Boolean)
 )))
 const saving = ref(false)
+const recollecting = ref(false)
 const categories = ref<any[]>([])
 const catDialogOpen = ref(false)
 const catForm = ref<{ id: string; name: string; sort: number }>({ id: '', name: '', sort: 0 })
@@ -377,6 +382,7 @@ const canSort = computed(() =>
   !sourceFilter.value &&
   !specFilter.value
 )
+const canRecollect = computed(() => Boolean(editForm.value?.id && editForm.value?.source === 'vmall-official'))
 
 const filteredTotal = computed(() => filteredList.value.length)
 const displayList = computed(() => {
@@ -541,8 +547,14 @@ function openCreate() {
 }
 
 function openEdit(row: any) {
-  editForm.value = {
+  editForm.value = buildEditForm(row)
+  editOpen.value = true
+}
+
+function buildEditForm(row: any) {
+  return {
     id: row.id,
+    source: row.source || '',
     storeName: row.storeName,
     storeInfo: row.storeInfo,
     brand: row.brand || '',
@@ -565,7 +577,26 @@ function openEdit(row: any) {
     paramsList: (row.paramsList || []).map((p: any) => ({ name: p.name || '', value: p.value || '' })),
     description: row.description || ''
   }
-  editOpen.value = true
+}
+
+async function recollectProduct() {
+  if (!editForm.value?.id || recollecting.value) return
+  try {
+    await ElMessageBox.confirm(
+      '将从华为官网重新抓取商品图片、配置、价格和详情图，并回填当前表单；点击保存后才会更新商品。是否继续？',
+      '确认重新采集',
+      { type: 'warning', confirmButtonText: '开始采集', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  recollecting.value = true
+  try {
+    const product = await request.post(`/api/admin/products/${editForm.value.id}/recollect`, {}, { timeout: 180000 })
+    editForm.value = buildEditForm(product)
+    ElMessage.success('重新采集完成，请确认内容后保存')
+  } catch { /* handled */ }
+  finally { recollecting.value = false }
 }
 
 function addSku() {

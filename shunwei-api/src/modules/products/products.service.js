@@ -751,6 +751,58 @@ class ProductsService {
 
     return importSummary;
   }
+
+  // 仅重新抓取官网来源商品，并把最新内容返回给编辑页预览；由管理员确认保存后才落库。
+  async recollectOfficialProduct(id, request = null) {
+    const state = await this.repository.readAll();
+    const existing = state.products.find((product) => String(product.id) === String(id));
+    if (!existing) {
+      const error = new Error('商品不存在');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (existing.source !== 'vmall-official') {
+      const error = new Error('仅支持重新采集华为官网来源的商品');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const model = helperCleanText(existing.model || existing.storeName);
+    if (!model) {
+      const error = new Error('该商品缺少型号，无法重新采集');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const scraped = await this.runOfficialScraper([model]);
+    const candidates = scraped.map(normalizeOfficialProduct).filter((product) => product.productKey && product.storeName);
+    const officialId = getVmallProductId(existing.productKey);
+    const incoming = candidates.find((product) => officialId && getVmallProductId(product.productKey) === officialId)
+      || candidates[0];
+    if (!incoming) {
+      const error = new Error('官网未采集到该商品，请检查型号后重试');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    return toAdminProduct({
+      ...existing,
+      ...incoming,
+      id: existing.id,
+      categoryId: existing.categoryId || '',
+      isShow: Boolean(existing.isShow),
+      isHot: Boolean(existing.isHot),
+      isBest: Boolean(existing.isBest),
+      isNew: Boolean(existing.isNew),
+      sort: Number(existing.sort || 0),
+      systemType: existing.systemType || incoming.systemType || '',
+      editionType: existing.editionType || incoming.editionType || '',
+      styleName: existing.styleName || incoming.styleName || '',
+      createdAt: existing.createdAt || now(),
+      importedAt: existing.importedAt || now(),
+      updatedAt: existing.updatedAt || ''
+    }, request);
+  }
 }
 
 // 把官网采集器输出的商品规范化为 fzlsaas 商品结构（含图片字段）
