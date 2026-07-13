@@ -32,7 +32,7 @@ const productSchema = z.object({
   isHost: z.boolean().optional().default(false),
   quota: z.coerce.number().int().min(0).optional().default(0),
   onceNum: z.coerce.number().int().min(1).optional().default(1),
-  num: z.coerce.number().int().min(1).optional().default(1),
+  num: z.coerce.number().int().min(0).optional().default(0),
   description: z.string().trim().max(8000).optional().default(''),
   specType: z.coerce.number().int().min(0).max(1).optional().default(0),
   attrs: z.array(z.object({

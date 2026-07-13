@@ -86,8 +86,8 @@
             <el-input v-model="form.title" maxlength="80" show-word-limit style="width: 480px" />
           </el-form-item>
           <el-form-item label="用户兑换数量限制" required>
-            <el-input-number v-model="form.num" :min="1" />
-            <span class="field-hint">每个用户本次活动最多可兑换总数</span>
+            <el-input-number v-model="form.num" :min="0" />
+            <span class="field-hint">0 表示不限量；大于 0 时为每个用户最多可兑换总数</span>
           </el-form-item>
           <el-form-item label="单位" required>
             <el-input v-model="form.unitName" style="width: 160px" />
@@ -237,7 +237,7 @@ const defaultForm = () => ({
   isHost: false,
   quota: 0,
   onceNum: 1,
-  num: 1,
+  num: 0,
   description: '',
   specType: 0,
   attrs: [] as any[]
