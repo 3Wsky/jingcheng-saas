@@ -221,12 +221,21 @@
       </el-form-item>
       <el-form-item v-if="editForm.specType === 1" label="规格/SKU">
         <div class="sku-editor">
+          <div class="sku-head">
+            <span>配置</span>
+            <span>颜色</span>
+            <span>售价</span>
+            <span></span>
+          </div>
           <div v-for="(sku, i) in editForm.skuPrices" :key="i" class="sku-row">
-            <el-input v-model="sku.version" placeholder="规格名（如 256G 黑色）" style="flex:1" />
-            <el-input-number v-model="sku.price" :min="0" :controls="false" placeholder="价格" style="width:120px" />
+            <el-input v-model="sku.config" placeholder="如 12GB+256GB" />
+            <el-select v-model="sku.colors" multiple filterable allow-create default-first-option placeholder="选择或输入颜色">
+              <el-option v-for="color in skuColorOptions" :key="color" :label="color" :value="color" />
+            </el-select>
+            <el-input-number v-model="sku.price" :min="0" :controls="false" placeholder="价格" />
             <el-button link type="danger" @click="removeSku(i)">删除</el-button>
           </div>
-          <el-button size="small" @click="addSku">+ 添加规格</el-button>
+          <el-button size="small" @click="addSku">+ 添加配置</el-button>
         </div>
       </el-form-item>
 
@@ -304,6 +313,9 @@ const selected = ref<any[]>([])
 const collectOpen = ref(false)
 const editOpen = ref(false)
 const editForm = ref<any>(null)
+const skuColorOptions = computed(() => Array.from(new Set(
+  (editForm.value?.skuPrices || []).flatMap((sku: any) => sku.colors || []).map((color: any) => String(color || '').trim()).filter(Boolean)
+)))
 const saving = ref(false)
 const categories = ref<any[]>([])
 const catDialogOpen = ref(false)
@@ -496,7 +508,7 @@ function openEdit(row: any) {
     isNew: Boolean(row.isNew),
     isBest: Boolean(row.isBest),
     specType: Number(row.specType) ? 1 : 0,
-    skuPrices: (row.skuPrices || []).map((s: any) => ({ version: s.version || '', price: Number(s.priceValue ?? s.price ?? 0) })),
+    skuPrices: buildSkuEditorRows(row.skuPrices || [], row.colors || []),
     paramsList: (row.paramsList || []).map((p: any) => ({ name: p.name || '', value: p.value || '' })),
     description: row.description || ''
   }
@@ -504,7 +516,7 @@ function openEdit(row: any) {
 }
 
 function addSku() {
-  editForm.value.skuPrices.push({ version: '', price: 0 })
+  editForm.value.skuPrices.push({ config: '', colors: [], price: 0 })
 }
 function removeSku(i: number) {
   editForm.value.skuPrices.splice(i, 1)
@@ -526,8 +538,12 @@ async function saveEdit() {
   try {
     const sliderImages = (editForm.value.sliderImages || []).filter((x: string) => x?.trim())
     const skuPrices = (editForm.value.skuPrices || [])
-      .filter((s: any) => s.version?.trim() || Number(s.price) > 0)
-      .map((s: any) => ({ version: s.version?.trim() || '', price: Number(s.price) || 0 }))
+      .map((s: any) => {
+        const config = String(s.config || '').trim()
+        const colors = Array.from(new Set((s.colors || []).map((color: any) => String(color || '').trim()).filter(Boolean)))
+        return { version: config, config, color: colors[0] || '', colors, price: Number(s.price) || 0 }
+      })
+      .filter((s: any) => s.config || Number(s.price) > 0)
     const paramsList = (editForm.value.paramsList || [])
       .filter((p: any) => p.name?.trim() && p.value?.trim())
       .map((p: any) => ({ name: p.name.trim(), value: p.value.trim() }))
@@ -546,6 +562,7 @@ async function saveEdit() {
       isNew: editForm.value.isNew,
       isBest: editForm.value.isBest,
       specType: editForm.value.specType ? 1 : 0,
+      colors: Array.from(new Set(skuPrices.flatMap((sku: any) => sku.colors))),
       skuPrices,
       paramsList,
       description: editForm.value.description
@@ -561,6 +578,23 @@ async function saveEdit() {
     load()
   } catch { /* handled */ }
   finally { saving.value = false }
+}
+
+function buildSkuEditorRows(skus: any[], knownColors: string[]) {
+  const colors = Array.from(new Set((knownColors || []).map((color) => String(color || '').trim()).filter(Boolean)))
+  const grouped = new Map<string, any>()
+  ;(skus || []).forEach((sku: any) => {
+    const version = String(sku.version || '').trim()
+    const rowColors = Array.from(new Set([...(sku.colors || []), sku.color].map((color) => String(color || '').trim()).filter(Boolean)))
+    const detectedColor = rowColors[0] || colors.find((color) => version.endsWith(color)) || ''
+    const config = String(sku.config || (detectedColor ? version.slice(0, -detectedColor.length).trim() : version)).trim()
+    const price = Number(sku.priceValue ?? sku.price ?? 0)
+    const key = `${config}\u0000${price}`
+    const row = grouped.get(key) || { config, colors: [], price }
+    row.colors = Array.from(new Set(row.colors.concat(rowColors.length ? rowColors : (detectedColor ? [detectedColor] : []))))
+    grouped.set(key, row)
+  })
+  return Array.from(grouped.values())
 }
 
 // ── 分类管理 ──
@@ -754,6 +788,8 @@ onBeforeUnmount(() => destroySortable())
 .sub-info { font-size: 12px; color: rgba(0,0,0,0.45); margin-top: 2px; }
 .no-img { font-size: 12px; color: #ccc; }
 .sku-editor, .param-editor { width: 100%; }
-.sku-row, .param-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.sku-head, .sku-row { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(260px, 1.35fr) 120px 44px; gap: 8px; align-items: center; margin-bottom: 8px; }
+.sku-head { color: #606266; font-size: 13px; padding: 0 2px; }
+.param-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .cat-add { display: flex; align-items: center; gap: 8px; }
 </style>

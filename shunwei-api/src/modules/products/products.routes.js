@@ -74,6 +74,9 @@ const skuPriceSchema = z.array(z.object({
   version: z.string().trim().max(60).optional(),
   price: z.union([z.string(), z.number()]).optional(),
   sbomCode: z.string().trim().max(60).optional(),
+  config: z.string().trim().max(60).optional(),
+  color: z.string().trim().max(40).optional(),
+  image: z.string().trim().max(1000).optional(),
   colors: z.array(z.string().trim().max(40)).max(20).optional()
 })).max(50).optional();
 

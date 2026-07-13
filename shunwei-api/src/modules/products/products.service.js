@@ -1183,10 +1183,17 @@ function buildSummary(products, imports = []) {
 
 function publicSkuPrices(list, request) {
   if (!Array.isArray(list)) return [];
-  return list.map((item) => ({
-    ...item,
-    image: toPublicUrl(item && item.image, request)
-  }));
+  return list.flatMap((item) => {
+    const colors = Array.from(new Set([...(item?.colors || []), item?.color].map((color) => cleanText(color)).filter(Boolean)));
+    const base = { ...item, image: toPublicUrl(item && item.image, request) };
+    if (!colors.length) return [base];
+    return colors.map((color) => ({
+      ...base,
+      color,
+      colors: [color],
+      version: base.version || [base.config, color].filter(Boolean).join(' ')
+    }));
+  });
 }
 
 function publicColorItems(list, request) {
