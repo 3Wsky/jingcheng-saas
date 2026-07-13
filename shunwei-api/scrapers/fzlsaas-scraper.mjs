@@ -102,7 +102,7 @@ class VmallClient {
     } catch (error) {
       console.warn(`SKU detail fallback for ${keyword}: ${error.message}`);
     }
-    return mapVmallProduct(keyword, row, detail, sboms);
+    return await mapVmallProduct(keyword, row, detail, sboms);
   }
 
   async queryProductDetail(row) {
@@ -242,7 +242,7 @@ function isAccessory(row) {
   return EXCLUDED_WORDS.some((word) => name.includes(word));
 }
 
-function mapVmallProduct(keyword, row, detail = null, sboms = []) {
+async function mapVmallProduct(keyword, row, detail = null, sboms = []) {
   const normalizedSboms = normalizeSboms(sboms);
   const price = minPositive(normalizedSboms.map((item) => item.priceValue))
     || Number(row.promoPriceAccurate ?? row.promoPrice ?? row.priceAccurate ?? row.price ?? row.estPrice ?? 0)
@@ -274,7 +274,7 @@ function mapVmallProduct(keyword, row, detail = null, sboms = []) {
     }],
     colors: unique(normalizedSboms.map((item) => item.color).filter(Boolean)),
     colorItems,
-    detailImages: buildDetailImages(detail),
+    detailImages: await buildDetailImages(detail),
     specs: buildSpecs(detail),
     paramsList: buildParams(row),
     description: clean(row.promotionInfo || detail?.seoDescription || ''),
@@ -337,7 +337,10 @@ function buildColorItems(skus) {
   return Array.from(byColor.values());
 }
 
-function buildDetailImages(detail) {
+async function buildDetailImages(detail) {
+  const computerImages = await buildComputerDetailImages(detail);
+  if (computerImages.length) return computerImages;
+
   // 官网不同品类的字段名称不同，但同一商品只使用一个详情图集合。
   // 旧规则把所有字段合并，电脑会混入 gbomAttrDisplayList 的规格/配置展示图。
   // 优先使用官网的功能详情图；缺失时才依次使用其他明确的详情图字段。
@@ -359,6 +362,55 @@ function buildDetailImages(detail) {
     if (images.length) return images;
   }
   return [];
+}
+
+// 电脑商品的商城接口通常不返回详情图列表，而是给出消费者官网图文页地址。
+// 该页面的 data-src 是桌面端完整功能图；不取 src 的 blur 占位图、移动端图和图标。
+async function buildComputerDetailImages(detail) {
+  const pageUrl = extractComputerDetailPageUrl(detail);
+  if (!pageUrl) return [];
+
+  try {
+    const response = await fetch(pageUrl, {
+      headers: {
+        'user-agent': USER_AGENT,
+        'accept-language': 'zh-CN,zh;q=0.9'
+      },
+      signal: AbortSignal.timeout(20000)
+    });
+    if (!response.ok) return [];
+    const html = await response.text();
+    const base = new URL(pageUrl);
+    const images = [];
+    for (const match of html.matchAll(/<img\b[^>]*>/gi)) {
+      const src = match[0].match(/\bdata-src\s*=\s*["']([^"']+)["']/i)?.[1];
+      if (!src) continue;
+      const url = new URL(src, base).toString();
+      if (!/\.(?:png|jpe?g|webp)(?:[?#]|$)/i.test(url)) continue;
+      if (/blur|(?:-|_)mob(?:-|_|\.)|(?:-|_)mo(?:-|_|\.)/i.test(url)) continue;
+      images.push(url);
+    }
+    return unique(images).slice(0, 30);
+  } catch {
+    return [];
+  }
+}
+
+function extractComputerDetailPageUrl(detail) {
+  let value = detail?.graphicDetailValue;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return ''; }
+  }
+  const candidate = value?.appUrl || value?.webUrl || value?.wapUrl || '';
+  try {
+    const url = new URL(candidate);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === 'https:' && (host === 'consumer.huawei.com' || host.endsWith('.consumer.huawei.com')) && /\/laptops\//i.test(url.pathname)
+      ? url.toString()
+      : '';
+  } catch {
+    return '';
+  }
 }
 
 function buildDetailImageUrl(item) {

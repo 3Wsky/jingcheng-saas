@@ -25,7 +25,10 @@ function isProxyableExternalImage(raw) {
   try {
     const url = new URL(raw.startsWith('//') ? `https:${raw}` : raw);
     const host = url.hostname.toLowerCase();
-    return url.protocol === 'https:' && (host === 'res.vmallres.com' || host.endsWith('.vmallres.com'));
+    return url.protocol === 'https:' && (
+      host === 'res.vmallres.com' || host.endsWith('.vmallres.com') ||
+      host === 'consumer.huawei.com' || host.endsWith('.consumer.huawei.com')
+    );
   } catch {
     return false;
   }

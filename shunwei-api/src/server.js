@@ -147,7 +147,9 @@ async function buildServer() {
     }
 
     const host = target.hostname.toLowerCase();
-    if (target.protocol !== 'https:' || (host !== 'res.vmallres.com' && !host.endsWith('.vmallres.com'))) {
+    const allowedImageHost = host === 'res.vmallres.com' || host.endsWith('.vmallres.com')
+      || host === 'consumer.huawei.com' || host.endsWith('.consumer.huawei.com');
+    if (target.protocol !== 'https:' || !allowedImageHost) {
       return reply.code(400).send({ statusCode: 400, error: 'Unsupported image host' });
     }
 
