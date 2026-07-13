@@ -97,6 +97,7 @@ const updateProductSchema = z.object({
   categoryId: z.string().trim().max(40).optional(),
   systemType: z.enum(['Windows', 'Linux']).or(z.literal('')).optional(),
   editionType: z.enum(['悦享款', '标准版', '柔光版']).or(z.literal('')).optional(),
+  styleName: z.string().trim().max(60).optional(),
   price: z.union([z.string(), z.number()]).optional(),
   otPrice: z.union([z.string(), z.number()]).optional(),
   unitName: z.string().trim().min(1).max(12).optional(),

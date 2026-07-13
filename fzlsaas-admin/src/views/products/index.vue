@@ -228,6 +228,9 @@
           <el-option label="柔光版" value="柔光版" />
         </el-select>
       </el-form-item>
+      <el-form-item v-if="categoryName(editForm.categoryId) === '智能穿戴'" label="款式">
+        <el-input v-model="editForm.styleName" placeholder="例如：运动款、典雅款" style="width: 200px" />
+      </el-form-item>
       <el-form-item label="封面图">
         <ImageUrlInput v-model="editForm.image" placeholder="封面图 URL" />
       </el-form-item>
@@ -519,6 +522,7 @@ function openCreate() {
     categoryId: '',
     systemType: '',
     editionType: '',
+    styleName: '',
     image: '',
     sliderImages: [''],
     detailImages: [''],
@@ -546,6 +550,7 @@ function openEdit(row: any) {
     categoryId: row.categoryId || '',
     systemType: row.systemType || '',
     editionType: row.editionType || '',
+    styleName: row.styleName || '',
     image: row.image,
     sliderImages: row.sliderImages?.length ? [...row.sliderImages] : [''],
     detailImages: row.detailImages?.length ? [...row.detailImages] : [''],
@@ -604,6 +609,7 @@ async function saveEdit() {
       categoryId: editForm.value.categoryId || '',
       systemType: editForm.value.systemType || '',
       editionType: editForm.value.editionType || '',
+      styleName: editForm.value.styleName || '',
       image: editForm.value.image,
       sliderImages,
       detailImages,

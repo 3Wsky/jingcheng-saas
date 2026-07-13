@@ -43,8 +43,9 @@ class ProductsService {
   async listPublicProducts(query = {}, request = null) {
     const state = await this.repository.readAll();
     const products = applyProductFilters(state.products, { ...query, status: 'shown' });
+    const categoryNames = new Map((state.categories || []).map((category) => [String(category.id), category.name]));
     return {
-      list: products.map((product) => toPublicProduct(product, request)),
+      list: products.map((product) => toPublicProduct({ ...product, categoryName: categoryNames.get(String(product.categoryId || '')) || '' }, request)),
       total: products.length
     };
   }
@@ -52,15 +53,17 @@ class ProductsService {
   async getPublicProduct(id, request = null) {
     const state = await this.repository.readAll();
     const product = state.products.find((item) => String(item.id) === String(id) && item.isShow);
-    return product ? toPublicProduct(product, request) : null;
+    const category = (state.categories || []).find((item) => String(item.id) === String(product && product.categoryId));
+    return product ? toPublicProduct({ ...product, categoryName: category ? category.name : '' }, request) : null;
   }
 
   async listAdminProducts(query = {}, request = null) {
     const state = await this.repository.readAll();
     const products = applyProductFilters(state.products, query);
+    const categoryNames = new Map((state.categories || []).map((category) => [String(category.id), category.name]));
     return {
       summary: buildSummary(state.products, state.imports),
-      list: products.map((product) => toAdminProduct(product, request)),
+      list: products.map((product) => toAdminProduct({ ...product, categoryName: categoryNames.get(String(product.categoryId || '')) || '' }, request)),
       total: products.length
     };
   }
@@ -1115,6 +1118,7 @@ function normalizeEditableFields(product, input) {
   if (input.categoryId !== undefined) next.categoryId = cleanText(input.categoryId).slice(0, 40);
   if (input.systemType !== undefined) next.systemType = ['Windows', 'Linux'].includes(input.systemType) ? input.systemType : '';
   if (input.editionType !== undefined) next.editionType = ['悦享款', '标准版', '柔光版'].includes(input.editionType) ? input.editionType : '';
+  if (input.styleName !== undefined) next.styleName = cleanText(input.styleName).slice(0, 60);
   if (input.specType !== undefined) next.specType = Number(input.specType) ? 1 : 0;
   if (Array.isArray(input.sliderImages)) next.sliderImages = normalizeTextArray(input.sliderImages);
   if (Array.isArray(input.detailImages)) next.detailImages = normalizeTextArray(input.detailImages);
@@ -1212,6 +1216,7 @@ function publicColorItems(list, request) {
 function toPublicProduct(product, request = null) {
   const systemType = ['Windows', 'Linux'].includes(product.systemType) ? product.systemType : '';
   const editionType = ['悦享款', '标准版', '柔光版'].includes(product.editionType) ? product.editionType : '';
+  const styleName = cleanText(product.styleName);
   const paramsList = product.paramsList || [];
   const detailParams = [];
   if (systemType && !paramsList.some((item) => item && ['操作系统', '系统'].includes(item.name))) {
@@ -1220,14 +1225,19 @@ function toPublicProduct(product, request = null) {
   if (editionType && !paramsList.some((item) => item && ['版本类型', '版本'].includes(item.name))) {
     detailParams.push({ name: '版本类型', value: editionType, sort: 9999, status: true });
   }
+  if (styleName && !paramsList.some((item) => item && item.name === '款式')) {
+    detailParams.push({ name: '款式', value: styleName, sort: 10000, status: true });
+  }
   return {
     id: product.id,
     productKey: product.productKey,
     brand: product.brand,
     model: product.model,
     categoryId: product.categoryId || '',
+    categoryName: product.categoryName || '',
     systemType,
     editionType,
+    styleName,
     storeName: product.storeName,
     storeInfo: product.storeInfo,
     price: product.price,
