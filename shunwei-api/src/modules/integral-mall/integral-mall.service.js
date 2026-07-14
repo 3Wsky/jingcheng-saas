@@ -152,6 +152,11 @@ class IntegralMallService {
       error.statusCode = 400;
       throw error;
     }
+    if (Number(product.price || 0) <= 0) {
+      const error = new Error('该商品暂不可兑换');
+      error.statusCode = 400;
+      throw error;
+    }
     if (Number(product.stock || 0) <= 0) {
       const error = new Error('暂时无法兑换，过两天试试');
       error.statusCode = 400;
