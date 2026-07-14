@@ -249,15 +249,21 @@ async function listIntegralMallProducts(request) {
     `
   );
 
-  return rows.map((row) => ({
-    id: row.id,
-    image: toPublicUrl(row.image, request),
-    title: row.title,
-    price: Number(row.price || 0),
-    unitName: row.unit_name || '',
-    canExchange: Number(row.stock || 0) > 0,
-    stockHint: Number(row.stock || 0) > 0 ? '' : '暂时无法兑换，过两天试试'
-  }));
+  return rows.map((row) => {
+    const price = Number(row.price || 0);
+    const stock = Number(row.stock || 0);
+    const pricePending = price <= 0;
+    return {
+      id: row.id,
+      image: toPublicUrl(row.image, request),
+      title: row.title,
+      price,
+      pricePending,
+      unitName: row.unit_name || '',
+      canExchange: !pricePending && stock > 0,
+      stockHint: pricePending ? '暂不可兑换' : (stock > 0 ? '' : '暂时无法兑换，过两天试试')
+    };
+  });
 }
 
 async function getIntegralMallProduct(request) {
@@ -304,7 +310,9 @@ async function getIntegralMallProduct(request) {
     );
   }
 
+  const price = Number(row.price || 0);
   const stock = Number(row.stock || 0);
+  const pricePending = price <= 0;
   return {
     id: row.id,
     image: cover,
@@ -313,12 +321,13 @@ async function getIntegralMallProduct(request) {
     title: row.title || '积分商品',
     info: '',
     description,
-    price: Number(row.price || 0),
+    price,
+    pricePending,
     unitName: row.unit_name || '',
     stock,
     sales: Number(row.sales || 0),
-    canExchange: stock > 0,
-    stockHint: stock > 0 ? '' : '暂时无法兑换，过两天试试'
+    canExchange: !pricePending && stock > 0,
+    stockHint: pricePending ? '暂不可兑换' : (stock > 0 ? '' : '暂时无法兑换，过两天试试')
   };
 }
 
