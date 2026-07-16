@@ -59,7 +59,7 @@
           <div class="preview-shell">
             <div class="preview-banner" :style="previewStyle">
               <div class="preview-shade"></div>
-              <div class="preview-copy">
+              <div class="preview-copy" :class="bannerCopyDensity">
                 <h2>{{ currentBanner.title || '轮播图主标题' }}</h2>
                 <p>{{ currentBanner.subtitle || '这里展示轮播图副标题' }}</p>
                 <span v-if="currentBanner.buttonText">{{ currentBanner.buttonText }} ›</span>
@@ -74,8 +74,9 @@
                 <el-form-item label="展示状态">
                   <el-switch v-model="currentBanner.enabled" active-text="展示" inactive-text="关闭" />
                 </el-form-item>
-                <el-form-item label="背景图片" required>
+                <el-form-item label="背景图片">
                   <ImageUrlInput v-model="currentBanner.image" placeholder="上传图片或粘贴图片 URL" />
+                  <p class="field-note">可留空使用小程序内置的渐变礼盒背景。</p>
                 </el-form-item>
                 <el-form-item label="主标题">
                   <el-input v-model="currentBanner.title" maxlength="40" show-word-limit placeholder="例如：会员积分兑好礼" />
@@ -191,9 +192,17 @@ const aiProgress = ref('正在生成，请稍候')
 const aiPrompt = ref('无线耳机、蓝牙音箱、游戏手柄和平板组成高级数码礼盒陈列，柔和商业棚拍光线，画面干净、有会员礼遇质感')
 const aiAspectRatio = ref('16:9')
 const aiQuality = ref('medium')
+const configUpdatedAt = ref(0)
 
 const orderedBanners = computed(() => [...banners.value].sort((a, b) => b.sort - a.sort))
 const currentBanner = computed(() => banners.value.find(item => item.id === selectedId.value) || null)
+const bannerCopyDensity = computed(() => {
+  const titleLength = currentBanner.value?.title.trim().length || 0
+  const subtitleLength = currentBanner.value?.subtitle.trim().length || 0
+  if (titleLength > 18 || subtitleLength > 46 || titleLength + subtitleLength > 60) return 'dense'
+  if (titleLength > 12 || subtitleLength > 28 || titleLength + subtitleLength > 40) return 'compact'
+  return ''
+})
 const previewStyle = computed(() => currentBanner.value?.image
   ? { backgroundImage: `url("${currentBanner.value.image.replace(/"/g, '%22')}")` }
   : {})
@@ -289,6 +298,7 @@ async function loadConfig() {
   try {
     const data = await request.get('/api/admin/homepage')
     banners.value = Array.isArray(data?.banners) ? data.banners : []
+    configUpdatedAt.value = Number(data?.updatedAt || 0)
     if (banners.value.length) {
       selectedId.value = banners.value[0].id
       syncSelectedTarget()
@@ -302,12 +312,6 @@ async function loadConfig() {
 }
 
 async function saveConfig() {
-  const invalidImage = banners.value.find(item => item.enabled && !item.image.trim())
-  if (invalidImage) {
-    selectBanner(invalidImage.id)
-    ElMessage.warning('展示中的轮播图必须设置背景图片')
-    return
-  }
   const invalidTarget = banners.value.find(item => item.targetType !== 'none' && !item.targetPath.startsWith('/pages/'))
   if (invalidTarget) {
     selectBanner(invalidTarget.id)
@@ -316,7 +320,10 @@ async function saveConfig() {
   }
   saving.value = true
   try {
-    await request.put('/api/admin/homepage', { banners: banners.value })
+    await request.put('/api/admin/homepage', {
+      banners: banners.value,
+      updatedAt: configUpdatedAt.value
+    })
     ElMessage.success('首页轮播图已保存，小程序重新进入首页后生效')
     await loadConfig()
   } finally {
@@ -397,10 +404,16 @@ async function waitForBannerImage(taskId: string) {
 .preview-shell { margin-bottom: 12px; }
 .preview-banner { position: relative; overflow: hidden; width: 100%; aspect-ratio: 16 / 6.55; border-radius: 8px; background: linear-gradient(135deg, #fbf0e3, #fff7ef 44%, #efc48e); background-size: cover; background-position: center; box-shadow: 0 8px 24px rgba(120, 80, 40, .1); }
 .preview-shade { position: absolute; inset: 0; background: linear-gradient(90deg, rgba(255, 250, 244, .96) 0%, rgba(255, 250, 244, .78) 36%, rgba(255, 250, 244, .04) 70%); }
-.preview-copy { position: absolute; z-index: 1; top: 50%; left: 5%; width: 45%; transform: translateY(-50%); }
-.preview-copy h2 { margin: 0; color: #382719; font-size: clamp(18px, 2vw, 30px); line-height: 1.25; }
-.preview-copy p { margin: 8px 0 14px; color: #775c43; font-size: 13px; line-height: 1.5; }
-.preview-copy span { display: inline-flex; padding: 7px 13px; border: 1px solid #bf8b55; border-radius: 999px; color: #8a5d2d; font-size: 12px; background: rgba(255,255,255,.7); }
+.preview-copy { position: absolute; z-index: 1; top: 50%; left: 5%; display: flex; width: 42%; max-height: 84%; flex-direction: column; align-items: flex-start; transform: translateY(-50%); }
+.preview-copy h2, .preview-copy p { display: -webkit-box; width: 100%; overflow: hidden; word-break: break-all; -webkit-box-orient: vertical; }
+.preview-copy h2 { margin: 0; color: #382719; font-size: clamp(18px, 2vw, 30px); line-height: 1.25; -webkit-line-clamp: 2; }
+.preview-copy p { margin: 7px 0 11px; color: #775c43; font-size: 13px; line-height: 1.45; -webkit-line-clamp: 2; }
+.preview-copy span { display: inline-flex; box-sizing: border-box; max-width: 100%; overflow: hidden; padding: 6px 12px; border: 1px solid #bf8b55; border-radius: 999px; color: #8a5d2d; font-size: 12px; line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; background: rgba(255,255,255,.7); }
+.preview-copy.compact h2 { font-size: clamp(17px, 1.7vw, 25px); }
+.preview-copy.compact p { margin: 6px 0 9px; font-size: 12px; line-height: 1.4; }
+.preview-copy.dense h2 { font-size: clamp(16px, 1.5vw, 22px); line-height: 1.2; }
+.preview-copy.dense p { margin: 5px 0 8px; font-size: 11px; line-height: 1.35; }
+.preview-copy.dense span { padding: 5px 10px; font-size: 11px; }
 .editor-tabs { margin-top: 10px; }
 .banner-form { max-width: 760px; padding-top: 8px; }
 .field-note { width: 100%; margin: 6px 0 0; color: #8b95a5; font-size: 12px; line-height: 19px; }

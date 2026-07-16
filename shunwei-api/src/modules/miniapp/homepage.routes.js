@@ -10,6 +10,31 @@ const { AiImageService } = require('../ai-image/ai-image.service');
 const { getPool, legacyTable } = require('../../shared/mysql');
 
 const DATA_FILE = path.join(config.dataDir, 'homepage-config.json');
+const HOMEPAGE_DEFAULTS_VERSION = 1;
+const DEFAULT_BANNERS = [
+  {
+    id: 'default-points',
+    title: '会员积分兑好礼',
+    subtitle: '到店购物享权益 · 数码好物兑换',
+    buttonText: '查看积分商城',
+    image: '',
+    targetType: 'page',
+    targetPath: '/pages/jingcheng/integral/mall',
+    enabled: true,
+    sort: 10
+  },
+  {
+    id: 'default-coupon',
+    title: '消费券会员专享',
+    subtitle: '手机焕新更划算 · 积分权益同步享',
+    buttonText: '了解会员权益',
+    image: '',
+    targetType: 'page',
+    targetPath: '/pages/jingcheng/activity/index',
+    enabled: true,
+    sort: 0
+  }
+];
 const TAB_PAGES = new Set([
   '/pages/index/index',
   '/pages/goods_cate/goods_cate',
@@ -32,7 +57,8 @@ const bannerSchema = z.object({
 const updateSchema = z.object({
   banners: z.array(bannerSchema).max(20),
   quickNav: z.array(z.unknown()).max(20).optional(),
-  announcement: z.string().max(300).optional()
+  announcement: z.string().max(300).optional(),
+  updatedAt: z.coerce.number().int().positive()
 });
 
 const generateSchema = z.object({
@@ -96,15 +122,39 @@ function normalizeConfig(value) {
     banners,
     quickNav: Array.isArray(value?.quickNav) ? value.quickNav.slice(0, 20) : [],
     announcement: String(value?.announcement || '').slice(0, 300),
+    defaultsVersion: Number(value?.defaultsVersion || 0),
     updatedAt: Number(value?.updatedAt || 0)
   };
 }
 
+function seedHomepageDefaults(value) {
+  const current = normalizeConfig(value);
+  if (current.defaultsVersion >= HOMEPAGE_DEFAULTS_VERSION) return current;
+
+  const existingIds = new Set(current.banners.map((item) => item.id));
+  const existingTargets = new Set(current.banners.map((item) => item.targetPath).filter(Boolean));
+  const missingDefaults = DEFAULT_BANNERS.filter((item) => (
+    !existingIds.has(item.id) && !existingTargets.has(item.targetPath)
+  ));
+  return normalizeConfig({
+    ...current,
+    banners: [...current.banners, ...missingDefaults],
+    defaultsVersion: HOMEPAGE_DEFAULTS_VERSION,
+    updatedAt: Date.now()
+  });
+}
+
 async function readConfig() {
   try {
-    return normalizeConfig(JSON.parse(await fs.readFile(DATA_FILE, 'utf8')));
+    const stored = normalizeConfig(JSON.parse(await fs.readFile(DATA_FILE, 'utf8')));
+    if (stored.defaultsVersion >= HOMEPAGE_DEFAULTS_VERSION) return stored;
+    const seeded = seedHomepageDefaults(stored);
+    await writeConfig(seeded);
+    return seeded;
   } catch {
-    return normalizeConfig({});
+    const seeded = seedHomepageDefaults({});
+    await writeConfig(seeded);
+    return seeded;
   }
 }
 
@@ -191,10 +241,14 @@ function registerHomepageRoutes(app) {
     if (!parsed.success) return fail(reply, 400, '首页轮播图参数错误', parsed.error.flatten());
     try {
       const current = await readConfig();
+      if (parsed.data.updatedAt !== current.updatedAt) {
+        return fail(reply, 409, '轮播图配置已在其他页面更新，请先刷新后再保存');
+      }
+      const { updatedAt: _expectedUpdatedAt, ...changes } = parsed.data;
       const saved = await writeConfig({
         ...current,
-        ...parsed.data,
-        updatedAt: Math.floor(Date.now() / 1000)
+        ...changes,
+        updatedAt: Date.now()
       });
       return ok(saved, '首页轮播图已保存并生效');
     } catch (error) {
@@ -280,5 +334,6 @@ module.exports = {
   normalizeConfig,
   normalizeTarget,
   publicConfig,
-  buildBannerPrompt
+  buildBannerPrompt,
+  seedHomepageDefaults
 };

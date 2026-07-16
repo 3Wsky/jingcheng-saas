@@ -4,7 +4,8 @@ const {
   normalizeConfig,
   normalizeTarget,
   publicConfig,
-  buildBannerPrompt
+  buildBannerPrompt,
+  seedHomepageDefaults
 } = require('./homepage.routes');
 
 test('homepage config normalizes duplicate ids and unsafe targets', () => {
@@ -45,4 +46,18 @@ test('banner prompt reserves copy space and prohibits generated text', () => {
   assert.match(prompt, /左侧约 42%/);
   assert.match(prompt, /严禁出现任何文字/);
   assert.match(prompt, /16:9/);
+});
+
+test('homepage defaults are migrated once without duplicating an existing target', () => {
+  const seeded = seedHomepageDefaults({
+    banners: [
+      { id: 'custom-points', targetType: 'page', targetPath: '/pages/jingcheng/integral/mall' }
+    ]
+  });
+  assert.equal(seeded.defaultsVersion, 1);
+  assert.equal(seeded.banners.filter((item) => item.targetPath === '/pages/jingcheng/integral/mall').length, 1);
+  assert.ok(seeded.banners.some((item) => item.id === 'default-coupon'));
+
+  const seededAgain = seedHomepageDefaults(seeded);
+  assert.equal(seededAgain.banners.length, seeded.banners.length);
 });
