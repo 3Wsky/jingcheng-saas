@@ -1,6 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { z } = require('zod');
+const { nanoid } = require('nanoid');
 const { ok, fail } = require('../../shared/http');
 const { config } = require('../../shared/config');
 const { toPublicUrl } = require('../../shared/url');
@@ -39,6 +40,22 @@ const generateSchema = z.object({
   aspectRatio: z.enum(['16:9', '3:2', '4:3', '1:1']).optional().default('16:9'),
   quality: z.enum(['low', 'medium', 'high', 'auto']).optional()
 });
+
+const imageTasks = new Map();
+const IMAGE_TASK_TTL_MS = 30 * 60 * 1000;
+const MAX_IMAGE_TASKS = 100;
+
+function pruneImageTasks() {
+  const now = Date.now();
+  for (const [taskId, task] of imageTasks) {
+    if (now - task.createdAt > IMAGE_TASK_TTL_MS) imageTasks.delete(taskId);
+  }
+  if (imageTasks.size <= MAX_IMAGE_TASKS) return;
+  const oldest = [...imageTasks.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt);
+  for (let index = 0; index < oldest.length - MAX_IMAGE_TASKS; index += 1) {
+    imageTasks.delete(oldest[index][0]);
+  }
+}
 
 function normalizeTarget(type, targetPath) {
   const targetType = ['page', 'tab'].includes(type) ? type : 'none';
@@ -199,21 +216,62 @@ function registerHomepageRoutes(app) {
     if (!aiImage.isConfigured()) {
       return fail(reply, 503, 'AI 生图服务未配置，请先在系统设置中配置 AI 生图 API');
     }
-    try {
-      const images = await aiImage.generate({
-        prompt: buildBannerPrompt(parsed.data.prompt, parsed.data.aspectRatio),
-        aspectRatio: parsed.data.aspectRatio,
-        count: 1,
-        quality: parsed.data.quality
-      });
-      return ok({
-        url: toPublicUrl(images[0].url, request),
-        aspectRatio: parsed.data.aspectRatio,
-        model: aiImage.model
-      }, '轮播图生成完成');
-    } catch (error) {
-      return fail(reply, error.statusCode || 500, error.message || '轮播图生成失败');
-    }
+
+    pruneImageTasks();
+    const taskId = `banner-${nanoid(12)}`;
+    const task = {
+      taskId,
+      status: 'pending',
+      progress: '任务已提交，等待生成',
+      createdAt: Date.now(),
+      result: null,
+      error: null
+    };
+    imageTasks.set(taskId, task);
+
+    // 生图可能持续数分钟，放到后台执行，避免同步 HTTP 请求被 Nginx 以 504 中断。
+    (async () => {
+      try {
+        task.status = 'generating';
+        task.progress = 'AI 正在生成图片';
+        const images = await aiImage.generate({
+          prompt: buildBannerPrompt(parsed.data.prompt, parsed.data.aspectRatio),
+          aspectRatio: parsed.data.aspectRatio,
+          count: 1,
+          quality: parsed.data.quality
+        });
+        task.status = 'done';
+        task.progress = '图片生成完成';
+        task.result = {
+          url: images[0].url,
+          aspectRatio: parsed.data.aspectRatio,
+          model: aiImage.model
+        };
+      } catch (error) {
+        task.status = 'failed';
+        task.progress = '图片生成失败';
+        task.error = error.message || '轮播图生成失败';
+      }
+    })();
+
+    return ok({ taskId }, '生图任务已提交');
+  });
+
+  app.get('/api/admin/homepage/ai-image/task/:taskId', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    pruneImageTasks();
+    const task = imageTasks.get(request.params.taskId);
+    if (!task) return fail(reply, 404, '生图任务不存在或已过期');
+
+    return ok({
+      taskId: task.taskId,
+      status: task.status,
+      progress: task.progress,
+      error: task.error,
+      result: task.result
+        ? { ...task.result, url: toPublicUrl(task.result.url, request) }
+        : null
+    });
   });
 }
 

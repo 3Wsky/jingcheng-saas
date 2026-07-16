@@ -132,7 +132,7 @@
                 </el-form-item>
                 <el-form-item label=" ">
                   <el-button type="primary" :loading="aiGenerating" :disabled="!aiConfigured || !aiPrompt.trim()" @click="generateBannerImage">
-                    <el-icon><MagicStick /></el-icon>{{ aiGenerating ? '正在生成，请稍候' : '生成并应用到当前轮播图' }}
+                    <el-icon><MagicStick /></el-icon>{{ aiGenerating ? aiProgress : '生成并应用到当前轮播图' }}
                   </el-button>
                   <span class="inline-note">通常需要 30–120 秒，请勿重复点击。</span>
                 </el-form-item>
@@ -187,6 +187,7 @@ const loading = ref(false)
 const saving = ref(false)
 const aiConfigured = ref(false)
 const aiGenerating = ref(false)
+const aiProgress = ref('正在生成，请稍候')
 const aiPrompt = ref('无线耳机、蓝牙音箱、游戏手柄和平板组成高级数码礼盒陈列，柔和商业棚拍光线，画面干净、有会员礼遇质感')
 const aiAspectRatio = ref('16:9')
 const aiQuality = ref('medium')
@@ -336,18 +337,42 @@ async function generateBannerImage() {
   const current = currentBanner.value
   if (!current || !aiPrompt.value.trim()) return
   aiGenerating.value = true
+  aiProgress.value = '正在提交生成任务'
   try {
     const data = await request.post('/api/admin/homepage/ai-image/generate', {
       prompt: aiPrompt.value.trim(),
       aspectRatio: aiAspectRatio.value,
       quality: aiQuality.value
-    }, { timeout: 600000 })
-    current.image = data?.url || ''
+    })
+    if (!data?.taskId) {
+      ElMessage.error('生图任务提交失败，请重试')
+      return
+    }
+    const result = await waitForBannerImage(data.taskId)
+    if (!result?.url) return
+    current.image = result.url
     activeTab.value = 'content'
     ElMessage.success('AI 图片已应用到当前轮播图，确认预览后请保存')
   } finally {
     aiGenerating.value = false
+    aiProgress.value = '正在生成，请稍候'
   }
+}
+
+async function waitForBannerImage(taskId: string) {
+  const deadline = Date.now() + 10 * 60 * 1000
+  while (Date.now() < deadline) {
+    const task = await request.get(`/api/admin/homepage/ai-image/task/${encodeURIComponent(taskId)}`)
+    aiProgress.value = task?.progress || 'AI 正在生成图片'
+    if (task?.status === 'done') return task.result
+    if (task?.status === 'failed') {
+      ElMessage.error(task.error || 'AI 图片生成失败')
+      return null
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 2000))
+  }
+  ElMessage.error('AI 图片生成等待超时，请稍后重试')
+  return null
 }
 </script>
 
