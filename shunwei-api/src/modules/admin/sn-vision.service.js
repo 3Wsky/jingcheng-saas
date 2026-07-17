@@ -15,7 +15,7 @@ function getVisionMode() {
   return 'auto';
 }
 
-/** 逗号分隔；未配置则不走 AI 视觉（生图密钥 gpt-image-2 不能用于 chat/completions） */
+/** 逗号分隔；未配置则不走图片识别（图片设计密钥 gpt-image-2 不能用于 chat/completions） */
 function getVisionModels() {
   const raw = process.env.SN_VISION_MODELS || process.env.SN_VISION_MODEL || '';
   return raw.split(',').map((item) => item.trim()).filter(Boolean);
@@ -157,8 +157,8 @@ function isAiAuthError(message) {
 
 function friendlyError(message, fallback) {
   const raw = String(message || '');
-  if (isAiAuthError(raw)) return 'AI 识别密钥无效，已尝试其他识别方式';
-  if (isModelUnsupportedError(raw)) return '当前 AI 模型不支持图片识别，已尝试其他识别方式';
+  if (isAiAuthError(raw)) return '图片识别密钥无效，已尝试其他识别方式';
+  if (isModelUnsupportedError(raw)) return '当前识别方式不支持图片识别，已尝试其他识别方式';
   if (raw.length > 120) return fallback || '识别失败，请手动输入 SN';
   return raw || fallback || '识别失败';
 }
@@ -191,7 +191,7 @@ async function callVisionModel(channel, model, buffer, mime) {
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    throw new Error(`AI 识别失败(${resp.status})[${model}]: ${text.slice(0, 200)}`);
+    throw new Error(`图片识别失败(${resp.status})[${model}]: ${text.slice(0, 200)}`);
   }
 
   const result = await resp.json();
@@ -276,7 +276,7 @@ async function recogniseSnFromImage({ buffer, mime = 'image/jpeg' }) {
   if (!useAi && !useWechat) {
     const err = new Error(
       caps.aiChannelConfigured && !caps.visionModels.length
-        ? '未配置 SN 视觉模型（SN_VISION_MODEL）；当前网关仅支持生图，请使用微信 OCR 或配置视觉模型'
+        ? '未配置 SN 视觉模型（SN_VISION_MODEL）；当前图片接口不支持识别，请使用微信 OCR 或配置视觉模型'
         : '识别服务未配置（需微信小程序凭证或 SN_VISION_MODEL）'
     );
     err.statusCode = 503;

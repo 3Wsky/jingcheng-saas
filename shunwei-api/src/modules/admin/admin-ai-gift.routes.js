@@ -97,7 +97,7 @@ function registerAdminAiGiftRoutes(app) {
   app.put('/api/admin/config/ai-image', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const parsed = aiConfigSchema.safeParse(request.body || {});
-    if (!parsed.success) return fail(reply, 400, 'AI 配置参数错误', parsed.error.flatten());
+    if (!parsed.success) return fail(reply, 400, '画家设计配置参数错误', parsed.error.flatten());
 
     const existing = await AiImageService.readConfig();
     const cfg = {
@@ -123,18 +123,18 @@ function registerAdminAiGiftRoutes(app) {
     return ok({
       configured: aiImage.isConfigured(),
       model: aiImage.model
-    }, 'AI 生图配置已保存');
+    }, '画家设计配置已保存');
   });
 
-  // 提交异步生成任务，立即返回 taskId
+  // 提交异步设计任务，立即返回 taskId
   app.post('/api/admin/integral-mall/ai-gift/generate', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const parsed = generateSchema.safeParse(request.body || {});
-    if (!parsed.success) return fail(reply, 400, 'AI 生成参数错误', parsed.error.flatten());
+    if (!parsed.success) return fail(reply, 400, '画家设计参数错误', parsed.error.flatten());
 
     await aiImage.reloadFromFile().catch(() => {});
     if (!aiImage.isConfigured()) {
-      return fail(reply, 503, 'AI 生图服务未配置，请在系统设置页配置 AI 生图 API');
+      return fail(reply, 503, '画家设计服务未配置，请在系统设置页配置图片接口');
     }
 
     pruneExpiredTasks();
@@ -160,7 +160,7 @@ function registerAdminAiGiftRoutes(app) {
     (async () => {
       try {
         task.status = 'generating_main';
-        task.progress = '正在生成主图（1/' + task.totalSteps + '）…';
+        task.progress = '画家正在设计主图（1/' + task.totalSteps + '）…';
 
         const reference = await aiImage.loadImageInput(photo);
 
@@ -178,7 +178,7 @@ function registerAdminAiGiftRoutes(app) {
         const detailImages = [];
         for (let i = 0; i < detailCount; i += 1) {
           task.status = 'generating_detail';
-          task.progress = `正在生成详情图（${i + 2}/${task.totalSteps}）…`;
+          task.progress = `画家正在设计详情图（${i + 2}/${task.totalSteps}）…`;
           const prompt = DETAIL_PROMPTS[i % DETAIL_PROMPTS.length];
           const res = await aiImage.edit({
             prompt,
@@ -195,7 +195,7 @@ function registerAdminAiGiftRoutes(app) {
         const description = buildDescriptionHtml(detailImages);
 
         task.status = 'done';
-        task.progress = '生成完成';
+        task.progress = '画家设计完成';
         task.result = {
           mainImage: main.url,
           sliderImages: [main.url, ...detailImages],
@@ -218,8 +218,8 @@ function registerAdminAiGiftRoutes(app) {
         }).catch(() => {});
       } catch (error) {
         task.status = 'failed';
-        task.progress = '生成失败';
-        task.error = error.message || 'AI 生成失败';
+        task.progress = '画家设计失败';
+        task.error = error.message || '画家设计失败';
       }
     })();
 

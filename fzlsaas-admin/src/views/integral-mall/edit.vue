@@ -21,7 +21,7 @@
           <el-form-item label="创建方式" required>
             <el-radio-group v-model="createMode">
               <el-radio value="manual">手动创建（独立上架）</el-radio>
-              <el-radio value="ai">AI 拍照生成（门店实拍）</el-radio>
+              <el-radio value="ai">画家设计（门店实拍）</el-radio>
               <el-radio value="import">从展示商品导入</el-radio>
             </el-radio-group>
             <p class="field-hint block-hint">{{ createModeHint }}</p>
@@ -38,7 +38,7 @@
           <template v-if="createMode === 'ai'">
             <el-form-item label="门店实拍照片" required>
               <ImageUrlInput v-model="aiPhoto" placeholder="上传门店实拍照片或粘贴图片 URL" />
-              <p class="field-hint block-hint">上传你店里拍的商品照片（背景可杂乱），AI 会基于真实商品生成纯白底电商主图与竖版详情长图。</p>
+              <p class="field-hint block-hint">上传你店里拍的商品照片（背景可杂乱），画家会基于真实商品设计纯白底电商主图与竖版详情长图。</p>
             </el-form-item>
             <el-form-item label="商品名称">
               <el-input v-model="form.title" maxlength="80" show-word-limit style="width: 480px" placeholder="如：华为 Mate 70 Pro 玻光绿（可留空）" />
@@ -53,16 +53,16 @@
             </el-form-item>
             <el-form-item label="详情图数量">
               <el-input-number v-model="aiDetailCount" :min="0" :max="4" />
-              <span class="field-hint">竖版 AI 详情长图 0~4 张，数量越多耗时越长</span>
+              <span class="field-hint">竖版详情长图 0~4 张，数量越多耗时越长</span>
             </el-form-item>
             <el-form-item label=" ">
               <el-button type="primary" :loading="aiGenerating" :disabled="!aiConfigured || !aiPhoto" @click="generateAi">
-                {{ aiGenerating ? 'AI 生成中…（约 30~120 秒，请勿离开）' : '开始 AI 生成' }}
+                {{ aiGenerating ? '画家设计中…（约 30~120 秒，请勿离开）' : '开始画家设计' }}
               </el-button>
-              <span v-if="!aiConfigured" class="field-hint" style="color:#e6a23c">AI 生图服务未配置，请联系管理员在后端设置图片接口</span>
-              <span v-else-if="aiDone" class="field-hint" style="color:#67c23a">✓ 已生成，点「下一步」查看并调整积分价/库存</span>
+              <span v-if="!aiConfigured" class="field-hint" style="color:#e6a23c">画家设计服务未配置，请联系管理员在后端设置图片接口</span>
+              <span v-else-if="aiDone" class="field-hint" style="color:#67c23a">✓ 设计完成，点「下一步」查看并调整积分价/库存</span>
             </el-form-item>
-            <el-form-item v-if="aiDone" label="生成预览">
+            <el-form-item v-if="aiDone" label="设计预览">
               <div class="ai-preview">
                 <el-image :src="form.image" fit="cover" class="ai-main" />
                 <el-image v-for="(img, i) in aiDetailPreview" :key="i" :src="img" fit="cover" class="ai-thumb" />
@@ -204,7 +204,7 @@ const createMode = ref<'manual' | 'import' | 'ai'>('manual')
 const skuList = ref<any[]>([])
 const selectedSkus = ref<any[]>([])
 
-// AI 拍照生成相关
+// 画家设计相关
 const aiPhoto = ref('')
 const aiStorePrice = ref(0)
 const aiMultiplier = ref(10)
@@ -222,7 +222,7 @@ const safeDescriptionHtml = computed(() => {
 })
 
 const createModeHint = computed(() => {
-  if (createMode.value === 'ai') return '上传门店实拍照片，AI 自动生成纯白底电商主图与竖版详情长图，并按店内售价×倍率换算积分价，一步生成积分礼品。'
+  if (createMode.value === 'ai') return '上传门店实拍照片，由画家设计纯白底电商主图与竖版详情长图，并按店内售价×倍率换算积分价，一步完成积分礼品。'
   if (createMode.value === 'import') return '从已上架展示商品快速导入信息，可在此基础上调整积分价与库存。'
   return '无需先在商品管理上架，直接填写标题、主图、积分价与库存即可独立上架积分商品。'
 })
@@ -294,7 +294,7 @@ async function generateAi() {
     aiDetailPreview.value = Array.isArray(data.detailImages) ? data.detailImages : []
     form.value.detailImages = [...aiDetailPreview.value]
     aiDone.value = true
-    ElMessage.success('AI 生成完成，请点「下一步」核对积分价与库存')
+    ElMessage.success('画家设计完成，请点「下一步」核对积分价与库存')
   } catch {
     /* handled by interceptor */
   } finally {
@@ -361,7 +361,7 @@ function next() {
     return
   }
   if (current.value === 0 && createMode.value === 'ai' && !aiDone.value) {
-    ElMessage.warning('请先点「开始 AI 生成」生成商品图片')
+    ElMessage.warning('请先点「开始画家设计」完成商品图片')
     return
   }
   if (current.value === 1 && !form.value.title.trim()) {

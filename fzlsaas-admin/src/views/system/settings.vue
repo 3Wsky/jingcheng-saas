@@ -44,11 +44,11 @@
     <el-row :gutter="20" style="margin-top: 20px">
       <el-col :xs="24" :md="12">
         <el-card shadow="never">
-          <template #header><span>AI 生图配置</span></template>
+          <template #header><span>画家设计配置</span></template>
           <el-form label-width="120px" label-position="top" v-loading="aiLoading">
             <el-form-item label="API 地址">
-              <el-input v-model="aiForm.baseUrl" placeholder="https://api.openai.com（OpenAI 兼容协议）" />
-              <p class="hint">支持 OpenAI、FastAPI AI 等兼容接口，会自动补 /v1</p>
+              <el-input v-model="aiForm.baseUrl" placeholder="https://example.com（兼容图片接口）" />
+              <p class="hint">支持标准兼容图片接口，会自动补 /v1</p>
             </el-form-item>
             <el-form-item label="API 密钥">
               <el-input v-model="aiForm.apiKey" type="password" show-password :placeholder="aiForm.apiKeySet ? '已配置（留空保持不变）' : '输入 API Key'" />
@@ -503,7 +503,7 @@ async function saveAiConfig() {
     aiForm.value.effectiveConfigured = data?.configured || false
     aiForm.value.apiKeySet = true
     aiForm.value.apiKey = ''
-    ElMessage.success('AI 生图配置已保存')
+    ElMessage.success('画家设计配置已保存')
   } catch {
     /* handled */
   } finally {

@@ -11,7 +11,7 @@ const { StaffService } = require('../staff/staff.service');
 const staffService = new StaffService();
 
 // 这几个接口路径都是 /api/staff/...，但此前只校验了"已登录"，没有像其余 staff 接口
-// 一样校验 is_staff=1——任何普通会员登录后也能调用，白嫖 OCR/AI 识别配额、写入绑定记录。
+// 一样校验 is_staff=1——任何普通会员登录后也能调用，消耗图片识别配额、写入绑定记录。
 // 统一在这里补上店员身份校验，非店员返回 403，不再往下执行。
 async function assertStaffOrFail(uid, reply) {
   try {

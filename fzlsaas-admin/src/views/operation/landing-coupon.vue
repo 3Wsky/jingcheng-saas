@@ -4,8 +4,28 @@
     subtitle="配置现金券推广页领取后弹出的客户经理名片，系统严格按列表顺序循环展示。"
   >
     <template #actions>
+      <el-button :loading="codeGenerating" @click="generateMiniappCode">生成页面小程序码</el-button>
       <el-button type="primary" :loading="saving" @click="saveConfig">保存配置</el-button>
     </template>
+
+    <section class="code-panel">
+      <div class="code-copy">
+        <h3>扫码直达现金券页面</h3>
+        <p>微信扫码后直接进入 <code>pages/jingcheng/landing/coupon</code>。正式码需要该页面已随小程序正式版发布。</p>
+        <el-space v-if="miniappCodeUrl">
+          <el-button type="primary" plain @click="downloadMiniappCode">下载小程序码</el-button>
+          <el-button text @click="generateMiniappCode">重新生成</el-button>
+        </el-space>
+      </div>
+      <el-image
+        v-if="miniappCodeUrl"
+        :src="miniappCodeUrl"
+        :preview-src-list="[miniappCodeUrl]"
+        fit="contain"
+        class="miniapp-code"
+      />
+      <el-empty v-else description="尚未生成页面小程序码" :image-size="58" />
+    </section>
 
     <el-alert type="info" :closable="false" show-icon class="rotation-alert">
       <template #title>
@@ -89,6 +109,8 @@ const saving = ref(false)
 const managers = ref<any[]>([])
 const selectedUids = ref<number[]>([])
 const keyword = ref('')
+const codeGenerating = ref(false)
+const miniappCodeUrl = ref('')
 
 const managerMap = computed(() => new Map(managers.value.map(item => [Number(item.uid), item])))
 const selectedManagers = computed(() => selectedUids.value.map(uid => managerMap.value.get(uid) || { uid }))
@@ -116,6 +138,7 @@ async function loadData() {
     ])
     managers.value = staff?.list || []
     selectedUids.value = Array.isArray(config?.managerUids) ? config.managerUids.map(Number) : []
+    miniappCodeUrl.value = config?.miniappCodeUrl || ''
   } finally {
     loading.value = false
   }
@@ -146,10 +169,39 @@ async function saveConfig() {
     saving.value = false
   }
 }
+
+async function generateMiniappCode() {
+  codeGenerating.value = true
+  try {
+    const data = await request.post('/api/admin/landing/coupon/miniapp-code')
+    miniappCodeUrl.value = data?.url || ''
+    ElMessage.success('页面小程序码已生成，微信扫码可直接进入现金券页面')
+  } finally {
+    codeGenerating.value = false
+  }
+}
+
+function downloadMiniappCode() {
+  if (!miniappCodeUrl.value) return
+  const link = document.createElement('a')
+  link.href = miniappCodeUrl.value
+  link.download = '锦程数码-现金券页面小程序码.png'
+  link.target = '_blank'
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+}
 </script>
 
 <style scoped>
 .rotation-alert { margin-bottom: 18px; }
+.code-panel { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-bottom: 18px; padding: 18px; border: 1px solid var(--gov-border); border-radius: 6px; background: #fff; }
+.code-copy { min-width: 0; }
+.code-copy h3 { margin: 0; font-size: 15px; color: var(--gov-text-primary); }
+.code-copy p { margin: 7px 0 14px; color: var(--gov-text-secondary); font-size: 12px; line-height: 20px; }
+.code-copy code { padding: 2px 5px; border-radius: 4px; background: #f2f4f7; color: #344054; }
+.miniapp-code { width: 132px; height: 132px; flex: 0 0 132px; border: 1px solid #eaecf0; border-radius: 6px; background: #fff; }
 .config-grid { display: grid; grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr); gap: 18px; }
 .manager-panel { min-width: 0; border: 1px solid var(--gov-border); border-radius: 6px; background: #fff; padding: 18px; }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
@@ -164,4 +216,5 @@ async function saveConfig() {
 .row-actions { display: flex; flex-shrink: 0; }
 .table-name { color: #1f2937; font-weight: 500; }
 @media (max-width: 1100px) { .config-grid { grid-template-columns: 1fr; } }
+@media (max-width: 680px) { .code-panel { align-items: flex-start; flex-direction: column; } }
 </style>

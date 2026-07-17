@@ -6,13 +6,34 @@ const {
   extractApprovalProductModel,
   isPhoneLikeNickname,
   mapApprovalLiveFeed,
-  mapIntegralLiveFeed
+  mapIntegralLiveFeed,
+  buildMiniappCodeUrl
 } = require('./coupon-landing.routes');
 
 test('coupon landing config keeps a unique ordered manager list', () => {
   const result = normalizeConfig({ managerUids: [4, '2', 4, 0, -1], cursor: 3 });
   assert.deepEqual(result.managerUids, [4, 2]);
   assert.equal(result.cursor, 3);
+});
+
+test('coupon landing config only keeps the fixed miniapp code file', () => {
+  const valid = normalizeConfig({
+    miniappCodePath: '/uploads/miniapp/coupon-landing.png',
+    miniappCodeUpdatedAt: 123
+  });
+  assert.equal(valid.miniappCodePath, '/uploads/miniapp/coupon-landing.png');
+  assert.equal(valid.miniappCodeUpdatedAt, 123);
+
+  const invalid = normalizeConfig({
+    miniappCodePath: '/uploads/other.png',
+    miniappCodeUpdatedAt: 123
+  });
+  assert.equal(invalid.miniappCodePath, '');
+});
+
+test('coupon landing miniapp code URL includes a cache version', () => {
+  const url = buildMiniappCodeUrl(null, '/uploads/miniapp/coupon-landing.jpg', 456);
+  assert.match(url, /api\/file\?p=uploads\/miniapp\/coupon-landing\.jpg&v=456$/);
 });
 
 test('coupon landing manager cards rotate in configured order', async () => {

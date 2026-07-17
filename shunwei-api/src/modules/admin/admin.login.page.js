@@ -246,7 +246,7 @@ function renderAdminLoginPage(errorText = '') {
         <button type="submit">登录后台</button>
       </form>
       <div class="foot">本地默认账号由环境变量 ADMIN_USERNAME / ADMIN_PASSWORD 覆盖。</div>
-      <div class="foot" style="margin-top:10px;opacity:.75;">技术支持：<strong>FZLSaas</strong> · 反重力人工智能工作室</div>
+      <div class="foot" style="margin-top:10px;opacity:.75;">技术支持：<strong>FZLSaas</strong> · 反重力设计工作室</div>
     </section>
   </main>
 </body>

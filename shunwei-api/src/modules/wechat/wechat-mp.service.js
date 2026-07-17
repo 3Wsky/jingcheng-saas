@@ -5,6 +5,7 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 
 const MP_API = 'https://api.weixin.qq.com';
 const MAX_OCR_BYTES = 2 * 1024 * 1024;
+const MINIAPP_CODE_PAGE_MAX_BYTES = 128;
 const WECHAT_MP_CONFIG_FILE = path.join(config.dataDir, 'wechat-mp-config.json');
 
 const APP_ID_KEYS = ['routine_appId', 'routine_app_id'];
@@ -19,6 +20,8 @@ const WECHAT_OCR_ERRORS = {
   40125: '小程序 AppSecret 无效（40125）',
   40164: '服务器 IP 未加入微信公众平台白名单',
   41001: '缺少 access_token，请检查小程序凭证',
+  41030: '目标页面尚未发布或页面路径不正确，请先发布包含该页面的小程序版本',
+  40097: '小程序码参数无效，请检查页面路径',
   45009: '微信 OCR 今日调用次数已达上限（100次/天）',
   101002: '图片超过 2MB 或格式无法识别，请重新拍摄',
   101003: '微信 OCR 今日免费额度已用完（100次/天），可在微信服务平台购买',
@@ -222,6 +225,54 @@ async function getAccessToken(force = false) {
   return tokenCache.token;
 }
 
+async function getMiniappCode({ page, width = 430, envVersion = 'release' } = {}, retry = true) {
+  const normalizedPage = String(page || '').trim().replace(/^\/+/, '');
+  if (!normalizedPage || Buffer.byteLength(normalizedPage, 'utf8') > MINIAPP_CODE_PAGE_MAX_BYTES) {
+    const err = new Error('小程序页面路径不能为空，且不能超过 128 字节');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (!/^[A-Za-z0-9_\-/]+$/.test(normalizedPage)) {
+    const err = new Error('小程序页面路径格式无效');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  const token = await getAccessToken();
+  const url = `${MP_API}/wxa/getwxacode?access_token=${encodeURIComponent(token)}`;
+  const resp = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path: normalizedPage,
+      width: Math.max(280, Math.min(1280, Number(width) || 430)),
+      auto_color: false,
+      line_color: { r: 0, g: 0, b: 0 },
+      is_hyaline: false,
+      env_version: ['release', 'trial', 'develop'].includes(envVersion) ? envVersion : 'release'
+    }),
+    signal: AbortSignal.timeout(20000)
+  });
+
+  const buffer = Buffer.from(await resp.arrayBuffer());
+  const contentType = String(resp.headers.get('content-type') || '').toLowerCase();
+  if (resp.ok && contentType.startsWith('image/') && buffer.length) {
+    return { buffer, mime: contentType.split(';')[0] || 'image/jpeg', page: normalizedPage };
+  }
+
+  let data = null;
+  try { data = JSON.parse(buffer.toString('utf8')); } catch { /* 微信异常响应可能不是 JSON */ }
+  if (retry && (data?.errcode === 40001 || data?.errcode === 42001)) {
+    tokenCache = { token: '', expireAt: 0, appId: '' };
+    return getMiniappCode({ page: normalizedPage, width, envVersion }, false);
+  }
+
+  const cred = await getMiniappCredentials();
+  const err = new Error(mapWechatError(data || { errcode: resp.status, errmsg: buffer.toString('utf8').slice(0, 200) }, cred.appId));
+  err.statusCode = 502;
+  throw err;
+}
+
 async function printedTextOcr(buffer, mime = 'image/jpeg', retry = true) {
   if (!buffer || !buffer.length) {
     const err = new Error('图片为空');
@@ -266,6 +317,7 @@ module.exports = {
   probeAccessToken,
   isMiniappConfigured,
   getAccessToken,
+  getMiniappCode,
   printedTextOcr,
   MAX_OCR_BYTES,
   isValidWxAppId,

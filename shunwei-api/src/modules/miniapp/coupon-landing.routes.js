@@ -7,8 +7,12 @@ const { getPool, legacyTable } = require('../../shared/mysql');
 const { swTable } = require('../../shared/sw-mysql');
 const { requireAdmin } = require('../admin/admin.auth');
 const { StaffService } = require('../staff/staff.service');
+const { getMiniappCode } = require('../wechat/wechat-mp.service');
+const { toPublicUrl } = require('../../shared/url');
 
 const DATA_FILE = path.join(config.dataDir, 'coupon-landing-config.json');
+const MINIAPP_CODE_PAGE = 'pages/jingcheng/landing/coupon';
+const MINIAPP_CODE_DIR = path.join(config.dataDir, 'uploads', 'miniapp');
 const updateSchema = z.object({
   managerUids: z.array(z.coerce.number().int().positive()).max(100)
 });
@@ -22,11 +26,33 @@ function normalizeConfig(value) {
   const managerUids = Array.isArray(value?.managerUids)
     ? [...new Set(value.managerUids.map(Number).filter((uid) => Number.isInteger(uid) && uid > 0))]
     : [];
+  const miniappCodePath = /^\/uploads\/miniapp\/coupon-landing\.(?:png|jpg)$/.test(String(value?.miniappCodePath || ''))
+    ? String(value.miniappCodePath)
+    : '';
   return {
     managerUids,
     cursor: Math.max(0, Number(value?.cursor || 0)),
-    updatedAt: Number(value?.updatedAt || 0)
+    updatedAt: Number(value?.updatedAt || 0),
+    miniappCodePath,
+    miniappCodeUpdatedAt: Math.max(0, Number(value?.miniappCodeUpdatedAt || 0))
   };
+}
+
+function buildMiniappCodeUrl(request, relativePath, updatedAt) {
+  if (!relativePath || !updatedAt) return '';
+  const url = toPublicUrl(relativePath, request);
+  return url ? `${url}${url.includes('?') ? '&' : '?'}v=${updatedAt}` : '';
+}
+
+async function miniappCodeExists(relativePath) {
+  if (!relativePath) return false;
+  const filename = path.basename(relativePath);
+  try {
+    await fs.access(path.join(MINIAPP_CODE_DIR, filename));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function readConfig() {
@@ -205,7 +231,17 @@ function registerCouponLandingRoutes(app) {
     if (!requireAdmin(request, reply)) return;
     try {
       const current = await readConfig();
-      return ok({ managerUids: current.managerUids, cursor: current.cursor, updatedAt: current.updatedAt });
+      const hasMiniappCode = await miniappCodeExists(current.miniappCodePath);
+      return ok({
+        managerUids: current.managerUids,
+        cursor: current.cursor,
+        updatedAt: current.updatedAt,
+        miniappCodePage: MINIAPP_CODE_PAGE,
+        miniappCodeUrl: hasMiniappCode
+          ? buildMiniappCodeUrl(request, current.miniappCodePath, current.miniappCodeUpdatedAt)
+          : '',
+        miniappCodeUpdatedAt: current.miniappCodeUpdatedAt
+      });
     } catch (error) {
       return fail(reply, 500, error.message || '广告页配置加载失败');
     }
@@ -216,14 +252,49 @@ function registerCouponLandingRoutes(app) {
     const parsed = updateSchema.safeParse(request.body || {});
     if (!parsed.success) return fail(reply, 400, '参数错误', parsed.error.flatten());
     try {
-      const saved = await withRotationLock(() => writeConfig({
-        managerUids: parsed.data.managerUids,
-        cursor: 0,
-        updatedAt: Math.floor(Date.now() / 1000)
-      }));
+      const saved = await withRotationLock(async () => {
+        const current = await readConfig();
+        current.managerUids = parsed.data.managerUids;
+        current.cursor = 0;
+        current.updatedAt = Math.floor(Date.now() / 1000);
+        return writeConfig(current);
+      });
       return ok(saved, '广告页客户经理轮询配置已保存');
     } catch (error) {
       return fail(reply, 500, error.message || '广告页配置保存失败');
+    }
+  });
+
+  app.post('/api/admin/landing/coupon/miniapp-code', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    try {
+      const code = await getMiniappCode({ page: MINIAPP_CODE_PAGE, width: 430, envVersion: 'release' });
+      const isPng = code.buffer.length >= 8 && code.buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      const extension = isPng ? 'png' : 'jpg';
+      const relativePath = `/uploads/miniapp/coupon-landing.${extension}`;
+      const targetFile = path.join(MINIAPP_CODE_DIR, `coupon-landing.${extension}`);
+      await fs.mkdir(MINIAPP_CODE_DIR, { recursive: true });
+      const tempFile = `${targetFile}.${process.pid}.tmp`;
+      await fs.writeFile(tempFile, code.buffer);
+      await fs.rename(tempFile, targetFile);
+      const staleFile = path.join(MINIAPP_CODE_DIR, `coupon-landing.${isPng ? 'jpg' : 'png'}`);
+      await fs.unlink(staleFile).catch(() => {});
+
+      const generatedAt = Date.now();
+      await withRotationLock(async () => {
+        const current = await readConfig();
+        current.miniappCodePath = relativePath;
+        current.miniappCodeUpdatedAt = generatedAt;
+        await writeConfig(current);
+      });
+
+      return ok({
+        page: MINIAPP_CODE_PAGE,
+        url: buildMiniappCodeUrl(request, relativePath, generatedAt),
+        generatedAt
+      }, '页面小程序码已生成');
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '页面小程序码生成失败');
     }
   });
 }
@@ -235,5 +306,6 @@ module.exports = {
   extractApprovalProductModel,
   isPhoneLikeNickname,
   mapApprovalLiveFeed,
-  mapIntegralLiveFeed
+  mapIntegralLiveFeed,
+  buildMiniappCodeUrl
 };

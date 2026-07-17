@@ -265,10 +265,10 @@ function registerHomepageRoutes(app) {
   app.post('/api/admin/homepage/ai-image/generate', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     const parsed = generateSchema.safeParse(request.body || {});
-    if (!parsed.success) return fail(reply, 400, 'AI 生图参数错误', parsed.error.flatten());
+    if (!parsed.success) return fail(reply, 400, '画家设计参数错误', parsed.error.flatten());
     await aiImage.reloadFromFile().catch(() => {});
     if (!aiImage.isConfigured()) {
-      return fail(reply, 503, 'AI 生图服务未配置，请先在系统设置中配置 AI 生图 API');
+      return fail(reply, 503, '画家设计服务未配置，请先在系统设置中配置图片接口');
     }
 
     pruneImageTasks();
@@ -276,18 +276,18 @@ function registerHomepageRoutes(app) {
     const task = {
       taskId,
       status: 'pending',
-      progress: '任务已提交，等待生成',
+      progress: '任务已提交，等待画家设计',
       createdAt: Date.now(),
       result: null,
       error: null
     };
     imageTasks.set(taskId, task);
 
-    // 生图可能持续数分钟，放到后台执行，避免同步 HTTP 请求被 Nginx 以 504 中断。
+    // 图片设计可能持续数分钟，放到后台执行，避免同步 HTTP 请求被 Nginx 以 504 中断。
     (async () => {
       try {
         task.status = 'generating';
-        task.progress = 'AI 正在生成图片';
+        task.progress = '画家设计中';
         const images = await aiImage.generate({
           prompt: buildBannerPrompt(parsed.data.prompt, parsed.data.aspectRatio),
           aspectRatio: parsed.data.aspectRatio,
@@ -295,7 +295,7 @@ function registerHomepageRoutes(app) {
           quality: parsed.data.quality
         });
         task.status = 'done';
-        task.progress = '图片生成完成';
+        task.progress = '画家设计完成';
         task.result = {
           url: images[0].url,
           aspectRatio: parsed.data.aspectRatio,
@@ -303,19 +303,19 @@ function registerHomepageRoutes(app) {
         };
       } catch (error) {
         task.status = 'failed';
-        task.progress = '图片生成失败';
-        task.error = error.message || '轮播图生成失败';
+        task.progress = '画家设计失败';
+        task.error = error.message || '轮播图设计失败';
       }
     })();
 
-    return ok({ taskId }, '生图任务已提交');
+    return ok({ taskId }, '设计任务已提交');
   });
 
   app.get('/api/admin/homepage/ai-image/task/:taskId', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
     pruneImageTasks();
     const task = imageTasks.get(request.params.taskId);
-    if (!task) return fail(reply, 404, '生图任务不存在或已过期');
+    if (!task) return fail(reply, 404, '设计任务不存在或已过期');
 
     return ok({
       taskId: task.taskId,

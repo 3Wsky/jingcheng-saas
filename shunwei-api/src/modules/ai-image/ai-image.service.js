@@ -170,12 +170,12 @@ class AiImageService {
         mime = loaded.mime;
       } else {
         const dl = await this.downloadBuffer(item.url);
-        if (!dl) throw fail(502, 'AI 生成图片下载失败');
+        if (!dl) throw fail(502, '设计图片下载失败');
         buffer = dl.buffer;
         mime = dl.mime;
       }
     }
-    if (!buffer || !buffer.length) throw fail(502, 'AI 未返回可用图片');
+    if (!buffer || !buffer.length) throw fail(502, '画家设计服务未返回可用图片');
 
     const now = new Date();
     const subDir = `ai/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -212,7 +212,7 @@ class AiImageService {
           const text = await resp.text().catch(() => '');
           const retriable = [408, 429, 500, 502, 503, 504].includes(resp.status);
           const err = fail(resp.status === 401 || resp.status === 403 ? 502 : (resp.status >= 500 ? 502 : resp.status),
-            `AI 生图接口返回 ${resp.status}：${text.slice(0, 200)}`);
+            `图片设计接口返回 ${resp.status}：${text.slice(0, 200)}`);
           if (retriable && attempt < 2) { lastErr = err; continue; }
           throw err;
         }
@@ -221,15 +221,15 @@ class AiImageService {
         lastErr = error;
         const retriable = error.name === 'TimeoutError' || /fetch failed|network|ECONN|ETIMEDOUT/i.test(error.message || '');
         if (retriable && attempt < 2) continue;
-        throw error.statusCode ? error : fail(502, `AI 生图调用失败：${error.message || error}`);
+        throw error.statusCode ? error : fail(502, `图片设计接口调用失败：${error.message || error}`);
       }
     }
-    throw lastErr || fail(502, 'AI 生图调用失败');
+    throw lastErr || fail(502, '图片设计接口调用失败');
   }
 
-  // 文生图
+  // 根据文字描述设计图片
   async generate({ prompt, aspectRatio = '1:1', count = 1, quality } = {}) {
-    if (!this.isConfigured()) throw fail(503, 'AI 生图服务未配置（IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY）');
+    if (!this.isConfigured()) throw fail(503, '画家设计服务未配置（IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY）');
     const size = this.getImageSize(aspectRatio);
     const body = {
       model: this.model,
@@ -243,9 +243,9 @@ class AiImageService {
     return this.collectImages(data);
   }
 
-  // 图生图（参考图）— 用于把门店实拍处理成干净电商图
+  // 参考图设计 — 用于把门店实拍处理成干净电商图
   async edit({ prompt, image, aspectRatio = '1:1', count = 1, quality } = {}) {
-    if (!this.isConfigured()) throw fail(503, 'AI 生图服务未配置（IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY）');
+    if (!this.isConfigured()) throw fail(503, '画家设计服务未配置（IMAGE_GEN_BASE_URL / IMAGE_GEN_API_KEY）');
     if (!image?.buffer?.length) throw fail(400, '缺少参考图片');
     const size = this.getImageSize(aspectRatio);
     const isGptImage = String(this.model).toLowerCase().includes('gpt-image');
@@ -272,7 +272,7 @@ class AiImageService {
       const persisted = await this.persistResult(item);
       results.push(persisted);
     }
-    if (!results.length) throw fail(502, 'AI 未返回可用图片结果');
+    if (!results.length) throw fail(502, '画家设计服务未返回可用图片结果');
     return results;
   }
 }

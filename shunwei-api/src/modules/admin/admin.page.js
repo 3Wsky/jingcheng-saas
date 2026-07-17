@@ -1446,7 +1446,7 @@ function renderAdminPage(activeSection = 'lottery') {
       </section>
     </main>
     <footer style="text-align:center;padding:18px 12px;color:#98a2b3;font-size:12px;">
-      技术支持：<strong style="color:#667085;">FZLSaas</strong> · 反重力人工智能工作室
+      技术支持：<strong style="color:#667085;">FZLSaas</strong> · 反重力设计工作室
     </footer>
   </div>
 

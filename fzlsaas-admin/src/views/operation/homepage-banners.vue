@@ -10,7 +10,7 @@
 
     <el-alert type="info" :closable="false" show-icon class="page-note">
       <template #title>
-        首页横幅推荐使用 <b>16:9</b> 横图。AI 只生成背景画面，标题、副标题和按钮由小程序叠加，后续改文案不需要重新生图。
+        首页横幅推荐使用 <b>16:9</b> 横图。画家只设计背景画面，标题、副标题和按钮由小程序叠加，后续改文案不需要重新设计图片。
       </template>
     </el-alert>
 
@@ -105,8 +105,8 @@
               </el-form>
             </el-tab-pane>
 
-            <el-tab-pane label="AI 生成图片" name="ai">
-              <el-alert v-if="!aiConfigured" type="warning" :closable="false" show-icon title="AI 生图服务尚未配置，请先到“系统 → 系统设置 → AI 生图配置”完成设置。" />
+            <el-tab-pane label="画家设计图片" name="ai">
+              <el-alert v-if="!aiConfigured" type="warning" :closable="false" show-icon title="画家设计服务尚未配置，请先到“系统 → 系统设置 → 画家设计配置”完成设置。" />
               <el-form label-width="104px" class="banner-form ai-form">
                 <el-form-item label="画面描述" required>
                   <el-input
@@ -117,13 +117,13 @@
                     show-word-limit
                     placeholder="描述希望展示的产品和场景，例如：无线耳机、平板和游戏手柄陈列在香槟金礼盒台面上，柔和商业棚拍光线"
                   />
-                  <p class="field-note">无需在描述中写标题或价格。系统会自动要求 AI 不生成文字，并在左侧预留文案区。</p>
+                  <p class="field-note">无需在描述中写标题或价格。画家不会在画面中添加文字，并会在左侧预留文案区。</p>
                 </el-form-item>
                 <el-form-item label="图片比例">
                   <el-segmented v-model="aiAspectRatio" :options="aspectOptions" />
                   <span class="inline-note">首页推荐 16:9</span>
                 </el-form-item>
-                <el-form-item label="生成质量">
+                <el-form-item label="设计质量">
                   <el-select v-model="aiQuality" style="width: 180px">
                     <el-option label="自动" value="auto" />
                     <el-option label="标准" value="medium" />
@@ -133,7 +133,7 @@
                 </el-form-item>
                 <el-form-item label=" ">
                   <el-button type="primary" :loading="aiGenerating" :disabled="!aiConfigured || !aiPrompt.trim()" @click="generateBannerImage">
-                    <el-icon><MagicStick /></el-icon>{{ aiGenerating ? aiProgress : '生成并应用到当前轮播图' }}
+                    <el-icon><MagicStick /></el-icon>{{ aiGenerating ? aiProgress : '设计并应用到当前轮播图' }}
                   </el-button>
                   <span class="inline-note">通常需要 30–120 秒，请勿重复点击。</span>
                 </el-form-item>
@@ -188,7 +188,7 @@ const loading = ref(false)
 const saving = ref(false)
 const aiConfigured = ref(false)
 const aiGenerating = ref(false)
-const aiProgress = ref('正在生成，请稍候')
+const aiProgress = ref('画家设计中，请稍候')
 const aiPrompt = ref('无线耳机、蓝牙音箱、游戏手柄和平板组成高级数码礼盒陈列，柔和商业棚拍光线，画面干净、有会员礼遇质感')
 const aiAspectRatio = ref('16:9')
 const aiQuality = ref('medium')
@@ -344,7 +344,7 @@ async function generateBannerImage() {
   const current = currentBanner.value
   if (!current || !aiPrompt.value.trim()) return
   aiGenerating.value = true
-  aiProgress.value = '正在提交生成任务'
+  aiProgress.value = '正在提交设计任务'
   try {
     const data = await request.post('/api/admin/homepage/ai-image/generate', {
       prompt: aiPrompt.value.trim(),
@@ -352,17 +352,17 @@ async function generateBannerImage() {
       quality: aiQuality.value
     })
     if (!data?.taskId) {
-      ElMessage.error('生图任务提交失败，请重试')
+      ElMessage.error('设计任务提交失败，请重试')
       return
     }
     const result = await waitForBannerImage(data.taskId)
     if (!result?.url) return
     current.image = result.url
     activeTab.value = 'content'
-    ElMessage.success('AI 图片已应用到当前轮播图，确认预览后请保存')
+    ElMessage.success('画家设计图片已应用到当前轮播图，确认预览后请保存')
   } finally {
     aiGenerating.value = false
-    aiProgress.value = '正在生成，请稍候'
+    aiProgress.value = '画家设计中，请稍候'
   }
 }
 
@@ -370,15 +370,15 @@ async function waitForBannerImage(taskId: string) {
   const deadline = Date.now() + 10 * 60 * 1000
   while (Date.now() < deadline) {
     const task = await request.get(`/api/admin/homepage/ai-image/task/${encodeURIComponent(taskId)}`)
-    aiProgress.value = task?.progress || 'AI 正在生成图片'
+    aiProgress.value = task?.progress || '画家设计中'
     if (task?.status === 'done') return task.result
     if (task?.status === 'failed') {
-      ElMessage.error(task.error || 'AI 图片生成失败')
+      ElMessage.error(task.error || '画家设计图片失败')
       return null
     }
     await new Promise(resolve => window.setTimeout(resolve, 2000))
   }
-  ElMessage.error('AI 图片生成等待超时，请稍后重试')
+  ElMessage.error('画家设计等待超时，请稍后重试')
   return null
 }
 </script>
