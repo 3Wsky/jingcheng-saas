@@ -397,6 +397,7 @@
           <el-divider content-position="left">权限与结算</el-divider>
           <el-form-item label="核销权限"><el-switch v-model="editForm.canVerify" /></el-form-item>
           <el-form-item label="结算备注"><el-input v-model="editForm.settlementNote" type="textarea" :rows="2" /></el-form-item>
+          <el-form-item label="总核销金额">¥{{ fmtAmount(editForm.totalVerifyAmount) }}</el-form-item>
           <el-form-item label="待结算">¥{{ editForm.pendingSettlement ?? 0 }}</el-form-item>
 
           <el-button type="primary" @click="saveMerchant">保存</el-button>

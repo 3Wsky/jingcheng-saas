@@ -236,11 +236,19 @@ function registerAdminMerchantRoutes(app) {
     if (!requireAdmin(request, reply)) return;
     const id = Number(request.params.id);
     const [[row]] = await getPool().query(
-      `SELECT * FROM ${swTable('merchant')} WHERE id = ? LIMIT 1`,
+      `SELECT m.*,
+              (SELECT COALESCE(SUM(l.amount), 0)
+               FROM ${swTable('cash_voucher_ledger')} l
+               WHERE l.merchant_id = m.id AND l.direction = 0) AS total_verify_amount
+       FROM ${swTable('merchant')} m
+       WHERE m.id = ? LIMIT 1`,
       [id]
     );
     if (!row) return fail(reply, 404, '商家不存在');
-    return ok(mapMerchant(row));
+    return ok({
+      ...mapMerchant(row),
+      totalVerifyAmount: Number(row.total_verify_amount || 0)
+    });
   });
 
   app.put('/api/admin/merchant/:id', async (request, reply) => {
