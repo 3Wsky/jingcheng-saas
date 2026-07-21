@@ -221,18 +221,26 @@ class AdminDashboardService {
     let cashVoucherGrantedInPeriod = 0;
     try {
       const [[cashTotalRow]] = await pool.query(
-        `SELECT COALESCE(SUM(l.amount), 0) AS total
+        `SELECT COALESCE(SUM(CASE
+                  WHEN l.direction = 1 THEN l.amount
+                  WHEN l.direction = 0 AND l.merchant_id = 0 AND l.operator_uid = 0 THEN -l.amount
+                  ELSE 0
+                END), 0) AS total
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
-         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'`
+         WHERE COALESCE(b.source_type, '') <> 'demo_video'`
       );
       cashVoucherGrantTotal = Number(cashTotalRow?.total || 0);
 
       const [[cashPeriodRow]] = await pool.query(
-        `SELECT COALESCE(SUM(l.amount), 0) AS total
+        `SELECT COALESCE(SUM(CASE
+                  WHEN l.direction = 1 THEN l.amount
+                  WHEN l.direction = 0 AND l.merchant_id = 0 AND l.operator_uid = 0 THEN -l.amount
+                  ELSE 0
+                END), 0) AS total
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
-         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'
+         WHERE COALESCE(b.source_type, '') <> 'demo_video'
            AND l.created_at >= ? AND l.created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
@@ -292,10 +300,14 @@ class AdminDashboardService {
       fundPool.integralGrantedTotal = Number(integralTotal?.total || 0);
 
       const [[cashTotalRow]] = await pool.query(
-        `SELECT COALESCE(SUM(l.amount), 0) AS total
+        `SELECT COALESCE(SUM(CASE
+                  WHEN l.direction = 1 THEN l.amount
+                  WHEN l.direction = 0 AND l.merchant_id = 0 AND l.operator_uid = 0 THEN -l.amount
+                  ELSE 0
+                END), 0) AS total
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
-         WHERE l.direction = 1 AND COALESCE(b.source_type, '') <> 'demo_video'`
+         WHERE COALESCE(b.source_type, '') <> 'demo_video'`
       );
       fundPool.cashVoucherGrantedTotal = Number(cashTotalRow?.total || 0);
 
