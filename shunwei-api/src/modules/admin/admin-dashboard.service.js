@@ -138,14 +138,14 @@ class AdminDashboardService {
     try {
       // 仅统计真实核销：merchant_id > 0（排除超管回收/撤销，那类 direction=0 但 merchant_id=0）
       const [[v2today]] = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        `SELECT COUNT(DISTINCT biz_id) AS cnt FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 0 AND merchant_id > 0 AND reversed_at = 0 AND created_at >= ? AND created_at < ?`,
         [bounds.cardStart, bounds.cardEnd]
       );
       verifyToday += Number(v2today?.cnt || 0);
       const [[v2period]] = await pool.query(
-        `SELECT COUNT(*) AS cnt FROM ${swTable('cash_voucher_ledger')}
-         WHERE direction = 0 AND merchant_id > 0 AND created_at >= ? AND created_at < ?`,
+        `SELECT COUNT(DISTINCT biz_id) AS cnt FROM ${swTable('cash_voucher_ledger')}
+         WHERE direction = 0 AND merchant_id > 0 AND reversed_at = 0 AND created_at >= ? AND created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]
       );
       verifyInPeriod += Number(v2period?.cnt || 0);
@@ -159,7 +159,7 @@ class AdminDashboardService {
         `SELECT COALESCE(SUM(l.amount), 0) AS total
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
-         WHERE l.direction = 0 AND l.merchant_id > 0
+         WHERE l.direction = 0 AND l.merchant_id > 0 AND l.reversed_at = 0
            AND COALESCE(b.source_type, '') <> 'demo_video'`
       );
       verifyAmountTotal = Number(totalRow?.total || 0);
@@ -168,7 +168,7 @@ class AdminDashboardService {
         `SELECT COALESCE(SUM(l.amount), 0) AS total
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
-         WHERE l.direction = 0 AND l.merchant_id > 0
+         WHERE l.direction = 0 AND l.merchant_id > 0 AND l.reversed_at = 0
            AND COALESCE(b.source_type, '') <> 'demo_video'
            AND l.created_at >= ? AND l.created_at < ?`,
         [bounds.dayStart, bounds.dayEnd]

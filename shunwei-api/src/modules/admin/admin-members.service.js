@@ -227,14 +227,16 @@ class AdminMembersService {
     let cashVoucherUsedTotal = 0;
     try {
       const [usageRows] = await pool.query(
-        `SELECT l.id, l.amount, l.merchant_id AS merchantId, l.operator_uid AS operatorUid,
-                l.biz_id AS bizId, l.remark, l.created_at AS createdAt,
+        `SELECT MIN(l.id) AS id, SUM(l.amount) AS amount,
+                l.merchant_id AS merchantId, l.operator_uid AS operatorUid,
+                l.biz_id AS bizId, MAX(l.remark) AS remark, MIN(l.created_at) AS createdAt,
                 m.merchant_name AS merchantName, u.nickname AS operatorNickname
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
          LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
-         WHERE l.uid = ? AND l.direction = 0 AND l.merchant_id > 0
-         ORDER BY l.id DESC LIMIT 50`,
+         WHERE l.uid = ? AND l.direction = 0 AND l.merchant_id > 0 AND l.reversed_at = 0
+         GROUP BY l.biz_id, l.merchant_id, l.operator_uid, m.merchant_name, u.nickname
+         ORDER BY MIN(l.id) DESC LIMIT 50`,
         [uid]
       );
       cashVoucherUsage = usageRows.map((r) => ({
@@ -251,7 +253,7 @@ class AdminMembersService {
 
       const [[usedRow]] = await pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS total FROM ${swTable('cash_voucher_ledger')}
-         WHERE uid = ? AND direction = 0 AND merchant_id > 0`,
+         WHERE uid = ? AND direction = 0 AND merchant_id > 0 AND reversed_at = 0`,
         [uid]
       );
       cashVoucherUsedTotal = Number(usedRow?.total || 0);

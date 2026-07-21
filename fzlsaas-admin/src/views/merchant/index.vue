@@ -497,8 +497,31 @@
             <template #default="{ row }">{{ row.operatorUid || '—' }}</template>
           </el-table-column>
           <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
-          <el-table-column label="结算" width="90">
-            <template #default>待结算</template>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tooltip
+                v-if="row.status === 'reversed'"
+                :content="`撤回原因：${row.reversalReason || '—'}；操作人：${row.reversedBy || '—'}；时间：${fmtTs(row.reversedAt)}`"
+                placement="top"
+              >
+                <el-tag type="info">已撤回</el-tag>
+              </el-tooltip>
+              <el-tag v-else type="success">有效</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="90" fixed="right">
+            <template #default="{ row }">
+              <el-button
+                v-if="row.status !== 'reversed'"
+                link
+                type="danger"
+                :loading="reversingBizId === row.bizId"
+                @click="reverseVerify(row)"
+              >
+                撤回
+              </el-button>
+              <span v-else>—</span>
+            </template>
           </el-table-column>
         </el-table>
         <el-pagination
@@ -611,6 +634,7 @@ const editForm = ref<any>({})
 const storeImages = ref<string[]>([''])
 const verifyLogs = ref<any[]>([])
 const logsLoading = ref(false)
+const reversingBizId = ref('')
 const logPage = ref(1)
 const logPageSize = 20
 const logTotal = ref(0)
@@ -971,6 +995,42 @@ async function loadVerifyLogs(page = logPage.value) {
     logTotal.value = 0
   } finally {
     logsLoading.value = false
+  }
+}
+
+async function reverseVerify(row: any) {
+  if (!row?.bizId || row.status === 'reversed') return
+  let reason = ''
+  try {
+    const result = await ElMessageBox.prompt(
+      `撤回后将退还客户 ¥${fmtAmount(row.amount)} 现金券，并从商家待结算金额中扣除同额。请输入撤回原因。`,
+      '确认撤回核销',
+      {
+        confirmButtonText: '确认撤回',
+        cancelButtonText: '取消',
+        type: 'warning',
+        inputPlaceholder: '例如：核销金额录入错误，600 应为 60',
+        inputValidator: (value: string) => value.trim().length >= 2 || '请填写至少2个字的撤回原因'
+      }
+    )
+    reason = String(result.value || '').trim()
+  } catch {
+    return
+  }
+
+  reversingBizId.value = row.bizId
+  try {
+    const result = await request.post(
+      `/api/admin/merchant/verify-logs/${encodeURIComponent(row.bizId)}/reverse`,
+      { reason }
+    )
+    editForm.value.pendingSettlement = Number(result?.pendingAfter || 0)
+    ElMessage.success(`已撤回核销 ¥${fmtAmount(result?.amount)}，现金券已退回客户`)
+    await Promise.all([loadVerifyLogs(logPage.value), loadStaffStats(), loadOverview(), loadList()])
+  } catch {
+    /* handled by interceptor */
+  } finally {
+    reversingBizId.value = ''
   }
 }
 

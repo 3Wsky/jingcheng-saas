@@ -6,6 +6,7 @@ const { requireAdmin, getAdminSession } = require('../admin/admin.auth');
 const { AdminAuditService, getClientIp } = require('../admin/admin-audit.service');
 const { AdminMerchantStaffService } = require('./admin-merchant-staff.service');
 const { CashVoucherService } = require('../cash-voucher/cash-voucher.service');
+const { CashVoucherReversalService, ensureCashVoucherReversalSchema } = require('../cash-voucher/cash-voucher-reversal.service');
 
 const manualVerifySchema = z.object({
   uid: z.coerce.number().int().positive(),
@@ -13,6 +14,10 @@ const manualVerifySchema = z.object({
   merchantId: z.coerce.number().int().positive(),
   operatorUid: z.coerce.number().int().positive(),
   remark: z.string().trim().max(200).optional().default('')
+});
+
+const reverseVerifySchema = z.object({
+  reason: z.string().trim().min(2, '请填写至少2个字的撤回原因').max(200)
 });
 
 const listQuerySchema = z.object({
@@ -109,6 +114,7 @@ function registerAdminMerchantRoutes(app) {
   const audit = new AdminAuditService();
   const staffService = new AdminMerchantStaffService();
   const cashVoucherService = new CashVoucherService();
+  const cashVoucherReversalService = new CashVoucherReversalService();
 
   app.get('/api/admin/merchant/list', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
@@ -157,17 +163,17 @@ function registerAdminMerchantRoutes(app) {
     const [rows] = await getPool().query(
       `SELECT m.*,
               (SELECT MAX(l.created_at) FROM ${ledger} l
-               WHERE l.merchant_id = m.id AND l.direction = 0) AS last_verify_at,
-              (SELECT COUNT(*) FROM ${ledger} l
-               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.created_at >= ?) AS today_count,
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0) AS last_verify_at,
+              (SELECT COUNT(DISTINCT l.biz_id) FROM ${ledger} l
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?) AS today_count,
               (SELECT COALESCE(SUM(l.amount), 0) FROM ${ledger} l
-               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.created_at >= ?) AS today_amount,
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?) AS today_amount,
               (SELECT COALESCE(SUM(l.amount), 0) FROM ${ledger} l
-               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.created_at >= ?) AS month_amount,
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?) AS month_amount,
               (SELECT COUNT(*) FROM ${staffTbl} ms
                WHERE ms.merchant_id = m.id AND ms.is_active = 1) AS staff_bound,
               (SELECT COUNT(DISTINCT l.operator_uid) FROM ${ledger} l
-               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.created_at >= ?) AS staff_active
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?) AS staff_active
        FROM ${swTable('merchant')} m
        WHERE ${where}
        ORDER BY ${orderCol} ${orderDir}, m.id DESC LIMIT ? OFFSET ?`,
@@ -239,7 +245,7 @@ function registerAdminMerchantRoutes(app) {
       `SELECT m.*,
               (SELECT COALESCE(SUM(l.amount), 0)
                FROM ${swTable('cash_voucher_ledger')} l
-               WHERE l.merchant_id = m.id AND l.direction = 0) AS total_verify_amount
+               WHERE l.merchant_id = m.id AND l.direction = 0 AND l.reversed_at = 0) AS total_verify_amount
        FROM ${swTable('merchant')} m
        WHERE m.id = ? LIMIT 1`,
       [id]
@@ -360,6 +366,7 @@ function registerAdminMerchantRoutes(app) {
 
   app.get('/api/admin/merchant/:id/verify-logs', async (request, reply) => {
     if (!requireAdmin(request, reply)) return;
+    await ensureCashVoucherReversalSchema();
     const id = Number(request.params.id);
     const page = Math.max(1, Number(request.query.page || 1));
     const pageSize = Math.min(100, Math.max(1, Number(request.query.pageSize || 20)));
@@ -384,13 +391,17 @@ function registerAdminMerchantRoutes(app) {
     const where = conditions.join(' AND ');
 
     const [[countRow]] = await getPool().query(
-      `SELECT COUNT(*) AS total FROM ${swTable('cash_voucher_ledger')} WHERE ${where}`,
+      `SELECT COUNT(DISTINCT biz_id) AS total FROM ${swTable('cash_voucher_ledger')} WHERE ${where}`,
       values
     );
     const [rows] = await getPool().query(
-      `SELECT id, uid AS customerUid, amount, operator_uid AS operatorUid, biz_id AS bizId, remark, created_at AS createdAt
+      `SELECT MIN(id) AS id, uid AS customerUid, SUM(amount) AS amount,
+              operator_uid AS operatorUid, biz_id AS bizId, MAX(remark) AS remark,
+              MIN(created_at) AS createdAt, MAX(reversed_at) AS reversedAt,
+              MAX(reversed_by) AS reversedBy, MAX(reversal_reason) AS reversalReason
        FROM ${swTable('cash_voucher_ledger')}
        WHERE ${where}
+       GROUP BY biz_id, uid, operator_uid
        ORDER BY id DESC LIMIT ? OFFSET ?`,
       [...values, pageSize, offset]
     );
@@ -407,9 +418,44 @@ function registerAdminMerchantRoutes(app) {
         bizId: r.bizId || '',
         remark: r.remark || '',
         createdAt: Number(r.createdAt),
-        settlementStatus: 'pending'
+        reversedAt: Number(r.reversedAt || 0),
+        reversedBy: r.reversedBy || '',
+        reversalReason: r.reversalReason || '',
+        status: Number(r.reversedAt || 0) > 0 ? 'reversed' : 'active'
       }))
     });
+  });
+
+  app.post('/api/admin/merchant/verify-logs/:bizId/reverse', async (request, reply) => {
+    if (!requireAdmin(request, reply)) return;
+    const bizId = String(request.params.bizId || '').trim();
+    if (!bizId || bizId.length > 64) return fail(reply, 400, '核销业务单号无效');
+    const parsed = reverseVerifySchema.safeParse(request.body || {});
+    if (!parsed.success) return fail(reply, 400, '请填写撤回原因', parsed.error.flatten());
+
+    const session = getAdminSession(request);
+    try {
+      const result = await cashVoucherReversalService.reverse({
+        bizId,
+        reason: parsed.data.reason,
+        adminUsername: session?.username || ''
+      });
+      try {
+        await audit.write({
+          adminUsername: session?.username || '',
+          action: 'cash_voucher_verify_reverse',
+          targetType: 'cash_voucher_verify',
+          targetId: bizId,
+          payload: result,
+          ip: getClientIp(request)
+        });
+      } catch (auditError) {
+        request.log.error({ err: auditError, bizId }, 'failed to write reversal audit log');
+      }
+      return ok(result, `已撤回核销 ¥${result.amount}`);
+    } catch (error) {
+      return fail(reply, error.statusCode || 500, error.message || '撤回核销失败');
+    }
   });
 
   app.get('/api/admin/merchant/:id/staff-verify-stats', async (request, reply) => {
@@ -433,11 +479,11 @@ function registerAdminMerchantRoutes(app) {
       `SELECT l.operator_uid,
               u.nickname AS operator_name,
               DATE_FORMAT(FROM_UNIXTIME(l.created_at), ?) AS period_label,
-              COUNT(*) AS verify_count,
+              COUNT(DISTINCT l.biz_id) AS verify_count,
               COALESCE(SUM(l.amount), 0) AS total_amount
        FROM ${swTable('cash_voucher_ledger')} l
        LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
-       WHERE l.merchant_id = ? AND l.direction = 0
+       WHERE l.merchant_id = ? AND l.direction = 0 AND l.reversed_at = 0
          AND l.created_at >= ? AND l.created_at <= ?
        GROUP BY l.operator_uid, period_label
        ORDER BY period_label DESC, total_amount DESC`,
@@ -583,21 +629,21 @@ function registerAdminMerchantRoutes(app) {
     );
 
     const [[tRow]] = await getPool().query(
-      `SELECT COUNT(*) AS todayCount,
+      `SELECT COUNT(DISTINCT l.biz_id) AS todayCount,
               COALESCE(SUM(l.amount), 0) AS todayAmount,
               COUNT(DISTINCT l.operator_uid) AS todayActiveStaff
        FROM ${ledger} l
        JOIN ${swTable('merchant')} m ON m.id = l.merchant_id AND m.is_active = 1
-       WHERE l.direction = 0 AND l.created_at >= ?`,
+       WHERE l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?`,
       [dayStart]
     );
 
     const [[monthRow]] = await getPool().query(
-      `SELECT COUNT(*) AS monthCount,
+      `SELECT COUNT(DISTINCT l.biz_id) AS monthCount,
               COALESCE(SUM(l.amount), 0) AS monthAmount
        FROM ${ledger} l
        JOIN ${swTable('merchant')} m ON m.id = l.merchant_id AND m.is_active = 1
-       WHERE l.direction = 0 AND l.created_at >= ?`,
+       WHERE l.direction = 0 AND l.reversed_at = 0 AND l.created_at >= ?`,
       [monthStart]
     );
 
@@ -649,7 +695,7 @@ function registerAdminMerchantRoutes(app) {
     const endTs = customTo !== null ? customTo : Math.floor(Date.now() / 1000);
 
     const ledger = swTable('cash_voucher_ledger');
-    const conditions = ['l.direction = 0', 'l.created_at >= ?', 'l.created_at <= ?', 'm.is_active = 1'];
+    const conditions = ['l.direction = 0', 'l.reversed_at = 0', 'l.created_at >= ?', 'l.created_at <= ?', 'm.is_active = 1'];
     const values = [startTs, endTs];
     if (merchantId) {
       conditions.push('l.merchant_id = ?');
@@ -662,7 +708,7 @@ function registerAdminMerchantRoutes(app) {
               l.merchant_id,
               m.merchant_name,
               u.nickname AS operator_name,
-              COUNT(*) AS verify_count,
+              COUNT(DISTINCT l.biz_id) AS verify_count,
               COALESCE(SUM(l.amount), 0) AS total_amount,
               MAX(l.created_at) AS last_verify_at
        FROM ${ledger} l

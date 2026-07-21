@@ -68,6 +68,18 @@
       <el-table-column prop="merchantName" label="商户" width="120" />
       <el-table-column prop="bizId" label="业务单号" min-width="140" show-overflow-tooltip />
       <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tooltip
+            v-if="row.reversedAt"
+            :content="`撤回原因：${row.reversalReason || '—'}；操作人：${row.reversedBy || '—'}；时间：${fmtUnixTime(row.reversedAt)}`"
+            placement="top"
+          >
+            <el-tag type="info" size="small">已撤回</el-tag>
+          </el-tooltip>
+          <el-tag v-else type="success" size="small">有效</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="时间" width="165">
         <template #default="{ row }">{{ fmtUnixTime(row.createdAt) }}</template>
       </el-table-column>
@@ -176,7 +188,7 @@ async function exportCsv() {
   const stamp = (month.value || new Date().toISOString().slice(0, 10))
   downloadCsv(
     `${dirLabel}-${stamp}.csv`,
-    ['ID', '类型', '用户昵称', '用户手机号', 'UID', '金额', '批次ID', '商户', '操作人', '操作人UID', '业务单号', '备注', '时间'],
+    ['ID', '类型', '用户昵称', '用户手机号', 'UID', '金额', '批次ID', '商户', '操作人', '操作人UID', '业务单号', '备注', '状态', '撤回原因', '撤回操作人', '撤回时间', '时间'],
     rows.map((r) => [
       r.id,
       r.direction === 1 ? '发放' : '核销',
@@ -190,6 +202,10 @@ async function exportCsv() {
       r.operatorUid || '',
       r.bizId || '',
       r.remark || '',
+      r.reversedAt ? '已撤回' : '有效',
+      r.reversalReason || '',
+      r.reversedBy || '',
+      r.reversedAt ? fmtUnixTime(r.reversedAt) : '',
       fmtUnixTime(r.createdAt),
     ])
   )

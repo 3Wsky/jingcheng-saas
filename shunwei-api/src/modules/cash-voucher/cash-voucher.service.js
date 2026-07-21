@@ -59,7 +59,7 @@ class CashVoucherService {
       `SELECT
          COALESCE(SUM(CASE WHEN direction = 1 THEN amount ELSE 0 END), 0) AS total_granted,
          COALESCE(SUM(CASE WHEN direction = 0 THEN amount ELSE 0 END), 0) AS total_used
-       FROM ${swTable('cash_voucher_ledger')} WHERE uid = ?`,
+       FROM ${swTable('cash_voucher_ledger')} WHERE uid = ? AND reversed_at = 0`,
       [uid]
     );
 
@@ -133,7 +133,7 @@ class CashVoucherService {
   async getLedger(uid, page = 1, limit = 20) {
     const offset = (page - 1) * limit;
     const [[countRow]] = await getPool().query(
-      `SELECT COUNT(*) AS total FROM ${swTable('cash_voucher_ledger')} WHERE uid = ?`,
+      `SELECT COUNT(*) AS total FROM ${swTable('cash_voucher_ledger')} WHERE uid = ? AND reversed_at = 0`,
       [uid]
     );
     const [rows] = await getPool().query(
@@ -141,7 +141,7 @@ class CashVoucherService {
               l.biz_id, l.remark, l.created_at, m.merchant_name
        FROM ${swTable('cash_voucher_ledger')} l
        LEFT JOIN ${swTable('merchant')} m ON m.id = l.merchant_id
-       WHERE l.uid = ?
+       WHERE l.uid = ? AND l.reversed_at = 0
        ORDER BY l.created_at DESC
        LIMIT ? OFFSET ?`,
       [uid, limit, offset]
