@@ -9,6 +9,7 @@ const { registerHealthRoutes } = require('./shared/health.routes');
 const { registerAdminRoutes, registerAdminManagementRoutes } = require('./modules/admin/admin.routes');
 const { registerAdminDashboardRoutes } = require('./modules/admin/admin-dashboard.routes');
 const { registerAdminMembersRoutes } = require('./modules/admin/admin-members.routes');
+const { ensureAdminHiddenMemberSchema } = require('./modules/admin/admin-members.service');
 const { registerAdminApprovalRoutes } = require('./modules/admin/admin-approval.routes');
 const { registerStaffRoutes } = require('./modules/staff/staff.routes');
 const { registerAdminStaffRoutes } = require('./modules/staff/admin-staff.routes');
@@ -255,6 +256,7 @@ async function buildServer() {
 
 async function main() {
   await ensureCashVoucherReversalSchema();
+  await ensureAdminHiddenMemberSchema();
   const app = await buildServer();
   await app.listen({ port: config.port, host: config.host });
   console.log(`[shunwei-api] listening on ${config.host}:${config.port}`);

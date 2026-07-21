@@ -55,6 +55,31 @@ function multiRoleMatches(row, multiRole, dualRole) {
   }
 }
 
+function isExactUidSearch(searchType, keyword) {
+  return searchType === 'uid' && /^\d+$/.test(keyword);
+}
+
+function addHiddenMemberFilter(conditions, searchType, keyword) {
+  if (isExactUidSearch(searchType, keyword)) return;
+  conditions.push(`NOT EXISTS (
+    SELECT 1 FROM ${swTable('admin_hidden_member')} hidden_member
+    WHERE hidden_member.uid = u.uid
+  )`);
+}
+
+async function ensureAdminHiddenMemberSchema(pool = getPool()) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${swTable('admin_hidden_member')} (
+      uid BIGINT UNSIGNED NOT NULL,
+      reason VARCHAR(255) NOT NULL DEFAULT '',
+      created_by VARCHAR(64) NOT NULL DEFAULT '',
+      created_at INT UNSIGNED NOT NULL DEFAULT 0,
+      PRIMARY KEY (uid),
+      KEY idx_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='FZLSaas会员列表隐藏名单'
+  `);
+}
+
 class AdminMembersService {
   async getFullPhone(uid) {
     const pool = getPool();
@@ -83,6 +108,9 @@ class AdminMembersService {
     const conditions = ['COALESCE(u.is_del, 0) = 0'];
     const values = [];
 
+    // 隐藏名单只影响默认列表和普通搜索；明确选择 UID 并输入完整数字时仍可查到。
+    addHiddenMemberFilter(conditions, searchType, keyword);
+
     if (params.unownedOnly) {
       conditions.push('COALESCE(u.spread_uid, 0) = 0');
     } else if (params.spreadUid) {
@@ -91,7 +119,7 @@ class AdminMembersService {
     }
 
     if (keyword) {
-      if (searchType === 'uid' && /^\d+$/.test(keyword)) {
+      if (isExactUidSearch(searchType, keyword)) {
         conditions.push('u.uid = ?');
         values.push(Number(keyword));
       } else if (searchType === 'phone') {
@@ -750,4 +778,10 @@ class AdminMembersService {
   }
 }
 
-module.exports = { AdminMembersService, maskPhone };
+module.exports = {
+  AdminMembersService,
+  addHiddenMemberFilter,
+  ensureAdminHiddenMemberSchema,
+  isExactUidSearch,
+  maskPhone
+};
