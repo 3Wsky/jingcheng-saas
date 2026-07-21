@@ -324,7 +324,7 @@ function registerMerchantRoutes(app) {
       weekStartDate.setDate(weekStartDate.getDate() - ((weekStartDate.getDay() + 6) % 7));
       const weekStart = Math.floor(weekStartDate.getTime() / 1000);
       const monthStart = Math.floor(new Date(now.getFullYear(), now.getMonth(), 1).getTime() / 1000);
-      const ledgerWhere = [`merchant_id = ?`, `direction = 0`];
+      const ledgerWhere = [`merchant_id = ?`, `direction = 0`, `reversed_at = 0`];
       const ledgerValues = [merchant.id];
       if (personalScope) {
         ledgerWhere.push(`operator_uid = ?`);
@@ -336,10 +336,10 @@ function registerMerchantRoutes(app) {
            COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS week_amount,
            COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) AS month_amount,
            COALESCE(SUM(amount), 0) AS total_amount,
-           COUNT(*) AS verify_count,
-           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS today_count,
-           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS week_count,
-           COALESCE(SUM(CASE WHEN created_at >= ? THEN 1 ELSE 0 END), 0) AS month_count,
+           COUNT(DISTINCT biz_id) AS verify_count,
+           COUNT(DISTINCT CASE WHEN created_at >= ? THEN biz_id END) AS today_count,
+           COUNT(DISTINCT CASE WHEN created_at >= ? THEN biz_id END) AS week_count,
+           COUNT(DISTINCT CASE WHEN created_at >= ? THEN biz_id END) AS month_count,
            COUNT(DISTINCT uid) AS customer_count
          FROM ${swTable('cash_voucher_ledger')}
          WHERE ${ledgerWhere.join(' AND ')}`,
@@ -352,13 +352,15 @@ function registerMerchantRoutes(app) {
       );
 
       const [recentRecords] = await getPool().query(
-        `SELECT l.id, l.uid, l.amount, l.operator_uid, l.remark, l.created_at,
+        `SELECT MIN(l.id) AS id, l.uid, SUM(l.amount) AS amount, l.operator_uid,
+                MAX(l.remark) AS remark, MIN(l.created_at) AS created_at,
                 u.nickname AS customer_nickname, op.nickname AS operator_nickname
          FROM ${swTable('cash_voucher_ledger')} l
          LEFT JOIN ${legacyTable('user')} u ON u.uid = l.uid
          LEFT JOIN ${legacyTable('user')} op ON op.uid = l.operator_uid
          WHERE l.${ledgerWhere.join(' AND l.')}
-         ORDER BY l.created_at DESC LIMIT 10`,
+         GROUP BY l.biz_id, l.uid, l.operator_uid, u.nickname, op.nickname
+         ORDER BY MIN(l.created_at) DESC LIMIT 10`,
         ledgerValues
       );
 
@@ -366,12 +368,12 @@ function registerMerchantRoutes(app) {
       if (access.isManager) {
         const [staffRows] = await getPool().query(
           `SELECT l.operator_uid, u.nickname,
-                  COUNT(*) AS verify_count,
+                  COUNT(DISTINCT l.biz_id) AS verify_count,
                   COALESCE(SUM(l.amount), 0) AS verify_amount,
                   COALESCE(SUM(CASE WHEN l.created_at >= ? THEN l.amount ELSE 0 END), 0) AS today_amount
            FROM ${swTable('cash_voucher_ledger')} l
            LEFT JOIN ${legacyTable('user')} u ON u.uid = l.operator_uid
-           WHERE l.merchant_id = ? AND l.direction = 0
+           WHERE l.merchant_id = ? AND l.direction = 0 AND l.reversed_at = 0
            GROUP BY l.operator_uid
            ORDER BY verify_amount DESC`,
           [dayStart, merchant.id]

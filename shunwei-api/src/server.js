@@ -28,6 +28,7 @@ const { registerUserProfileRoutes } = require('./modules/user-profile/user-profi
 const { registerMembershipRoutes } = require('./modules/membership/membership.routes');
 const { registerIntegralMallRoutes } = require('./modules/integral-mall/integral-mall.routes');
 const { registerCashVoucherRoutes } = require('./modules/cash-voucher/cash-voucher.routes');
+const { ensureCashVoucherReversalSchema } = require('./modules/cash-voucher/cash-voucher-reversal.service');
 const { registerMerchantRoutes } = require('./modules/merchant/merchant.routes');
 const { registerApprovalRoutes } = require('./modules/approval/approval.routes');
 const { registerMiniappConfigRoutes } = require('./modules/miniapp/miniapp-config.routes');
@@ -253,6 +254,7 @@ async function buildServer() {
 }
 
 async function main() {
+  await ensureCashVoucherReversalSchema();
   const app = await buildServer();
   await app.listen({ port: config.port, host: config.host });
   console.log(`[shunwei-api] listening on ${config.host}:${config.port}`);

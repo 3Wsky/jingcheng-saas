@@ -50,8 +50,8 @@ function registerAdminFinanceRoutes(app) {
     const [[cashRow]] = await pool.query(
       `SELECT
          COALESCE(SUM(CASE WHEN l.direction = 1 THEN l.amount ELSE 0 END), 0) AS grantTotal,
-         COALESCE(SUM(CASE WHEN l.direction = 0 THEN l.amount ELSE 0 END), 0) AS verifyTotal,
-         COUNT(*) AS ledgerCount
+         COALESCE(SUM(CASE WHEN l.direction = 0 AND l.reversed_at = 0 THEN l.amount ELSE 0 END), 0) AS verifyTotal,
+         COALESCE(SUM(CASE WHEN l.reversed_at = 0 THEN 1 ELSE 0 END), 0) AS ledgerCount
        FROM ${swTable('cash_voucher_ledger')} l
        LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
        WHERE COALESCE(b.source_type, '') <> 'demo_video'`
@@ -144,6 +144,7 @@ function registerAdminFinanceRoutes(app) {
     const [rows] = await getPool().query(
       `SELECT l.id, l.uid, l.direction, l.amount, l.batch_id AS batchId, l.merchant_id AS merchantId,
               l.operator_uid AS operatorUid, l.biz_id AS bizId, l.remark, l.created_at AS createdAt,
+              l.reversed_at AS reversedAt, l.reversed_by AS reversedBy, l.reversal_reason AS reversalReason,
               m.merchant_name AS merchantName,
               u.nickname AS userNickname, u.phone AS userPhone,
               op.nickname AS operatorNickname
@@ -175,6 +176,9 @@ function registerAdminFinanceRoutes(app) {
         operatorNickname: r.operatorNickname || '',
         bizId: r.bizId || '',
         remark: r.remark || '',
+        reversedAt: fmtTs(r.reversedAt),
+        reversedBy: r.reversedBy || '',
+        reversalReason: r.reversalReason || '',
         createdAt: fmtTs(r.createdAt)
       }))
     });
