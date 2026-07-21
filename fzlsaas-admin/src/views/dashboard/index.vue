@@ -45,7 +45,7 @@
     <div class="pool-section" v-if="pool.budget">
       <div class="section-head">
         <span class="section-title">现金池额度</span>
-        <span class="section-desc">积分（1000积分=¥1）+ 现金券已发放总额</span>
+        <span class="section-desc">积分（1000积分=¥1）+ 现金券净发放总额</span>
         <el-button link type="primary" size="small" style="margin-left: auto" @click="openBudgetDialog">设置总预算</el-button>
       </div>
       <div class="pool-body">
@@ -216,7 +216,7 @@ const periodPrefix = computed(() => ({
   custom: '区间',
 }[range.value] || '今日'))
 
-const periodGrantTitle = computed(() => `${periodPrefix.value}现金券发放`)
+const periodGrantTitle = computed(() => `${periodPrefix.value}现金券净发放`)
 const periodVerifyTitle = computed(() => `${periodPrefix.value}核销订单数`)
 const periodVerifyAmountTitle = computed(() => `${periodPrefix.value}核销金额`)
 
@@ -238,7 +238,7 @@ const statCards = computed(() => [
     key: 'cash-grant-total',
     type: 'voucher',
     icon: 'Money',
-    title: '已发放现金券金额汇总',
+    title: '现金券净发放金额汇总',
     value: cards.value.cashVoucherGrantTotal,
     prefix: '¥',
     onClick: () => router.push('/finance-cash'),
@@ -402,8 +402,8 @@ function exportReport() {
       ['已核销总金额(元)', c.verifyAmountTotal ?? 0],
       ['待审批', c.pendingApproval ?? 0],
       [`${p}审批通过`, c.approvalApprovedToday ?? 0],
-      ['已发放现金券汇总(元)', c.cashVoucherGrantTotal ?? 0],
-      [`${p}现金券发放(元)`, c.cashVoucherGrantedInPeriod ?? 0],
+      ['现金券净发放汇总(元)', c.cashVoucherGrantTotal ?? 0],
+      [`${p}现金券净发放(元)`, c.cashVoucherGrantedInPeriod ?? 0],
       ['待结算(元)', c.pendingSettlement ?? 0],
     ]
     const fileTag = range.value === 'custom' && customRange.value?.[0]

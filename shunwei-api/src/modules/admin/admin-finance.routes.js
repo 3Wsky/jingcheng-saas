@@ -49,8 +49,15 @@ function registerAdminFinanceRoutes(app) {
     const pool = getPool();
     const [[cashRow]] = await pool.query(
       `SELECT
-         COALESCE(SUM(CASE WHEN l.direction = 1 THEN l.amount ELSE 0 END), 0) AS grantTotal,
-         COALESCE(SUM(CASE WHEN l.direction = 0 AND l.reversed_at = 0 THEN l.amount ELSE 0 END), 0) AS verifyTotal,
+         COALESCE(SUM(CASE
+           WHEN l.direction = 1 THEN l.amount
+           WHEN l.direction = 0 AND l.merchant_id = 0 AND l.operator_uid = 0 THEN -l.amount
+           ELSE 0
+         END), 0) AS grantTotal,
+         COALESCE(SUM(CASE
+           WHEN l.direction = 0 AND l.merchant_id > 0 AND l.reversed_at = 0 THEN l.amount
+           ELSE 0
+         END), 0) AS verifyTotal,
          COALESCE(SUM(CASE WHEN l.reversed_at = 0 THEN 1 ELSE 0 END), 0) AS ledgerCount
        FROM ${swTable('cash_voucher_ledger')} l
        LEFT JOIN ${swTable('cash_voucher_batch')} b ON b.id = l.batch_id
