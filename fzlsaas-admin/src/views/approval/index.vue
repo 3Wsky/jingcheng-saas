@@ -213,11 +213,14 @@ import { useMemberDrawer } from '@/composables/useMemberDrawer'
 import { useUserStore } from '@/store/user'
 import { downloadCsv } from '@/utils/csvExport'
 import { monthRange } from '@/utils/dateDefaults'
+import { useApprovalAlertState } from '@/composables/useApprovalAlert'
 
 const route = useRoute()
 const userStore = useUserStore()
 const isSuperAdmin = computed(() => userStore.isSuperAdmin)
 const { memberDrawerOpen, memberUid, openMember } = useMemberDrawer()
+// 与顶栏共用全局待办数；本页仍维护本地 pendingCount 供 Tab 角标
+const { pollOnce: refreshGlobalTodo, pendingCount: globalPendingCount } = useApprovalAlertState()
 const pendingCount = ref(0)
 // 「待审批」二级菜单(/approval/pending) 或 ?tab=pending 进入时默认待终审 Tab
 const isPendingEntry = route.path.endsWith('/approval/pending') || route.query.tab === 'pending'
@@ -312,6 +315,9 @@ async function loadPending() {
     const rows = Array.isArray(data) ? data : []
     tableData.value = rows.map(mapTodoRow)
     pendingCount.value = rows.length
+    // 同步顶栏角标与已知 ID（避免本页处理后仍报警）
+    globalPendingCount.value = rows.length
+    refreshGlobalTodo()
   } catch {
     tableData.value = []
     pendingCount.value = 0
@@ -480,7 +486,10 @@ function canApprove(row: any) {
 
 function reloadCurrent() {
   if (activeTab.value === 'pending') loadPending()
-  else loadAll()
+  else {
+    loadAll()
+    refreshGlobalTodo()
+  }
 }
 
 function mapTodoRow(row: any) {

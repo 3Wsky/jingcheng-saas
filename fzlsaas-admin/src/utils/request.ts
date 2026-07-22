@@ -23,22 +23,24 @@ const instance = axios.create({
 instance.interceptors.response.use(
   (res) => {
     const data = res.data
+    const silent = !!(res.config as any)?.silent
     if (data && data.status !== undefined) {
       if (data.status === 200 || data.status === 1) return data.data !== undefined ? data.data : data
-      ElMessage.error(data.msg || '请求失败')
+      if (!silent) ElMessage.error(data.msg || '请求失败')
       return Promise.reject(new Error(data.msg || '请求失败'))
     }
     return data
   },
   (err) => {
+    const silent = !!(err.config as any)?.silent
     if (err.response?.status === 401) {
       const userStore = useUserStore()
       userStore.logout()
-      ElMessage.warning('登录已过期，请重新登录')
+      if (!silent) ElMessage.warning('登录已过期，请重新登录')
       if (router.currentRoute.value.path !== '/login') {
         router.push('/login')
       }
-    } else {
+    } else if (!silent) {
       ElMessage.error(err.response?.data?.msg || err.message || '网络异常')
     }
     return Promise.reject(err)
