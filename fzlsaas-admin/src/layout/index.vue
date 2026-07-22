@@ -21,6 +21,18 @@
       </nav>
 
       <div class="topbar-right">
+        <el-tooltip :content="pendingCount > 0 ? `待终审 ${pendingCount} 条，点击查看` : '暂无待终审'">
+          <el-badge :value="pendingCount" :hidden="pendingCount === 0" :max="99" class="todo-badge">
+            <el-button link @click="goPending">
+              <el-icon><Bell /></el-icon>
+            </el-button>
+          </el-badge>
+        </el-tooltip>
+        <el-tooltip :content="alertTooltip">
+          <el-button link @click="toggleAlerts">
+            <el-icon><MuteNotification v-if="muted" /><Microphone v-else /></el-icon>
+          </el-button>
+        </el-tooltip>
         <el-tooltip content="刷新"><el-button link @click="refreshPage"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
         <el-dropdown>
           <span class="user-info">
@@ -52,7 +64,17 @@
         >
           <el-menu-item v-for="item in sideMenuItems" :key="item.path" :index="item.path">
             <el-icon><component :is="item.icon" /></el-icon>
-            <template #title>{{ item.title }}</template>
+            <template #title>
+              <span class="menu-title-row">
+                <span>{{ item.title }}</span>
+                <el-badge
+                  v-if="item.path === '/approval' && pendingCount > 0"
+                  :value="pendingCount"
+                  :max="99"
+                  class="menu-badge"
+                />
+              </span>
+            </template>
           </el-menu-item>
         </el-menu>
       </aside>
@@ -72,12 +94,20 @@ import { ref, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/store/user'
 import { MENU_MODULES, getModuleByRoute, type MenuModule } from '@/config/menu'
+import { useApprovalAlert } from '@/composables/useApprovalAlert'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const isCollapse = ref(false)
 const activeModule = ref<MenuModule>(getModuleByRoute(route.path))
+const {
+  pendingCount,
+  muted,
+  voiceUnlocked,
+  notificationPermission,
+  toggleAlerts,
+} = useApprovalAlert()
 
 watch(() => route.path, (p) => {
   activeModule.value = getModuleByRoute(p)
@@ -85,6 +115,14 @@ watch(() => route.path, (p) => {
 
 const currentModuleLabel = computed(() => {
   return MENU_MODULES.find(m => m.key === activeModule.value)?.label || '菜单'
+})
+
+const alertTooltip = computed(() => {
+  if (muted.value) return '终审提醒未开启，点击启用'
+  if (!voiceUnlocked.value || notificationPermission.value === 'default') return '点击完成语音和桌面通知设置'
+  if (notificationPermission.value === 'granted') return '语音和桌面通知已开启，点击关闭语音'
+  if (notificationPermission.value === 'denied') return '语音已开启，桌面通知被浏览器阻止'
+  return '语音提醒已开启，点击关闭'
 })
 
 const allRoutes = computed(() => {
@@ -111,6 +149,10 @@ function switchModule(key: MenuModule) {
   const target = '/' + mod.routes[0]
   if (route.path === target || route.path.startsWith(target + '/')) return
   router.push(target).catch(() => {})
+}
+
+function goPending() {
+  router.push('/approval?tab=pending').catch(() => {})
 }
 
 function refreshPage() {
@@ -237,7 +279,7 @@ function handleLogout() {
 .topbar-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-shrink: 0;
 }
 
@@ -247,6 +289,28 @@ function handleLogout() {
 
 .topbar-right :deep(.el-button):hover {
   color: #ffffff;
+}
+
+.todo-badge :deep(.el-badge__content) {
+  border: none;
+  transform: translateY(-2px) translateX(6px);
+}
+
+.menu-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: space-between;
+}
+
+.menu-badge :deep(.el-badge__content) {
+  position: static;
+  transform: none;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 6px;
+  border: none;
 }
 
 .user-info {
